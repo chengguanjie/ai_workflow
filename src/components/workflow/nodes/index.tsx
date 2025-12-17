@@ -43,6 +43,7 @@ interface NodeData {
     userPrompt?: string
     format?: string
   }
+  [key: string]: unknown // Index signature for compatibility
 }
 
 type ExecutionStatus = 'idle' | 'running' | 'success' | 'error'
@@ -182,7 +183,7 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
         className={cn(
           'min-w-[180px] rounded-lg border-2 shadow-sm transition-shadow',
           style.bgColor,
-          selected && 'ring-2 ring-primary ring-offset-2'
+          selected && data.type.toLowerCase() !== 'input' && data.type.toLowerCase() !== 'output' && 'ring-2 ring-primary ring-offset-2'
         )}
         onContextMenu={handleContextMenu}
       >
@@ -207,28 +208,30 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
             </p>
           </div>
 
-          {/* 执行按钮 */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  'h-7 w-7 shrink-0',
-                  executionStatus === 'running' && 'cursor-not-allowed opacity-70',
-                  executionStatus === 'success' && 'bg-green-100',
-                  executionStatus === 'error' && 'bg-red-100'
-                )}
-                onClick={handleExecute}
-                disabled={executionStatus === 'running'}
-              >
-                {getStatusIcon()}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              <p>{getStatusTooltip()}</p>
-            </TooltipContent>
-          </Tooltip>
+          {/* 执行按钮 - 输入节点不显示 */}
+          {data.type.toLowerCase() !== 'input' && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    'h-7 w-7 shrink-0',
+                    executionStatus === 'running' && 'cursor-not-allowed opacity-70',
+                    executionStatus === 'success' && 'bg-green-100',
+                    executionStatus === 'error' && 'bg-red-100'
+                  )}
+                  onClick={handleExecute}
+                  disabled={executionStatus === 'running'}
+                >
+                  {getStatusIcon()}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                <p>{getStatusTooltip()}</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
 
         {/* 摘要信息 */}

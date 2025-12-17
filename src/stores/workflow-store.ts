@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { Node, Edge, OnNodesChange, OnEdgesChange, OnConnect } from '@xyflow/react'
+import type { Node, Edge, OnNodesChange, OnEdgesChange, OnConnect, Viewport } from '@xyflow/react'
 import { applyNodeChanges, applyEdgeChanges, addEdge } from '@xyflow/react'
 import type { NodeConfig, WorkflowConfig } from '@/types/workflow'
 
@@ -13,6 +13,7 @@ interface WorkflowState {
   // React Flow 状态
   nodes: Node[]
   edges: Edge[]
+  viewport: Viewport
 
   // 选中状态
   selectedNodeId: string | null
@@ -38,6 +39,9 @@ interface WorkflowState {
   duplicateNode: (nodeId: string) => void
   selectNode: (nodeId: string | null) => void
 
+  // Viewport 操作
+  setViewport: (viewport: Viewport) => void
+
   // 获取配置
   getWorkflowConfig: () => WorkflowConfig
 
@@ -54,6 +58,7 @@ const initialState = {
   description: '',
   nodes: [] as Node[],
   edges: [] as Edge[],
+  viewport: { x: 0, y: 0, zoom: 1 } as Viewport,
   selectedNodeId: null as string | null,
   lastSavedAt: null as number | null,
   isDirty: false,
@@ -187,12 +192,17 @@ export const useWorkflowStore = create<WorkflowState>()(
 
       selectNode: (nodeId) => set({ selectedNodeId: nodeId }),
 
+      setViewport: (viewport) => set({ viewport }),
+
       getWorkflowConfig: () => {
         const { nodes, edges } = get()
 
         return {
           version: 1,
-          nodes: nodes.map((node) => node.data as NodeConfig),
+          nodes: nodes.map((node) => ({
+            ...(node.data as NodeConfig),
+            position: node.position, // 确保使用最新的位置
+          })),
           edges: edges.map((edge) => ({
             id: edge.id,
             source: edge.source,
@@ -215,6 +225,7 @@ export const useWorkflowStore = create<WorkflowState>()(
         description: state.description,
         nodes: state.nodes,
         edges: state.edges,
+        viewport: state.viewport,
         lastSavedAt: state.lastSavedAt,
       }),
     }

@@ -98,8 +98,12 @@ model ApiKey {
   id           String     @id @default(cuid())
   name         String
   provider     AIProvider
+  baseUrl      String     @default("")  // API 基础地址
   keyEncrypted String     @db.Text
   keyMasked    String
+  defaultModel String     @default("")
+  models       Json       @default("[]") // 可用模型列表
+  isDefault    Boolean    @default(false)
   isActive     Boolean    @default(true)
 
   createdAt DateTime @default(now())

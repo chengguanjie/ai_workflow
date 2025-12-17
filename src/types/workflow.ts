@@ -27,6 +27,7 @@ export interface BaseNodeConfig {
   type: NodeType
   name: string
   position: { x: number; y: number }
+  [key: string]: unknown // Index signature for compatibility
 }
 
 // 输入节点配置 - 用户添加多个输入文本框
@@ -41,11 +42,11 @@ export interface InputNodeConfig extends BaseNodeConfig {
 export interface ProcessNodeConfig extends BaseNodeConfig {
   type: 'PROCESS'
   config: {
-    provider: AIProviderType
-    model: string
-    knowledgeItems: KnowledgeItem[] // 多个知识库文本
+    aiConfigId?: string // 企业 AI 配置 ID
+    model?: string
+    knowledgeItems?: KnowledgeItem[] // 多个知识库文本
     systemPrompt?: string
-    userPrompt: string // 支持 {{节点名.字段名}} 引用
+    userPrompt?: string // 支持 {{节点名.字段名}} 引用
     temperature?: number
     maxTokens?: number
   }
@@ -55,11 +56,17 @@ export interface ProcessNodeConfig extends BaseNodeConfig {
 export interface CodeNodeConfig extends BaseNodeConfig {
   type: 'CODE'
   config: {
-    provider: AIProviderType
-    model: string
-    prompt: string // 描述需要什么代码
+    aiConfigId?: string // 企业 AI 配置 ID
+    model?: string
+    prompt?: string // 描述需要什么代码
     language?: 'javascript' | 'typescript' | 'python' | 'sql' | 'other'
-    generatedCode?: string // AI生成的代码
+    code?: string // 代码
+    executionResult?: {
+      success: boolean
+      output?: string
+      error?: string
+      executionTime?: number
+    }
   }
 }
 
@@ -67,10 +74,10 @@ export interface CodeNodeConfig extends BaseNodeConfig {
 export interface OutputNodeConfig extends BaseNodeConfig {
   type: 'OUTPUT'
   config: {
-    provider: AIProviderType
-    model: string
-    prompt: string // 描述输出内容和格式，支持引用前面节点
-    format: OutputFormat
+    aiConfigId?: string // 企业 AI 配置 ID
+    model?: string
+    prompt?: string // 描述输出内容和格式，支持引用前面节点
+    format?: OutputFormat
     templateName?: string // 模板名称（用于word/excel）
   }
 }
@@ -86,8 +93,8 @@ export interface EdgeConfig {
   id: string
   source: string
   target: string
-  sourceHandle?: string
-  targetHandle?: string
+  sourceHandle?: string | null
+  targetHandle?: string | null
 }
 
 // 工作流配置

@@ -123,3 +123,17 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* 隐藏输入和输出节点的 React Flow 选择框 */
+.react-flow__node-input.selected,
+.react-flow__node-output.selected,
+.react-flow__node.selected[data-id^="input"],
+.react-flow__node.selected[data-id^="INPUT"] {
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* 所有节点类型都移除默认选择框，使用自定义样式 */
+.react-flow__node.selected {
+  box-shadow: none !important;
+}

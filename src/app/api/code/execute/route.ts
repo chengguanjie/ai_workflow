@@ -139,7 +139,6 @@ async function executeJavaScript(
     // 执行代码（带超时）
     const script = new vm.Script(wrappedCode, {
       filename: 'user-code.js',
-      timeout: EXECUTION_TIMEOUT,
     })
 
     script.runInContext(context, {

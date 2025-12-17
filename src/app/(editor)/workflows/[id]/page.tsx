@@ -25,7 +25,7 @@ import { toast } from 'sonner'
 
 function WorkflowEditor() {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
-  const { screenToFlowPosition } = useReactFlow()
+  const { screenToFlowPosition, setViewport: setReactFlowViewport } = useReactFlow()
   const params = useParams()
   const workflowId = params.id as string
 
@@ -37,6 +37,7 @@ function WorkflowEditor() {
   const {
     nodes,
     edges,
+    viewport,
     name,
     description,
     isDirty,
@@ -50,6 +51,7 @@ function WorkflowEditor() {
     selectedNodeId,
     getWorkflowConfig,
     markSaved,
+    setViewport,
   } = useWorkflowStore()
 
   // 加载工作流数据
@@ -69,6 +71,14 @@ function WorkflowEditor() {
           description: workflow.description || '',
           ...workflow.config,
         })
+
+        // 恢复 viewport
+        setTimeout(() => {
+          const savedViewport = useWorkflowStore.getState().viewport
+          if (savedViewport && (savedViewport.x !== 0 || savedViewport.y !== 0 || savedViewport.zoom !== 1)) {
+            setReactFlowViewport(savedViewport)
+          }
+        }, 50)
       } catch (error) {
         toast.error(error instanceof Error ? error.message : '加载工作流失败')
       } finally {
@@ -77,7 +87,7 @@ function WorkflowEditor() {
     }
 
     loadWorkflow()
-  }, [workflowId, setWorkflow])
+  }, [workflowId, setWorkflow]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 自动保存到数据库
   const autoSaveToDb = useCallback(async (silent = true) => {
@@ -292,8 +302,9 @@ function WorkflowEditor() {
               onDragOver={onDragOver}
               onNodeClick={onNodeClick}
               onPaneClick={onPaneClick}
+              onViewportChange={setViewport}
+              defaultViewport={viewport}
               nodeTypes={nodeTypes}
-              fitView
               snapToGrid
               snapGrid={[15, 15]}
             >

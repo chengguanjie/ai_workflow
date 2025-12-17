@@ -1,13 +1,25 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useWorkflowStore } from '@/stores/workflow-store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
-import { X, Plus, GripVertical, Loader2 } from 'lucide-react'
+import { X, Plus, GripVertical, Loader2, AlertCircle, ChevronRight, AtSign } from 'lucide-react'
 import type { InputField, KnowledgeItem, OutputFormat } from '@/types/workflow'
+
+// AI 服务商配置类型
+interface AIProviderConfig {
+  id: string
+  name: string
+  provider: string
+  baseUrl: string
+  defaultModel: string
+  models: string[]
+  isDefault: boolean
+  displayName: string
+}
 
 export function NodeConfigPanel() {
   const { nodes, selectedNodeId, selectNode, updateNode } = useWorkflowStore()
@@ -113,11 +125,6 @@ export function NodeConfigPanel() {
                 value={nodeData.name}
                 onChange={(e) => handleNameChange(e.target.value)}
               />
-            </div>
-
-            <div className="space-y-2">
-              <Label>节点类型</Label>
-              <Input value={getTypeLabel(nodeData.type)} disabled className="bg-muted" />
             </div>
           </div>
 
@@ -256,6 +263,8 @@ function InputNodeConfigPanel({
 }
 
 // ============== 处理节点配置 ==============
+type ProcessTabType = 'ai' | 'knowledge' | 'prompt'
+
 function ProcessNodeConfigPanel({
   config,
   onUpdate,
@@ -263,8 +272,12 @@ function ProcessNodeConfigPanel({
   config?: Record<string, unknown>
   onUpdate: (config: Record<string, unknown>) => void
 }) {
+  const [providers, setProviders] = useState<AIProviderConfig[]>([])
+  const [loadingProviders, setLoadingProviders] = useState(true)
+  const [activeTab, setActiveTab] = useState<ProcessTabType>('ai')
+
   const processConfig = config as {
-    provider?: string
+    aiConfigId?: string // 企业配置 ID
     model?: string
     knowledgeItems?: KnowledgeItem[]
     systemPrompt?: string
@@ -275,8 +288,43 @@ function ProcessNodeConfigPanel({
 
   const knowledgeItems = processConfig.knowledgeItems || []
 
+  // 加载可用的服务商列表
+  useEffect(() => {
+    async function loadProviders() {
+      try {
+        const res = await fetch('/api/ai/providers')
+        if (res.ok) {
+          const data = await res.json()
+          setProviders(data.providers || [])
+          // 如果节点没有选择配置，使用默认配置
+          if (!processConfig.aiConfigId && data.defaultProvider) {
+            onUpdate({
+              ...processConfig,
+              aiConfigId: data.defaultProvider.id,
+              model: data.defaultProvider.defaultModel,
+            })
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load providers:', error)
+      } finally {
+        setLoadingProviders(false)
+      }
+    }
+    loadProviders()
+  }, [])
+
   const handleChange = (key: string, value: unknown) => {
     onUpdate({ ...processConfig, [key]: value })
+  }
+
+  // 当选择服务商时，自动填充默认模型
+  const handleProviderChange = (configId: string) => {
+    const selected = providers.find(p => p.id === configId)
+    handleChange('aiConfigId', configId)
+    if (selected && !processConfig.model) {
+      handleChange('model', selected.defaultModel)
+    }
   }
 
   const addKnowledgeItem = () => {
@@ -299,127 +347,203 @@ function ProcessNodeConfigPanel({
     handleChange('knowledgeItems', newItems)
   }
 
+  const selectedProvider = providers.find(p => p.id === processConfig.aiConfigId)
+
+  // Tab 配置
+  const tabs: { key: ProcessTabType; label: string; badge?: number }[] = [
+    { key: 'ai', label: 'AI 配置' },
+    { key: 'knowledge', label: '知识库', badge: knowledgeItems.length || undefined },
+    { key: 'prompt', label: '提示词' },
+  ]
+
   return (
     <div className="space-y-4">
-      <h4 className="text-sm font-medium">AI 配置</h4>
-
-      <div className="space-y-2">
-        <Label>服务商</Label>
-        <select
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-          value={processConfig.provider || 'OPENROUTER'}
-          onChange={(e) => handleChange('provider', e.target.value)}
-        >
-          <option value="SHENSUAN">胜算云</option>
-          <option value="OPENROUTER">OpenRouter</option>
-        </select>
+      {/* Tab 切换 */}
+      <div className="flex border-b">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${
+              activeTab === tab.key
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+            onClick={() => setActiveTab(tab.key)}
+          >
+            {tab.label}
+            {tab.badge !== undefined && (
+              <span className={`px-1.5 py-0.5 text-xs rounded-full ${
+                activeTab === tab.key ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+              }`}>
+                {tab.badge}
+              </span>
+            )}
+          </button>
+        ))}
       </div>
 
-      <div className="space-y-2">
-        <Label>模型</Label>
-        <Input
-          value={processConfig.model || ''}
-          onChange={(e) => handleChange('model', e.target.value)}
-          placeholder="deepseek/deepseek-chat"
-        />
-      </div>
-
-      <Separator />
-
-      {/* 知识库 */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <Label>参考知识库</Label>
-          <Button variant="outline" size="sm" onClick={addKnowledgeItem}>
-            <Plus className="mr-1 h-3 w-3" />
-            添加
-          </Button>
-        </div>
-
-        {knowledgeItems.length === 0 ? (
-          <p className="text-xs text-muted-foreground">
-            可添加多个知识库作为 AI 参考
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {knowledgeItems.map((item, index) => (
-              <div key={item.id} className="border rounded-lg p-2 space-y-2">
-                <div className="flex items-center justify-between">
-                  <Input
-                    value={item.name}
-                    onChange={(e) => updateKnowledgeItem(index, { name: e.target.value })}
-                    className="h-7 text-sm flex-1 mr-2"
-                    placeholder="知识库名称"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                    onClick={() => removeKnowledgeItem(index)}
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
-                </div>
-                <textarea
-                  className="min-h-[60px] w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
-                  placeholder="输入知识库内容..."
-                  value={item.content}
-                  onChange={(e) => updateKnowledgeItem(index, { content: e.target.value })}
-                />
+      {/* AI 配置 Tab */}
+      {activeTab === 'ai' && (
+        <div className="space-y-4">
+          {loadingProviders ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              加载服务商...
+            </div>
+          ) : providers.length === 0 ? (
+            <div className="flex items-center gap-2 p-3 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+              <AlertCircle className="h-4 w-4 flex-shrink-0" />
+              <span>尚未配置 AI 服务商，请前往 <a href="/settings/ai-config" className="underline font-medium">设置 → AI 配置</a> 添加</span>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label>服务商配置</Label>
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={processConfig.aiConfigId || ''}
+                  onChange={(e) => handleProviderChange(e.target.value)}
+                >
+                  <option value="">选择服务商配置...</option>
+                  {providers.map((provider) => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.displayName}{provider.isDefault ? ' (默认)' : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
-            ))}
+
+              <div className="space-y-2">
+                <Label>模型</Label>
+                {selectedProvider && selectedProvider.models && selectedProvider.models.length > 0 ? (
+                  <select
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={processConfig.model || selectedProvider.defaultModel || ''}
+                    onChange={(e) => handleChange('model', e.target.value)}
+                  >
+                    {selectedProvider.models.map((model) => (
+                      <option key={model} value={model}>
+                        {model}{model === selectedProvider.defaultModel ? ' (默认)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <Input
+                    value={processConfig.model || ''}
+                    onChange={(e) => handleChange('model', e.target.value)}
+                    placeholder={selectedProvider?.defaultModel || '输入模型名称'}
+                  />
+                )}
+                {selectedProvider && (
+                  <p className="text-xs text-muted-foreground">
+                    默认模型: {selectedProvider.defaultModel}
+                  </p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Temperature</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="2"
+                    step="0.1"
+                    value={processConfig.temperature || 0.7}
+                    onChange={(e) => handleChange('temperature', parseFloat(e.target.value))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Max Tokens</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="128000"
+                    value={processConfig.maxTokens || 2048}
+                    onChange={(e) => handleChange('maxTokens', parseInt(e.target.value))}
+                  />
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* 知识库 Tab */}
+      {activeTab === 'knowledge' && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <Label>参考知识库</Label>
+              <p className="text-xs text-muted-foreground mt-1">
+                添加知识库文本作为 AI 参考上下文
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={addKnowledgeItem}>
+              <Plus className="mr-1 h-3 w-3" />
+              添加
+            </Button>
           </div>
-        )}
-      </div>
 
-      <Separator />
-
-      <div className="space-y-2">
-        <Label>System Prompt</Label>
-        <textarea
-          className="min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-          placeholder="系统提示词（可选）..."
-          value={processConfig.systemPrompt || ''}
-          onChange={(e) => handleChange('systemPrompt', e.target.value)}
-        />
-      </div>
-
-      <div className="space-y-2">
-        <Label>User Prompt</Label>
-        <textarea
-          className="min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-          placeholder="用户提示词，支持引用：&#10;{{输入.字段名}} - 引用输入节点&#10;{{知识库名}} - 引用知识库&#10;{{上一节点}} - 引用上一节点输出"
-          value={processConfig.userPrompt || ''}
-          onChange={(e) => handleChange('userPrompt', e.target.value)}
-        />
-        <p className="text-xs text-muted-foreground">
-          使用 {'{{节点名.字段名}}'} 引用其他节点内容
-        </p>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label>Temperature</Label>
-          <Input
-            type="number"
-            min="0"
-            max="2"
-            step="0.1"
-            value={processConfig.temperature || 0.7}
-            onChange={(e) => handleChange('temperature', parseFloat(e.target.value))}
-          />
+          {knowledgeItems.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center border-2 border-dashed rounded-lg">
+              <div className="text-muted-foreground mb-2">
+                <svg className="h-10 w-10 mx-auto mb-2 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                </svg>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                暂无知识库
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                点击上方「添加」按钮添加参考资料
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {knowledgeItems.map((item, index) => (
+                <div key={item.id} className="border rounded-lg p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Input
+                      value={item.name}
+                      onChange={(e) => updateKnowledgeItem(index, { name: e.target.value })}
+                      className="h-8 text-sm font-medium flex-1 mr-2"
+                      placeholder="知识库名称"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => removeKnowledgeItem(index)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <textarea
+                    className="min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-y"
+                    placeholder="输入知识库内容..."
+                    value={item.content}
+                    onChange={(e) => updateKnowledgeItem(index, { content: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    引用方式: {'{{'}知识库.{item.name}{'}}'}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-        <div className="space-y-2">
-          <Label>Max Tokens</Label>
-          <Input
-            type="number"
-            min="1"
-            max="128000"
-            value={processConfig.maxTokens || 2048}
-            onChange={(e) => handleChange('maxTokens', parseInt(e.target.value))}
-          />
-        </div>
-      </div>
+      )}
+
+      {/* 提示词 Tab */}
+      {activeTab === 'prompt' && (
+        <PromptTabContent
+          processConfig={processConfig}
+          knowledgeItems={knowledgeItems}
+          onSystemPromptChange={(value) => handleChange('systemPrompt', value)}
+          onUserPromptChange={(value) => handleChange('userPrompt', value)}
+        />
+      )}
     </div>
   )
 }
@@ -435,9 +559,10 @@ function CodeNodeConfigPanel({
   const [isExecuting, setIsExecuting] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [activeTab, setActiveTab] = useState<'code' | 'generate'>('code')
+  const [providers, setProviders] = useState<AIProviderConfig[]>([])
 
   const codeConfig = config as {
-    provider?: string
+    aiConfigId?: string
     model?: string
     prompt?: string
     language?: string
@@ -449,6 +574,28 @@ function CodeNodeConfigPanel({
       executionTime?: number
     }
   } || {}
+
+  // 加载可用的服务商列表
+  useEffect(() => {
+    async function loadProviders() {
+      try {
+        const res = await fetch('/api/ai/providers')
+        if (res.ok) {
+          const data = await res.json()
+          setProviders(data.providers || [])
+          if (!codeConfig.aiConfigId && data.defaultProvider) {
+            onUpdate({
+              ...codeConfig,
+              aiConfigId: data.defaultProvider.id,
+            })
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load providers:', error)
+      }
+    }
+    loadProviders()
+  }, [])
 
   const handleChange = (key: string, value: unknown) => {
     onUpdate({ ...codeConfig, [key]: value })
@@ -644,26 +791,39 @@ return { success: true };`}
       ) : (
         <>
           {/* AI 生成配置 */}
-          <div className="space-y-2">
-            <Label>服务商</Label>
-            <select
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={codeConfig.provider || 'OPENROUTER'}
-              onChange={(e) => handleChange('provider', e.target.value)}
-            >
-              <option value="SHENSUAN">胜算云</option>
-              <option value="OPENROUTER">OpenRouter</option>
-            </select>
-          </div>
+          {providers.length === 0 ? (
+            <div className="flex items-center gap-2 p-3 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+              <AlertCircle className="h-4 w-4 flex-shrink-0" />
+              <span>请先在 <a href="/settings/ai-config" className="underline font-medium">设置 → AI 配置</a> 添加服务商</span>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label>服务商配置</Label>
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={codeConfig.aiConfigId || ''}
+                  onChange={(e) => handleChange('aiConfigId', e.target.value)}
+                >
+                  <option value="">选择服务商配置...</option>
+                  {providers.map((provider) => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.displayName}{provider.isDefault ? ' (默认)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-          <div className="space-y-2">
-            <Label>模型</Label>
-            <Input
-              value={codeConfig.model || ''}
-              onChange={(e) => handleChange('model', e.target.value)}
-              placeholder="deepseek/deepseek-coder"
-            />
-          </div>
+              <div className="space-y-2">
+                <Label>模型</Label>
+                <Input
+                  value={codeConfig.model || ''}
+                  onChange={(e) => handleChange('model', e.target.value)}
+                  placeholder="deepseek/deepseek-coder"
+                />
+              </div>
+            </>
+          )}
 
           <div className="space-y-2">
             <Label>代码需求描述</Label>
@@ -743,6 +903,373 @@ function SparklesIcon({ className }: { className?: string }) {
   )
 }
 
+// ============== 提示词 Tab 内容组件 ==============
+function PromptTabContent({
+  processConfig,
+  knowledgeItems,
+  onSystemPromptChange,
+  onUserPromptChange,
+}: {
+  processConfig: {
+    systemPrompt?: string
+    userPrompt?: string
+  }
+  knowledgeItems: KnowledgeItem[]
+  onSystemPromptChange: (value: string) => void
+  onUserPromptChange: (value: string) => void
+}) {
+  const userPromptRef = useRef<HTMLTextAreaElement>(null)
+
+  // 插入引用到光标位置
+  const handleInsertReference = (reference: string) => {
+    const textarea = userPromptRef.current
+    if (!textarea) {
+      // 如果无法获取光标位置，直接追加
+      onUserPromptChange((processConfig.userPrompt || '') + reference)
+      return
+    }
+
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    const currentValue = processConfig.userPrompt || ''
+
+    // 在光标位置插入引用
+    const newValue = currentValue.substring(0, start) + reference + currentValue.substring(end)
+    onUserPromptChange(newValue)
+
+    // 重新设置光标位置
+    requestAnimationFrame(() => {
+      textarea.focus()
+      const newCursorPos = start + reference.length
+      textarea.setSelectionRange(newCursorPos, newCursorPos)
+    })
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label>System Prompt</Label>
+        <textarea
+          className="min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-y"
+          placeholder="系统提示词（可选）...&#10;&#10;用于设定 AI 的角色和行为方式"
+          value={processConfig.systemPrompt || ''}
+          onChange={(e) => onSystemPromptChange(e.target.value)}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Label>User Prompt</Label>
+          <ReferenceSelector
+            knowledgeItems={knowledgeItems}
+            onInsert={handleInsertReference}
+          />
+        </div>
+        <textarea
+          ref={userPromptRef}
+          className="min-h-[150px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-y"
+          placeholder="用户提示词，点击「插入引用」选择变量..."
+          value={processConfig.userPrompt || ''}
+          onChange={(e) => onUserPromptChange(e.target.value)}
+        />
+        <p className="text-xs text-muted-foreground">
+          点击「插入引用」按钮选择节点和字段，或直接输入 {'{{节点名.字段名}}'}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+// ============== 引用选择器组件 ==============
+interface NodeReferenceOption {
+  nodeId: string
+  nodeName: string
+  nodeType: string
+  // 可引用的字段列表
+  fields: {
+    id: string
+    name: string
+    type: 'field' | 'knowledge' | 'output'  // 字段类型：输入字段、知识库、节点输出
+    reference: string  // 完整的引用语法
+  }[]
+}
+
+function ReferenceSelector({
+  knowledgeItems,
+  onInsert,
+}: {
+  knowledgeItems: KnowledgeItem[]
+  onInsert: (reference: string) => void
+}) {
+  const { nodes, selectedNodeId, edges } = useWorkflowStore()
+  const [isOpen, setIsOpen] = useState(false)
+  const [selectedNode, setSelectedNode] = useState<NodeReferenceOption | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // 点击外部关闭
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false)
+        setSelectedNode(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // 获取所有可引用的节点及其字段
+  const getNodeOptions = (): NodeReferenceOption[] => {
+    const options: NodeReferenceOption[] = []
+
+    // 获取当前节点
+    const currentNode = nodes.find(n => n.id === selectedNodeId)
+    if (!currentNode) return options
+
+    // 递归获取所有前置节点
+    const predecessorIds = new Set<string>()
+    const findPredecessors = (nodeId: string) => {
+      const incoming = edges.filter(e => e.target === nodeId)
+      for (const edge of incoming) {
+        if (!predecessorIds.has(edge.source)) {
+          predecessorIds.add(edge.source)
+          findPredecessors(edge.source)
+        }
+      }
+    }
+    findPredecessors(selectedNodeId!)
+
+    // 处理每个前置节点
+    for (const node of nodes) {
+      if (!predecessorIds.has(node.id)) continue
+
+      const nodeData = node.data as Record<string, unknown>
+      const nodeType = (nodeData.type as string)?.toLowerCase()
+      const nodeName = nodeData.name as string
+      const nodeConfig = nodeData.config as Record<string, unknown> | undefined
+      const fields: NodeReferenceOption['fields'] = []
+
+      // 调试：打印完整的节点数据
+      console.log('Node data:', nodeName, nodeType, nodeData)
+
+      // 根据节点类型添加可引用字段
+      if (nodeType === 'input') {
+        // 输入节点：添加所有输入字段
+        const inputFields = (nodeConfig?.fields as InputField[]) || []
+        for (const field of inputFields) {
+          fields.push({
+            id: field.id,
+            name: field.name,
+            type: 'field',
+            reference: `{{${nodeName}.${field.name}}}`,
+          })
+        }
+      } else if (nodeType === 'process') {
+        // 处理节点：添加知识库 + 输出
+        const processKnowledge = (nodeConfig?.knowledgeItems as KnowledgeItem[]) || []
+        for (const kb of processKnowledge) {
+          fields.push({
+            id: kb.id,
+            name: `知识库: ${kb.name}`,
+            type: 'knowledge',
+            reference: `{{${nodeName}.知识库.${kb.name}}}`,
+          })
+        }
+        // 添加节点输出选项
+        fields.push({
+          id: `${node.id}_output`,
+          name: '节点输出',
+          type: 'output',
+          reference: `{{${nodeName}}}`,
+        })
+      } else if (nodeType === 'code') {
+        // 代码节点：添加输出
+        fields.push({
+          id: `${node.id}_output`,
+          name: '节点输出',
+          type: 'output',
+          reference: `{{${nodeName}}}`,
+        })
+      } else {
+        // 其他节点：添加输出
+        fields.push({
+          id: `${node.id}_output`,
+          name: '节点输出',
+          type: 'output',
+          reference: `{{${nodeName}}}`,
+        })
+      }
+
+      if (fields.length > 0) {
+        const option = {
+          nodeId: node.id,
+          nodeName,
+          nodeType: nodeType || 'unknown',
+          fields,
+        }
+        console.log('Pushing option:', option.nodeName, 'fields count:', option.fields.length)
+        options.push(option)
+      }
+    }
+
+    // 添加当前节点的知识库（如果有）
+    if (knowledgeItems.length > 0) {
+      const currentNodeData = currentNode.data as { name: string }
+      const currentNodeName = currentNodeData.name
+      const kbFields: NodeReferenceOption['fields'] = knowledgeItems.map(kb => ({
+        id: kb.id,
+        name: kb.name,
+        type: 'knowledge' as const,
+        reference: `{{${currentNodeName}.知识库.${kb.name}}}`,
+      }))
+
+      options.push({
+        nodeId: 'current_knowledge',
+        nodeName: `${currentNodeName} 知识库`,
+        nodeType: 'knowledge',
+        fields: kbFields,
+      })
+    }
+
+    return options
+  }
+
+  const nodeOptions = getNodeOptions()
+
+  // 调试：渲染时打印每个选项的 fields.length
+  console.log('=== ReferenceSelector Render ===')
+  nodeOptions.forEach((opt, idx) => {
+    console.log(`Option[${idx}]: ${opt.nodeName}, type: ${opt.nodeType}, fields.length: ${opt.fields.length}`)
+    opt.fields.forEach((f, fi) => {
+      console.log(`  Field[${fi}]: ${f.name}, ref: ${f.reference}`)
+    })
+  })
+
+  const handleSelectNode = (option: NodeReferenceOption) => {
+    console.log('handleSelectNode called:', option.nodeName, 'fields:', option.fields.length)
+    // 始终显示字段选择，让用户明确选择要引用的内容
+    setSelectedNode(option)
+  }
+
+  const handleSelectField = (field: NodeReferenceOption['fields'][0]) => {
+    onInsert(field.reference)
+    setIsOpen(false)
+    setSelectedNode(null)
+  }
+
+  if (nodeOptions.length === 0) {
+    return (
+      <div className="text-xs text-muted-foreground">
+        暂无可引用的节点（请先连接前置节点）
+      </div>
+    )
+  }
+
+  // 调试信息
+  console.log('All node options:', nodeOptions)
+
+  // 获取节点类型图标
+  const getNodeIcon = (nodeType: string) => {
+    switch (nodeType) {
+      case 'input': return '📥'
+      case 'process': return '⚙️'
+      case 'code': return '💻'
+      case 'output': return '📤'
+      case 'knowledge': return '📚'
+      default: return '📦'
+    }
+  }
+
+  // 获取字段类型图标
+  const getFieldIcon = (fieldType: string) => {
+    switch (fieldType) {
+      case 'field': return '📝'
+      case 'knowledge': return '📖'
+      case 'output': return '➡️'
+      default: return ''
+    }
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-7 text-xs"
+        onClick={() => {
+          setIsOpen(!isOpen)
+          setSelectedNode(null)
+        }}
+      >
+        <AtSign className="mr-1 h-3 w-3" />
+        插入引用
+      </Button>
+
+      {isOpen && (
+        <div className="absolute right-0 top-full mt-1 z-50 bg-popover border rounded-md shadow-lg max-h-[300px] min-w-[200px]">
+          {/* 未选择节点时：显示节点列表 */}
+          {!selectedNode ? (
+            <div className="overflow-y-auto">
+              <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground border-b sticky top-0 bg-popover">
+                选择节点 (共{nodeOptions.length}个)
+              </div>
+              <div className="py-1">
+                {nodeOptions.map((option) => {
+                  const hasFields = option.fields.length > 0
+                  return (
+                    <button
+                      key={option.nodeId}
+                      className="w-full px-3 py-1.5 text-sm text-left flex items-center justify-between hover:bg-accent transition-colors"
+                      onClick={() => handleSelectNode(option)}
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <span>{getNodeIcon(option.nodeType)}</span>
+                        <span className="truncate max-w-[120px]">{option.nodeName}</span>
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span className="text-xs text-muted-foreground">({option.fields.length})</span>
+                        {hasFields && (
+                          <ChevronRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                        )}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ) : (
+            /* 已选择节点时：显示字段列表 */
+            <div className="overflow-y-auto">
+              <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground border-b sticky top-0 bg-popover flex items-center gap-2">
+                <button
+                  className="hover:bg-accent rounded p-0.5 transition-colors"
+                  onClick={() => setSelectedNode(null)}
+                >
+                  <ChevronRight className="h-3 w-3 rotate-180" />
+                </button>
+                <span>{selectedNode.nodeName}</span>
+              </div>
+              <div className="py-1">
+                {selectedNode.fields.map((field) => (
+                  <button
+                    key={field.id}
+                    className="w-full px-3 py-1.5 text-sm text-left hover:bg-accent transition-colors flex items-center gap-1.5"
+                    onClick={() => handleSelectField(field)}
+                  >
+                    <span>{getFieldIcon(field.type)}</span>
+                    <span className="truncate">{field.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ============== 输出节点配置 ==============
 function OutputNodeConfigPanel({
   config,
@@ -751,42 +1278,103 @@ function OutputNodeConfigPanel({
   config?: Record<string, unknown>
   onUpdate: (config: Record<string, unknown>) => void
 }) {
+  const [providers, setProviders] = useState<AIProviderConfig[]>([])
+  const [loadingProviders, setLoadingProviders] = useState(true)
+
   const outputConfig = config as {
-    provider?: string
+    aiConfigId?: string
     model?: string
     prompt?: string
     format?: OutputFormat
     templateName?: string
   } || {}
 
+  // 加载可用的服务商列表
+  useEffect(() => {
+    async function loadProviders() {
+      try {
+        const res = await fetch('/api/ai/providers')
+        if (res.ok) {
+          const data = await res.json()
+          setProviders(data.providers || [])
+          if (!outputConfig.aiConfigId && data.defaultProvider) {
+            onUpdate({
+              ...outputConfig,
+              aiConfigId: data.defaultProvider.id,
+              model: data.defaultProvider.defaultModel,
+            })
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load providers:', error)
+      } finally {
+        setLoadingProviders(false)
+      }
+    }
+    loadProviders()
+  }, [])
+
   const handleChange = (key: string, value: unknown) => {
     onUpdate({ ...outputConfig, [key]: value })
   }
+
+  const handleProviderChange = (configId: string) => {
+    const selected = providers.find(p => p.id === configId)
+    handleChange('aiConfigId', configId)
+    if (selected && !outputConfig.model) {
+      handleChange('model', selected.defaultModel)
+    }
+  }
+
+  const selectedProvider = providers.find(p => p.id === outputConfig.aiConfigId)
 
   return (
     <div className="space-y-4">
       <h4 className="text-sm font-medium">输出配置</h4>
 
-      <div className="space-y-2">
-        <Label>服务商</Label>
-        <select
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-          value={outputConfig.provider || 'OPENROUTER'}
-          onChange={(e) => handleChange('provider', e.target.value)}
-        >
-          <option value="SHENSUAN">胜算云</option>
-          <option value="OPENROUTER">OpenRouter</option>
-        </select>
-      </div>
+      {loadingProviders ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          加载服务商...
+        </div>
+      ) : providers.length === 0 ? (
+        <div className="flex items-center gap-2 p-3 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+          <AlertCircle className="h-4 w-4 flex-shrink-0" />
+          <span>请先在 <a href="/settings/ai-config" className="underline font-medium">设置 → AI 配置</a> 添加服务商</span>
+        </div>
+      ) : (
+        <>
+          <div className="space-y-2">
+            <Label>服务商配置</Label>
+            <select
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={outputConfig.aiConfigId || ''}
+              onChange={(e) => handleProviderChange(e.target.value)}
+            >
+              <option value="">选择服务商配置...</option>
+              {providers.map((provider) => (
+                <option key={provider.id} value={provider.id}>
+                  {provider.displayName}{provider.isDefault ? ' (默认)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
 
-      <div className="space-y-2">
-        <Label>模型</Label>
-        <Input
-          value={outputConfig.model || ''}
-          onChange={(e) => handleChange('model', e.target.value)}
-          placeholder="deepseek/deepseek-chat"
-        />
-      </div>
+          <div className="space-y-2">
+            <Label>模型</Label>
+            <Input
+              value={outputConfig.model || ''}
+              onChange={(e) => handleChange('model', e.target.value)}
+              placeholder={selectedProvider?.defaultModel || '输入模型名称'}
+            />
+            {selectedProvider && (
+              <p className="text-xs text-muted-foreground">
+                默认模型: {selectedProvider.defaultModel}
+              </p>
+            )}
+          </div>
+        </>
+      )}
 
       <div className="space-y-2">
         <Label>输出格式</Label>

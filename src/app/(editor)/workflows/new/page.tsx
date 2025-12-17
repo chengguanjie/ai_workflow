@@ -25,16 +25,18 @@ import { toast } from 'sonner'
 
 function WorkflowEditor() {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
-  const { screenToFlowPosition } = useReactFlow()
+  const { screenToFlowPosition, setViewport: setReactFlowViewport } = useReactFlow()
   const router = useRouter()
   const [isSaving, setIsSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved')
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const [isHydrated, setIsHydrated] = useState(false)
 
   const {
     id: workflowId,
     nodes,
     edges,
+    viewport,
     name,
     description,
     isDirty,
@@ -47,7 +49,21 @@ function WorkflowEditor() {
     selectedNodeId,
     getWorkflowConfig,
     markSaved,
+    setViewport,
   } = useWorkflowStore()
+
+  // 等待 zustand 持久化加载完成后恢复 viewport
+  useEffect(() => {
+    // 延迟一帧确保 store 已经 hydrate
+    const timer = setTimeout(() => {
+      setIsHydrated(true)
+      const savedViewport = useWorkflowStore.getState().viewport
+      if (savedViewport && (savedViewport.x !== 0 || savedViewport.y !== 0 || savedViewport.zoom !== 1)) {
+        setReactFlowViewport(savedViewport)
+      }
+    }, 50)
+    return () => clearTimeout(timer)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 自动保存到数据库（仅当已有 workflowId 时）
   const autoSaveToDb = useCallback(async (silent = true) => {
@@ -275,8 +291,9 @@ function WorkflowEditor() {
               onDragOver={onDragOver}
               onNodeClick={onNodeClick}
               onPaneClick={onPaneClick}
+              onViewportChange={setViewport}
+              defaultViewport={viewport}
               nodeTypes={nodeTypes}
-              fitView
               snapToGrid
               snapGrid={[15, 15]}
             >

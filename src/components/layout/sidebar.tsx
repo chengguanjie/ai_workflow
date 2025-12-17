@@ -12,6 +12,7 @@ import {
   Users,
   ChevronLeft,
   ChevronRight,
+  Bot,
 } from 'lucide-react'
 import { useSidebarStore } from '@/stores/sidebar-store'
 import { Button } from '@/components/ui/button'
@@ -29,6 +30,7 @@ const navigation = [
 ]
 
 const settingsNavigation = [
+  { name: 'AI 配置', href: '/settings/ai-config', icon: Bot },
   { name: 'API 密钥', href: '/settings/api-keys', icon: Key },
   { name: '成员管理', href: '/settings/members', icon: Users },
   { name: '企业设置', href: '/settings/organization', icon: Settings },
