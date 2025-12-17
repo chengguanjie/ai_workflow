@@ -1,0 +1,264 @@
+// Prisma Schema for AI Workflow
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider     = "mysql"
+  url          = env("DATABASE_URL")
+  relationMode = "prisma"
+}
+
+// ============================================
+// 企业与用户
+// ============================================
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  logo      String?
+  plan      Plan     @default(FREE)
+  apiQuota  Int      @default(10000)
+  apiUsed   Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users       User[]
+  workflows   Workflow[]
+  apiKeys     ApiKey[]
+  invitations Invitation[]
+
+  @@map("organizations")
+}
+
+enum Plan {
+  FREE
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String?
+  avatar       String?
+  passwordHash String
+  role         Role      @default(MEMBER)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  workflows  Workflow[]
+  executions Execution[]
+
+  @@index([organizationId])
+  @@index([email])
+  @@map("users")
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  EDITOR
+  MEMBER
+  VIEWER
+}
+
+model Invitation {
+  id         String    @id @default(cuid())
+  email      String
+  role       Role      @default(MEMBER)
+  token      String    @unique
+  expiresAt  DateTime
+  acceptedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([organizationId])
+  @@map("invitations")
+}
+
+// ============================================
+// API Key 管理
+// ============================================
+
+model ApiKey {
+  id           String     @id @default(cuid())
+  name         String
+  provider     AIProvider
+  keyEncrypted String     @db.Text
+  keyMasked    String
+  isActive     Boolean    @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("api_keys")
+}
+
+enum AIProvider {
+  SHENSUAN
+  OPENROUTER
+}
+
+// ============================================
+// 工作流
+// ============================================
+
+model Workflow {
+  id          String    @id @default(cuid())
+  name        String
+  description String?   @db.Text
+  category    String?
+  tags        Json      @default("[]")
+  isActive    Boolean   @default(true)
+  isPublic    Boolean   @default(false)
+  version     Int       @default(1)
+
+  // 工作流配置 (JSON)
+  config Json
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  creatorId String
+  creator   User   @relation(fields: [creatorId], references: [id])
+
+  executions Execution[]
+
+  @@index([organizationId])
+  @@index([creatorId])
+  @@index([deletedAt])
+  @@map("workflows")
+}
+
+// ============================================
+// 执行记录
+// ============================================
+
+model Execution {
+  id     String          @id @default(cuid())
+  status ExecutionStatus @default(PENDING)
+
+  input  Json
+  output Json?
+
+  startedAt   DateTime?
+  completedAt DateTime?
+  duration    Int?
+
+  totalTokens      Int     @default(0)
+  promptTokens     Int     @default(0)
+  completionTokens Int     @default(0)
+  estimatedCost    Decimal? @db.Decimal(10, 6)
+
+  error       String? @db.Text
+  errorDetail Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workflowId String
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  logs ExecutionLog[]
+
+  @@index([workflowId])
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("executions")
+}
+
+enum ExecutionStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model ExecutionLog {
+  id       String   @id @default(cuid())
+  nodeId   String
+  nodeName String
+  nodeType NodeType
+
+  input  Json
+  output Json?
+  status ExecutionStatus
+
+  aiProvider       AIProvider?
+  aiModel          String?
+  promptTokens     Int?
+  completionTokens Int?
+
+  startedAt   DateTime
+  completedAt DateTime?
+  duration    Int?
+
+  error String? @db.Text
+
+  createdAt DateTime @default(now())
+
+  executionId String
+  execution   Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@index([executionId])
+  @@index([nodeId])
+  @@map("execution_logs")
+}
+
+enum NodeType {
+  INPUT
+  PROCESS
+  CODE
+  OUTPUT
+}
+
+// ============================================
+// 审计日志
+// ============================================
+
+model AuditLog {
+  id         String  @id @default(cuid())
+  action     String
+  resource   String
+  resourceId String?
+  detail     Json?
+  ip         String?
+  userAgent  String? @db.Text
+
+  createdAt DateTime @default(now())
+
+  userId         String?
+  organizationId String?
+
+  @@index([userId])
+  @@index([organizationId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
