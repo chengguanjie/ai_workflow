@@ -6,6 +6,14 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   History,
   RefreshCw,
@@ -17,6 +25,8 @@ import {
   ExternalLink,
   ChevronLeft,
   ChevronRight,
+  Filter,
+  X,
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -36,18 +46,59 @@ interface Execution {
   outputFileCount: number
 }
 
+interface Workflow {
+  id: string
+  name: string
+}
+
 export default function ExecutionsPage() {
   const [executions, setExecutions] = useState<Execution[]>([])
+  const [workflows, setWorkflows] = useState<Workflow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const pageSize = 20
 
+  // 筛选状态
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>('')
+  const [startDate, setStartDate] = useState<string>('')
+  const [endDate, setEndDate] = useState<string>('')
+
+  // 加载工作流列表
+  useEffect(() => {
+    const loadWorkflows = async () => {
+      try {
+        const response = await fetch('/api/workflows')
+        if (response.ok) {
+          const data = await response.json()
+          // API 直接返回数组
+          setWorkflows(Array.isArray(data) ? data : [])
+        }
+      } catch (error) {
+        console.error('Load workflows error:', error)
+      }
+    }
+    loadWorkflows()
+  }, [])
+
   const loadExecutions = useCallback(async () => {
     setIsLoading(true)
     try {
       const offset = (page - 1) * pageSize
-      const response = await fetch(`/api/executions?limit=${pageSize}&offset=${offset}`)
+      const params = new URLSearchParams({
+        limit: String(pageSize),
+        offset: String(offset),
+      })
+      if (selectedWorkflowId) {
+        params.append('workflowId', selectedWorkflowId)
+      }
+      if (startDate) {
+        params.append('startDate', startDate)
+      }
+      if (endDate) {
+        params.append('endDate', endDate)
+      }
+      const response = await fetch(`/api/executions?${params.toString()}`)
       if (response.ok) {
         const data = await response.json()
         setExecutions(data.executions)
@@ -58,11 +109,22 @@ export default function ExecutionsPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [page])
+  }, [page, selectedWorkflowId, startDate, endDate])
 
   useEffect(() => {
     loadExecutions()
   }, [loadExecutions])
+
+  // 重置筛选
+  const resetFilters = () => {
+    setSelectedWorkflowId('')
+    setStartDate('')
+    setEndDate('')
+    setPage(1)
+  }
+
+  // 检查是否有筛选条件
+  const hasFilters = selectedWorkflowId || startDate || endDate
 
   const formatDuration = (ms: number | null): string => {
     if (!ms) return '-'
@@ -129,6 +191,71 @@ export default function ExecutionsPage() {
           <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
           刷新
         </Button>
+      </div>
+
+      {/* 筛选栏 */}
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2">
+          <Filter className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm text-muted-foreground">筛选:</span>
+        </div>
+
+        {/* 工作流筛选 */}
+        <Select
+          value={selectedWorkflowId}
+          onValueChange={(value) => {
+            setSelectedWorkflowId(value === 'all' ? '' : value)
+            setPage(1)
+          }}
+        >
+          <SelectTrigger className="w-[200px]" size="sm">
+            <SelectValue placeholder="选择工作流" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全部工作流</SelectItem>
+            {workflows.map((workflow) => (
+              <SelectItem key={workflow.id} value={workflow.id}>
+                {workflow.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* 开始日期 */}
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">从</span>
+          <Input
+            type="date"
+            value={startDate}
+            onChange={(e) => {
+              setStartDate(e.target.value)
+              setPage(1)
+            }}
+            className="h-8 w-[140px]"
+          />
+        </div>
+
+        {/* 结束日期 */}
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">至</span>
+          <Input
+            type="date"
+            value={endDate}
+            onChange={(e) => {
+              setEndDate(e.target.value)
+              setPage(1)
+            }}
+            className="h-8 w-[140px]"
+          />
+        </div>
+
+        {/* 重置筛选 */}
+        {hasFilters && (
+          <Button variant="ghost" size="sm" onClick={resetFilters}>
+            <X className="mr-1 h-4 w-4" />
+            重置
+          </Button>
+        )}
       </div>
 
       {/* 表格 */}

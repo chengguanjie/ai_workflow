@@ -1,0 +1,113 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { auth } from '@/lib/auth'
+import { prisma } from '@/lib/db'
+import { randomBytes, createHash } from 'crypto'
+
+// 生成 API Token
+function generateToken(): { token: string; hash: string; prefix: string } {
+  const randomPart = randomBytes(32).toString('base64url')
+  const token = `wf_${randomPart}`
+  const prefix = token.slice(0, 10)
+  const hash = createHash('sha256').update(token).digest('hex')
+  return { token, hash, prefix }
+}
+
+// GET: 获取所有 API Tokens
+export async function GET() {
+  try {
+    const session = await auth()
+    if (!session?.user?.organizationId) {
+      return NextResponse.json({ error: '未授权' }, { status: 401 })
+    }
+
+    const tokens = await prisma.apiToken.findMany({
+      where: {
+        organizationId: session.user.organizationId,
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        prefix: true,
+        lastUsedAt: true,
+        expiresAt: true,
+        isActive: true,
+        scopes: true,
+        usageCount: true,
+        createdAt: true,
+      },
+    })
+
+    return NextResponse.json({ tokens })
+  } catch (error) {
+    console.error('Failed to get API tokens:', error)
+    return NextResponse.json({ error: '获取失败' }, { status: 500 })
+  }
+}
+
+// POST: 创建新的 API Token
+export async function POST(request: NextRequest) {
+  try {
+    const session = await auth()
+    if (!session?.user?.organizationId || !session.user.id) {
+      return NextResponse.json({ error: '未授权' }, { status: 401 })
+    }
+
+    const body = await request.json()
+    const { name, expiresIn, scopes = ['workflow:execute'] } = body
+
+    if (!name?.trim()) {
+      return NextResponse.json({ error: '请输入 Token 名称' }, { status: 400 })
+    }
+
+    // 生成 Token
+    const { token, hash, prefix } = generateToken()
+
+    // 计算过期时间
+    let expiresAt: Date | null = null
+    if (expiresIn && expiresIn !== 'never') {
+      const now = new Date()
+      switch (expiresIn) {
+        case '7d':
+          expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+          break
+        case '30d':
+          expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
+          break
+        case '90d':
+          expiresAt = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000)
+          break
+        case '1y':
+          expiresAt = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000)
+          break
+      }
+    }
+
+    const apiToken = await prisma.apiToken.create({
+      data: {
+        name,
+        token,
+        tokenHash: hash,
+        prefix,
+        expiresAt,
+        scopes,
+        organizationId: session.user.organizationId,
+        createdById: session.user.id,
+      },
+    })
+
+    // 返回完整 Token（仅此一次）
+    return NextResponse.json({
+      id: apiToken.id,
+      name: apiToken.name,
+      token: apiToken.token, // 完整 token，仅此一次显示
+      prefix: apiToken.prefix,
+      expiresAt: apiToken.expiresAt,
+      scopes: apiToken.scopes,
+      createdAt: apiToken.createdAt,
+    })
+  } catch (error) {
+    console.error('Failed to create API token:', error)
+    return NextResponse.json({ error: '创建失败' }, { status: 500 })
+  }
+}

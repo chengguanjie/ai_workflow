@@ -8,7 +8,7 @@ import {
   GitBranch,
   History,
   Settings,
-  Key,
+  Plug,
   Users,
   ChevronLeft,
   ChevronRight,
@@ -31,7 +31,7 @@ const navigation = [
 
 const settingsNavigation = [
   { name: 'AI 配置', href: '/settings/ai-config', icon: Bot },
-  { name: 'API 密钥', href: '/settings/api-keys', icon: Key },
+  { name: 'API 调用', href: '/settings/api', icon: Plug },
   { name: '成员管理', href: '/settings/members', icon: Users },
   { name: '企业设置', href: '/settings/organization', icon: Settings },
 ]

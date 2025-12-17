@@ -15,6 +15,8 @@ import { prisma } from '@/lib/db'
  * Query params:
  *   workflowId - 工作流 ID（可选）
  *   status - 执行状态（可选）
+ *   startDate - 开始日期（可选，ISO 格式）
+ *   endDate - 结束日期（可选，ISO 格式）
  *   limit - 每页数量（默认 20）
  *   offset - 偏移量（默认 0）
  */
@@ -28,8 +30,22 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const workflowId = searchParams.get('workflowId')
     const status = searchParams.get('status')
+    const startDate = searchParams.get('startDate')
+    const endDate = searchParams.get('endDate')
     const limit = parseInt(searchParams.get('limit') || '20')
     const offset = parseInt(searchParams.get('offset') || '0')
+
+    // 构建时间筛选条件
+    const dateFilter: { gte?: Date; lte?: Date } = {}
+    if (startDate) {
+      dateFilter.gte = new Date(startDate)
+    }
+    if (endDate) {
+      // 结束日期设为当天结束时间
+      const end = new Date(endDate)
+      end.setHours(23, 59, 59, 999)
+      dateFilter.lte = end
+    }
 
     const where = {
       workflow: {
@@ -37,6 +53,7 @@ export async function GET(request: NextRequest) {
       },
       ...(workflowId ? { workflowId } : {}),
       ...(status ? { status: status as 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' } : {}),
+      ...(Object.keys(dateFilter).length > 0 ? { createdAt: dateFilter } : {}),
     }
 
     const [executions, total] = await Promise.all([

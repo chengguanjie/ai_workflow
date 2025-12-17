@@ -15,12 +15,42 @@ datasource db {
 // ============================================
 
 model Organization {
-  id        String   @id @default(cuid())
-  name      String
-  logo      String?
-  plan      Plan     @default(FREE)
-  apiQuota  Int      @default(10000)
-  apiUsed   Int      @default(0)
+  id          String   @id @default(cuid())
+  name        String
+  logo        String?
+  description String?  @db.Text
+  industry    String?
+  website     String?
+  phone       String?
+  address     String?
+  plan        Plan     @default(FREE)
+  apiQuota    Int      @default(10000)
+  apiUsed     Int      @default(0)
+
+  // 企业状态（平台管理）
+  status       OrgStatus @default(ACTIVE)
+  statusReason String?   // 状态变更原因（如禁用原因）
+
+  // 平台管理相关
+  createdByAdminId String?  // 由哪个平台管理员创建（自助注册则为空）
+  notes            String?  @db.Text  // 平台备注
+
+  // 账单联系信息
+  billingEmail   String?
+  billingContact String?
+
+  // 安全设置
+  securitySettings Json @default("{}")
+  // 包含: {
+  //   passwordMinLength: number (默认8)
+  //   passwordRequireUppercase: boolean (默认false)
+  //   passwordRequireNumber: boolean (默认false)
+  //   passwordRequireSymbol: boolean (默认false)
+  //   sessionTimeout: number (分钟, 默认10080=7天)
+  //   maxLoginAttempts: number (默认5)
+  //   ipWhitelist: string[] (空数组表示不限制)
+  //   twoFactorRequired: boolean (默认false)
+  // }
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -28,9 +58,17 @@ model Organization {
   users       User[]
   workflows   Workflow[]
   apiKeys     ApiKey[]
+  apiTokens   ApiToken[]
   invitations Invitation[]
 
   @@map("organizations")
+}
+
+enum OrgStatus {
+  PENDING    // 待激活
+  ACTIVE     // 正常
+  SUSPENDED  // 已暂停（欠费等）
+  DISABLED   // 已禁用
 }
 
 enum Plan {
@@ -73,21 +111,31 @@ enum Role {
 }
 
 model Invitation {
-  id         String    @id @default(cuid())
-  email      String
-  role       Role      @default(MEMBER)
-  token      String    @unique
+  id         String         @id @default(cuid())
+  email      String?        // 可为空，链接邀请时不需要邮箱
+  role       Role           @default(MEMBER)
+  token      String         @unique
+  type       InvitationType @default(EMAIL)
   expiresAt  DateTime
   acceptedAt DateTime?
+  maxUses    Int            @default(1)  // 最大使用次数（链接邀请可设置多次）
+  usedCount  Int            @default(0)  // 已使用次数
 
   createdAt DateTime @default(now())
 
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  invitedById String?  // 邀请人 ID
+
   @@index([token])
   @@index([organizationId])
   @@map("invitations")
+}
+
+enum InvitationType {
+  EMAIL  // 邮件邀请（指定邮箱）
+  LINK   // 链接邀请（任何人可用）
 }
 
 // ============================================
@@ -119,6 +167,41 @@ model ApiKey {
 enum AIProvider {
   SHENSUAN
   OPENROUTER
+}
+
+// ============================================
+// API Token (用于外部调用工作流)
+// ============================================
+
+model ApiToken {
+  id          String    @id @default(cuid())
+  name        String                          // Token 名称
+  token       String    @unique               // 完整 Token (仅创建时显示一次)
+  tokenHash   String    @unique               // Token 哈希值 (用于验证)
+  prefix      String                          // Token 前缀 (如 wf_xxx, 用于识别)
+  lastUsedAt  DateTime?                       // 最后使用时间
+  expiresAt   DateTime?                       // 过期时间 (null 表示永不过期)
+  isActive    Boolean   @default(true)        // 是否启用
+
+  // 权限控制
+  scopes      Json      @default("[]")        // 权限范围 ["workflow:execute", "workflow:read"]
+
+  // 使用统计
+  usageCount  Int       @default(0)           // 调用次数
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // 关联
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdById    String                       // 创建者 ID
+
+  @@index([organizationId])
+  @@index([tokenHash])
+  @@index([prefix])
+  @@map("api_tokens")
 }
 
 // ============================================
@@ -330,4 +413,108 @@ model AuditLog {
   @@index([organizationId])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+// ============================================
+// 平台管理（Console）
+// ============================================
+
+model PlatformAdmin {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  name         String?
+  passwordHash String
+  role         PlatformRole @default(OPERATOR)
+  isActive     Boolean      @default(true)
+  lastLoginAt  DateTime?
+
+  // 登录安全
+  loginAttempts    Int       @default(0)   // 登录失败次数
+  lockedUntil      DateTime?               // 锁定截止时间
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // 创建者（用于审计，首个超管为空）
+  createdById String?
+
+  // 关联
+  auditLogs PlatformAuditLog[]
+
+  @@index([email])
+  @@map("platform_admins")
+}
+
+enum PlatformRole {
+  SUPER_ADMIN // 超级管理员 - 全部权限
+  ADMIN       // 管理员 - 企业管理、用户管理
+  OPERATOR    // 运营 - 查看数据、处理工单
+  SUPPORT     // 客服 - 只读 + 工单处理
+}
+
+model PlatformAuditLog {
+  id         String  @id @default(cuid())
+  action     String  // CREATE_ORG, UPDATE_ORG, DISABLE_ORG, CREATE_ADMIN, etc.
+  resource   String  // organization, user, plan, admin
+  resourceId String?
+  detail     Json?   // 详细变更内容
+  ip         String?
+  userAgent  String? @db.Text
+
+  createdAt DateTime @default(now())
+
+  adminId String
+  admin   PlatformAdmin @relation(fields: [adminId], references: [id])
+
+  @@index([adminId])
+  @@index([resource])
+  @@index([action])
+  @@index([createdAt])
+  @@map("platform_audit_logs")
+}
+
+// ============================================
+// 企业申请（自助注册审批）
+// ============================================
+
+model OrgApplication {
+  id String @id @default(cuid())
+
+  // 企业信息
+  orgName     String   // 企业名称
+  industry    String?  // 所属行业
+  website     String?  // 企业网站
+  phone       String?  // 联系电话
+  address     String?  // 地址
+  description String?  @db.Text // 企业简介
+
+  // 申请人信息（将成为企业主）
+  contactName  String  // 联系人姓名
+  contactEmail String  // 联系人邮箱
+  contactPhone String? // 联系人电话
+
+  // 申请状态
+  status       ApplicationStatus @default(PENDING)
+  rejectReason String?           // 拒绝原因
+
+  // 审批信息
+  reviewedAt   DateTime? // 审批时间
+  reviewedById String?   // 审批人ID
+
+  // 转化信息（审批通过后）
+  organizationId String? // 创建的企业ID
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([contactEmail])
+  @@index([createdAt])
+  @@map("org_applications")
+}
+
+enum ApplicationStatus {
+  PENDING  // 待审批
+  APPROVED // 已通过
+  REJECTED // 已拒绝
 }

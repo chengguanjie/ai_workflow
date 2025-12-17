@@ -15,7 +15,7 @@ import '@xyflow/react/dist/style.css'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useWorkflowStore } from '@/stores/workflow-store'
-import { Save, Play, ArrowLeft, Loader2, Cloud, CloudOff, History } from 'lucide-react'
+import { Save, Play, ArrowLeft, Loader2, Cloud, CloudOff, History, Link2 } from 'lucide-react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { NodePanel } from '@/components/workflow/node-panel'
@@ -230,6 +230,13 @@ function WorkflowEditor() {
     selectNode(null)
   }, [selectNode])
 
+  // 复制 API 调用链接
+  const copyApiUrl = useCallback(async () => {
+    const apiUrl = `${window.location.origin}/api/v1/workflows/${workflowId}/execute`
+    await navigator.clipboard.writeText(apiUrl)
+    toast.success('已复制 API 调用链接')
+  }, [workflowId])
+
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -272,6 +279,15 @@ function WorkflowEditor() {
           className="mt-2"
         >
           <History className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={copyApiUrl}
+          title="复制 API 链接"
+          className="mt-2"
+        >
+          <Link2 className="h-4 w-4" />
         </Button>
       </div>
 

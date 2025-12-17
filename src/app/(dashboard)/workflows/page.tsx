@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Search, MoreVertical, Play, Edit, Trash2, Loader2 } from 'lucide-react'
+import { Plus, Search, MoreVertical, Play, Edit, Trash2, Loader2, Link2, Check } from 'lucide-react'
+import { toast } from 'sonner'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -113,6 +114,13 @@ export default function WorkflowsPage() {
     w.name.toLowerCase().includes(search.toLowerCase())
   )
 
+  // 复制 API 调用链接
+  const copyApiUrl = async (workflowId: string, workflowName: string) => {
+    const apiUrl = `${window.location.origin}/api/v1/workflows/${workflowId}/execute`
+    await navigator.clipboard.writeText(apiUrl)
+    toast.success(`已复制「${workflowName}」的 API 链接`)
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -199,6 +207,10 @@ export default function WorkflowsPage() {
                           <DropdownMenuItem onClick={() => router.push(`/workflows/${workflow.id}`)}>
                             <Edit className="mr-2 h-4 w-4" />
                             编辑
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => copyApiUrl(workflow.id, workflow.name)}>
+                            <Link2 className="mr-2 h-4 w-4" />
+                            复制 API 链接
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             className="text-destructive"
