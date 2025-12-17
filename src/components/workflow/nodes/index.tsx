@@ -15,6 +15,10 @@ import {
   XCircle,
   Copy,
   Trash2,
+  Database,
+  Image,
+  Video,
+  Music,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -31,6 +35,10 @@ const nodeStyles: Record<string, { icon: React.ElementType; color: string; bgCol
   process: { icon: Bot, color: 'text-blue-600', bgColor: 'bg-blue-50 border-blue-200' },
   code: { icon: Code2, color: 'text-purple-600', bgColor: 'bg-purple-50 border-purple-200' },
   output: { icon: ArrowUpFromLine, color: 'text-orange-600', bgColor: 'bg-orange-50 border-orange-200' },
+  data: { icon: Database, color: 'text-cyan-600', bgColor: 'bg-cyan-50 border-cyan-200' },
+  image: { icon: Image, color: 'text-pink-600', bgColor: 'bg-pink-50 border-pink-200' },
+  video: { icon: Video, color: 'text-red-600', bgColor: 'bg-red-50 border-red-200' },
+  audio: { icon: Music, color: 'text-amber-600', bgColor: 'bg-amber-50 border-amber-200' },
 }
 
 interface NodeData {
@@ -58,15 +66,23 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
 
   // 点击外部关闭菜单
   useEffect(() => {
+    if (!contextMenu) return
+
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setContextMenu(null)
       }
     }
-    if (contextMenu) {
-      document.addEventListener('mousedown', handleClickOutside)
+
+    // 使用 setTimeout 确保监听器在下一个事件循环中添加，避免被当前事件立即触发
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('mousedown', handleClickOutside, true)
+    }, 0)
+
+    return () => {
+      clearTimeout(timeoutId)
+      document.removeEventListener('mousedown', handleClickOutside, true)
     }
-    return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [contextMenu])
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -292,6 +308,10 @@ function getTypeLabel(type: string): string {
     PROCESS: '处理节点',
     CODE: '代码节点',
     OUTPUT: '输出节点',
+    DATA: '数据节点',
+    IMAGE: '图片节点',
+    VIDEO: '视频节点',
+    AUDIO: '音频节点',
   }
   return labels[type.toUpperCase()] || type
 }
@@ -309,10 +329,26 @@ CodeNode.displayName = 'CodeNode'
 export const OutputNode = memo((props: NodeProps) => <BaseNode {...props} data={props.data as NodeData} />)
 OutputNode.displayName = 'OutputNode'
 
+export const DataNode = memo((props: NodeProps) => <BaseNode {...props} data={props.data as NodeData} />)
+DataNode.displayName = 'DataNode'
+
+export const ImageNode = memo((props: NodeProps) => <BaseNode {...props} data={props.data as NodeData} />)
+ImageNode.displayName = 'ImageNode'
+
+export const VideoNode = memo((props: NodeProps) => <BaseNode {...props} data={props.data as NodeData} />)
+VideoNode.displayName = 'VideoNode'
+
+export const AudioNode = memo((props: NodeProps) => <BaseNode {...props} data={props.data as NodeData} />)
+AudioNode.displayName = 'AudioNode'
+
 // 节点类型映射
 export const nodeTypes = {
   input: InputNode,
   process: ProcessNode,
   code: CodeNode,
   output: OutputNode,
+  data: DataNode,
+  image: ImageNode,
+  video: VideoNode,
+  audio: AudioNode,
 }

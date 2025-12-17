@@ -1,10 +1,20 @@
 // 工作流类型定义
 
-export type NodeType = 'INPUT' | 'PROCESS' | 'CODE' | 'OUTPUT'
+export type NodeType = 'INPUT' | 'PROCESS' | 'CODE' | 'OUTPUT' | 'DATA' | 'IMAGE' | 'VIDEO' | 'AUDIO'
 
 export type AIProviderType = 'SHENSUAN' | 'OPENROUTER'
 
-export type OutputFormat = 'text' | 'json' | 'word' | 'excel' | 'image'
+export type OutputFormat =
+  | 'text'
+  | 'json'
+  | 'markdown'
+  | 'html'
+  | 'word'
+  | 'excel'
+  | 'pdf'
+  | 'image'
+  | 'audio'
+  | 'video'
 
 // 输入字段定义 - 包含名称和可输入内容的文本框
 export interface InputField {
@@ -79,6 +89,56 @@ export interface OutputNodeConfig extends BaseNodeConfig {
     prompt?: string // 描述输出内容和格式，支持引用前面节点
     format?: OutputFormat
     templateName?: string // 模板名称（用于word/excel）
+    fileName?: string // 输出文件名（支持变量如 {{日期}}）
+    downloadUrl?: string // 文件下载基础地址
+    temperature?: number
+    maxTokens?: number
+  }
+}
+
+// 导入文件项定义
+export interface ImportedFile {
+  id: string
+  name: string // 文件名
+  url: string // 文件 URL
+  size?: number // 文件大小（字节）
+  type?: string // MIME 类型
+  uploadedAt?: string // 上传时间
+}
+
+// 数据节点配置 - 导入 Excel/CSV 数据
+export interface DataNodeConfig extends BaseNodeConfig {
+  type: 'DATA'
+  config: {
+    files?: ImportedFile[] // 导入的文件列表
+    prompt?: string // 数据处理提示词
+  }
+}
+
+// 图片节点配置 - 导入图片
+export interface ImageNodeConfig extends BaseNodeConfig {
+  type: 'IMAGE'
+  config: {
+    files?: ImportedFile[] // 导入的图片列表
+    prompt?: string // 图片处理提示词
+  }
+}
+
+// 视频节点配置 - 导入视频或图片
+export interface VideoNodeConfig extends BaseNodeConfig {
+  type: 'VIDEO'
+  config: {
+    files?: ImportedFile[] // 导入的视频/图片列表
+    prompt?: string // 视频处理提示词
+  }
+}
+
+// 音频节点配置 - 导入音频
+export interface AudioNodeConfig extends BaseNodeConfig {
+  type: 'AUDIO'
+  config: {
+    files?: ImportedFile[] // 导入的音频列表
+    prompt?: string // 音频处理提示词
   }
 }
 
@@ -87,6 +147,10 @@ export type NodeConfig =
   | ProcessNodeConfig
   | CodeNodeConfig
   | OutputNodeConfig
+  | DataNodeConfig
+  | ImageNodeConfig
+  | VideoNodeConfig
+  | AudioNodeConfig
 
 // 连线配置
 export interface EdgeConfig {
@@ -134,4 +198,23 @@ export interface WorkflowExecutionResult {
   nodeResults: NodeExecutionResult[]
   totalDuration: number
   totalTokens: number
+  outputFiles?: OutputFileResult[] // 生成的输出文件
 }
+
+// 输出文件信息
+export interface OutputFileResult {
+  id: string
+  fileName: string
+  format: OutputFormat
+  mimeType: string
+  size: number
+  url: string
+  nodeId: string
+  downloadCount?: number
+  maxDownloads?: number
+  expiresAt?: string
+  createdAt: string
+}
+
+// 存储类型
+export type StorageType = 'LOCAL' | 'ALIYUN_OSS' | 'AWS_S3' | 'CUSTOM'

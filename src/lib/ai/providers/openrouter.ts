@@ -2,13 +2,14 @@
 
 import type { AIProvider, ChatRequest, ChatResponse, Model } from '../types'
 
-const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
+const DEFAULT_OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 
 export class OpenRouterProvider implements AIProvider {
   name = 'openrouter'
 
-  async chat(request: ChatRequest, apiKey: string): Promise<ChatResponse> {
-    const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+  async chat(request: ChatRequest, apiKey: string, baseUrl?: string): Promise<ChatResponse> {
+    const url = baseUrl || DEFAULT_OPENROUTER_BASE_URL
+    const response = await fetch(`${url}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -44,8 +45,9 @@ export class OpenRouterProvider implements AIProvider {
     }
   }
 
-  async listModels(apiKey: string): Promise<Model[]> {
-    const response = await fetch(`${OPENROUTER_BASE_URL}/models`, {
+  async listModels(apiKey: string, baseUrl?: string): Promise<Model[]> {
+    const url = baseUrl || DEFAULT_OPENROUTER_BASE_URL
+    const response = await fetch(`${url}/models`, {
       headers: {
         Authorization: `Bearer ${apiKey}`,
       },

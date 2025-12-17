@@ -15,11 +15,13 @@ import '@xyflow/react/dist/style.css'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useWorkflowStore } from '@/stores/workflow-store'
-import { Save, Play, ArrowLeft, Loader2, Cloud, CloudOff } from 'lucide-react'
+import { Save, Play, ArrowLeft, Loader2, Cloud, CloudOff, History } from 'lucide-react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { NodePanel } from '@/components/workflow/node-panel'
 import { NodeConfigPanel } from '@/components/workflow/node-config-panel'
+import { ExecutionPanel } from '@/components/workflow/execution-panel'
+import { ExecutionHistoryPanel } from '@/components/workflow/execution-history-panel'
 import { nodeTypes } from '@/components/workflow/nodes'
 import { toast } from 'sonner'
 
@@ -32,6 +34,8 @@ function WorkflowEditor() {
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved')
+  const [showExecutionPanel, setShowExecutionPanel] = useState(false)
+  const [showHistoryPanel, setShowHistoryPanel] = useState(false)
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   const {
@@ -243,15 +247,31 @@ function WorkflowEditor() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
         </Link>
-        <Button variant="ghost" size="icon" onClick={handleSave} disabled={isSaving} className="mb-2">
+        <Button variant="ghost" size="icon" onClick={handleSave} disabled={isSaving} className="mb-2" title="保存">
           {isSaving ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
             <Save className="h-4 w-4" />
           )}
         </Button>
-        <Button variant="ghost" size="icon">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setShowExecutionPanel(true)}
+          disabled={nodes.length === 0}
+          title="执行工作流"
+          className="text-green-600 hover:text-green-700 hover:bg-green-50"
+        >
           <Play className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setShowHistoryPanel(true)}
+          title="执行历史"
+          className="mt-2"
+        >
+          <History className="h-4 w-4" />
         </Button>
       </div>
 
@@ -324,6 +344,20 @@ function WorkflowEditor() {
         {/* 底部节点面板 */}
         <NodePanel />
       </div>
+
+      {/* 执行面板 */}
+      <ExecutionPanel
+        workflowId={workflowId}
+        isOpen={showExecutionPanel}
+        onClose={() => setShowExecutionPanel(false)}
+      />
+
+      {/* 执行历史面板 */}
+      <ExecutionHistoryPanel
+        workflowId={workflowId}
+        isOpen={showHistoryPanel}
+        onClose={() => setShowHistoryPanel(false)}
+      />
     </div>
   )
 }
@@ -331,9 +365,13 @@ function WorkflowEditor() {
 function getNodeName(type: string): string {
   const names: Record<string, string> = {
     input: '输入',
-    process: '处理',
+    process: '文本',
     code: '代码',
     output: '输出',
+    data: '数据',
+    image: '图片',
+    video: '视频',
+    audio: '音频',
   }
   return names[type] || '节点'
 }

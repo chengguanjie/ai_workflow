@@ -1,0 +1,27 @@
+/**
+ * 工作流执行引擎模块
+ */
+
+export { WorkflowEngine, executeWorkflow } from './engine'
+export type {
+  ExecutionContext,
+  ExecutionResult,
+  NodeOutput,
+  ExecutionStatus,
+  AIConfigCache,
+  NodeProcessor,
+} from './types'
+export {
+  parseVariableReferences,
+  replaceVariables,
+  replaceFileNameVariables,
+  getExecutionOrder,
+  sanitizeFileName,
+} from './utils'
+export {
+  getProcessor,
+  inputNodeProcessor,
+  processNodeProcessor,
+  codeNodeProcessor,
+  outputNodeProcessor,
+} from './processors'

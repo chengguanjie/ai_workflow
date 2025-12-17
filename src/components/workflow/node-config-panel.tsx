@@ -6,8 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
-import { X, Plus, GripVertical, Loader2, AlertCircle, ChevronRight, AtSign } from 'lucide-react'
-import type { InputField, KnowledgeItem, OutputFormat } from '@/types/workflow'
+import { X, Plus, GripVertical, Loader2, AlertCircle, ChevronRight, AtSign, Upload, FileSpreadsheet, ImageIcon, VideoIcon, MusicIcon, Trash2 } from 'lucide-react'
+import type { InputField, KnowledgeItem, OutputFormat, ImportedFile } from '@/types/workflow'
 
 // AI 服务商配置类型
 interface AIProviderConfig {
@@ -95,6 +95,34 @@ export function NodeConfigPanel() {
             onUpdate={handleConfigChange}
           />
         )
+      case 'data':
+        return (
+          <DataNodeConfigPanel
+            config={nodeData.config}
+            onUpdate={handleConfigChange}
+          />
+        )
+      case 'image':
+        return (
+          <ImageNodeConfigPanel
+            config={nodeData.config}
+            onUpdate={handleConfigChange}
+          />
+        )
+      case 'video':
+        return (
+          <VideoNodeConfigPanel
+            config={nodeData.config}
+            onUpdate={handleConfigChange}
+          />
+        )
+      case 'audio':
+        return (
+          <AudioNodeConfigPanel
+            config={nodeData.config}
+            onUpdate={handleConfigChange}
+          />
+        )
       default:
         return null
     }
@@ -144,6 +172,10 @@ function getTypeLabel(type: string): string {
     PROCESS: '处理节点',
     CODE: '代码节点',
     OUTPUT: '输出节点',
+    DATA: '数据节点',
+    IMAGE: '图片节点',
+    VIDEO: '视频节点',
+    AUDIO: '音频节点',
   }
   return labels[type.toUpperCase()] || type
 }
@@ -1271,6 +1303,8 @@ function ReferenceSelector({
 }
 
 // ============== 输出节点配置 ==============
+type OutputTabType = 'ai' | 'output' | 'prompt'
+
 function OutputNodeConfigPanel({
   config,
   onUpdate,
@@ -1280,13 +1314,19 @@ function OutputNodeConfigPanel({
 }) {
   const [providers, setProviders] = useState<AIProviderConfig[]>([])
   const [loadingProviders, setLoadingProviders] = useState(true)
+  const [activeTab, setActiveTab] = useState<OutputTabType>('ai')
+  const promptRef = useRef<HTMLTextAreaElement>(null)
 
   const outputConfig = config as {
     aiConfigId?: string
     model?: string
     prompt?: string
-    format?: OutputFormat
+    format?: string // text | json | markdown | html | word | excel | pdf | image | audio | video
     templateName?: string
+    temperature?: number
+    maxTokens?: number
+    downloadUrl?: string // 文件下载基础地址
+    fileName?: string // 输出文件名
   } || {}
 
   // 加载可用的服务商列表
@@ -1326,94 +1366,579 @@ function OutputNodeConfigPanel({
     }
   }
 
+  // 插入引用到光标位置
+  const handleInsertReference = (reference: string) => {
+    const textarea = promptRef.current
+    if (!textarea) {
+      // 如果无法获取光标位置，直接追加
+      handleChange('prompt', (outputConfig.prompt || '') + reference)
+      return
+    }
+
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    const currentValue = outputConfig.prompt || ''
+
+    // 在光标位置插入引用
+    const newValue = currentValue.substring(0, start) + reference + currentValue.substring(end)
+    handleChange('prompt', newValue)
+
+    // 重新设置光标位置
+    requestAnimationFrame(() => {
+      textarea.focus()
+      const newCursorPos = start + reference.length
+      textarea.setSelectionRange(newCursorPos, newCursorPos)
+    })
+  }
+
   const selectedProvider = providers.find(p => p.id === outputConfig.aiConfigId)
+
+  // Tab 配置
+  const tabs: { key: OutputTabType; label: string }[] = [
+    { key: 'ai', label: 'AI 设置' },
+    { key: 'output', label: '输出设置' },
+    { key: 'prompt', label: '输出提示词' },
+  ]
 
   return (
     <div className="space-y-4">
-      <h4 className="text-sm font-medium">输出配置</h4>
+      {/* Tab 切换 */}
+      <div className="flex border-b">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${
+              activeTab === tab.key
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+            onClick={() => setActiveTab(tab.key)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-      {loadingProviders ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          加载服务商...
+      {/* AI 设置 Tab */}
+      {activeTab === 'ai' && (
+        <div className="space-y-4">
+          {loadingProviders ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              加载服务商...
+            </div>
+          ) : providers.length === 0 ? (
+            <div className="flex items-center gap-2 p-3 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+              <AlertCircle className="h-4 w-4 flex-shrink-0" />
+              <span>尚未配置 AI 服务商，请前往 <a href="/settings/ai-config" className="underline font-medium">设置 → AI 配置</a> 添加</span>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label>服务商配置</Label>
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={outputConfig.aiConfigId || ''}
+                  onChange={(e) => handleProviderChange(e.target.value)}
+                >
+                  <option value="">选择服务商配置...</option>
+                  {providers.map((provider) => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.displayName}{provider.isDefault ? ' (默认)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>模型</Label>
+                {selectedProvider && selectedProvider.models && selectedProvider.models.length > 0 ? (
+                  <select
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={outputConfig.model || selectedProvider.defaultModel || ''}
+                    onChange={(e) => handleChange('model', e.target.value)}
+                  >
+                    {selectedProvider.models.map((model) => (
+                      <option key={model} value={model}>
+                        {model}{model === selectedProvider.defaultModel ? ' (默认)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <Input
+                    value={outputConfig.model || ''}
+                    onChange={(e) => handleChange('model', e.target.value)}
+                    placeholder={selectedProvider?.defaultModel || '输入模型名称'}
+                  />
+                )}
+                {selectedProvider && (
+                  <p className="text-xs text-muted-foreground">
+                    默认模型: {selectedProvider.defaultModel}
+                  </p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Temperature</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="2"
+                    step="0.1"
+                    value={outputConfig.temperature ?? 0.7}
+                    onChange={(e) => handleChange('temperature', parseFloat(e.target.value))}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    控制输出的随机性
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Max Tokens</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="128000"
+                    value={outputConfig.maxTokens ?? 4096}
+                    onChange={(e) => handleChange('maxTokens', parseInt(e.target.value))}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    最大输出长度
+                  </p>
+                </div>
+              </div>
+            </>
+          )}
         </div>
-      ) : providers.length === 0 ? (
-        <div className="flex items-center gap-2 p-3 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-sm">
-          <AlertCircle className="h-4 w-4 flex-shrink-0" />
-          <span>请先在 <a href="/settings/ai-config" className="underline font-medium">设置 → AI 配置</a> 添加服务商</span>
-        </div>
-      ) : (
-        <>
+      )}
+
+      {/* 输出设置 Tab */}
+      {activeTab === 'output' && (
+        <div className="space-y-4">
           <div className="space-y-2">
-            <Label>服务商配置</Label>
+            <Label>输出格式</Label>
             <select
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={outputConfig.aiConfigId || ''}
-              onChange={(e) => handleProviderChange(e.target.value)}
+              value={outputConfig.format || 'text'}
+              onChange={(e) => handleChange('format', e.target.value)}
             >
-              <option value="">选择服务商配置...</option>
-              {providers.map((provider) => (
-                <option key={provider.id} value={provider.id}>
-                  {provider.displayName}{provider.isDefault ? ' (默认)' : ''}
-                </option>
-              ))}
+              <optgroup label="文本类">
+                <option value="text">纯文本</option>
+                <option value="json">JSON</option>
+                <option value="markdown">Markdown</option>
+                <option value="html">HTML</option>
+              </optgroup>
+              <optgroup label="文档类">
+                <option value="word">Word 文档 (.docx)</option>
+                <option value="excel">Excel 表格 (.xlsx)</option>
+                <option value="pdf">PDF 文档</option>
+              </optgroup>
+              <optgroup label="媒体类">
+                <option value="image">图片</option>
+                <option value="audio">音频</option>
+                <option value="video">视频</option>
+              </optgroup>
             </select>
+            <p className="text-xs text-muted-foreground">
+              选择工作流最终输出的格式
+            </p>
           </div>
 
-          <div className="space-y-2">
-            <Label>模型</Label>
-            <Input
-              value={outputConfig.model || ''}
-              onChange={(e) => handleChange('model', e.target.value)}
-              placeholder={selectedProvider?.defaultModel || '输入模型名称'}
-            />
-            {selectedProvider && (
+          {/* 文件名配置 - 文件类输出时显示 */}
+          {['word', 'excel', 'pdf', 'image', 'audio', 'video', 'html'].includes(outputConfig.format || '') && (
+            <div className="space-y-2">
+              <Label>输出文件名</Label>
+              <Input
+                value={outputConfig.fileName || ''}
+                onChange={(e) => handleChange('fileName', e.target.value)}
+                placeholder="例如：report_{{日期}}"
+              />
               <p className="text-xs text-muted-foreground">
-                默认模型: {selectedProvider.defaultModel}
+                支持使用变量，如 {'{{日期}}'} 会替换为当前日期
               </p>
-            )}
-          </div>
-        </>
-      )}
+            </div>
+          )}
 
-      <div className="space-y-2">
-        <Label>输出格式</Label>
-        <select
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-          value={outputConfig.format || 'text'}
-          onChange={(e) => handleChange('format', e.target.value)}
-        >
-          <option value="text">纯文本</option>
-          <option value="json">JSON</option>
-          <option value="word">Word 文档</option>
-          <option value="excel">Excel 表格</option>
-          <option value="image">图片</option>
-        </select>
-      </div>
+          {/* 模板配置 - Word/Excel 时显示 */}
+          {(outputConfig.format === 'word' || outputConfig.format === 'excel') && (
+            <div className="space-y-2">
+              <Label>模板文件（可选）</Label>
+              <Input
+                value={outputConfig.templateName || ''}
+                onChange={(e) => handleChange('templateName', e.target.value)}
+                placeholder="使用的模板文件名"
+              />
+              <p className="text-xs text-muted-foreground">
+                指定要使用的模板文件，留空则使用默认格式
+              </p>
+            </div>
+          )}
 
-      {(outputConfig.format === 'word' || outputConfig.format === 'excel') && (
-        <div className="space-y-2">
-          <Label>模板名称（可选）</Label>
-          <Input
-            value={outputConfig.templateName || ''}
-            onChange={(e) => handleChange('templateName', e.target.value)}
-            placeholder="使用的模板文件名"
-          />
+          {/* 下载地址配置 - 文件类输出时显示 */}
+          {['word', 'excel', 'pdf', 'image', 'audio', 'video', 'html'].includes(outputConfig.format || '') && (
+            <div className="space-y-2">
+              <Label>下载地址前缀（可选）</Label>
+              <Input
+                value={outputConfig.downloadUrl || ''}
+                onChange={(e) => handleChange('downloadUrl', e.target.value)}
+                placeholder="https://your-domain.com/downloads/"
+              />
+              <p className="text-xs text-muted-foreground">
+                生成的文件将存储到此地址，留空使用系统默认存储
+              </p>
+            </div>
+          )}
+
+          {/* 格式说明提示 */}
+          {outputConfig.format === 'json' && (
+            <div className="p-3 rounded-md bg-muted/50 text-sm text-muted-foreground">
+              <p>JSON 格式会将 AI 输出解析为结构化数据，适合后续程序处理</p>
+            </div>
+          )}
+
+          {outputConfig.format === 'markdown' && (
+            <div className="p-3 rounded-md bg-muted/50 text-sm text-muted-foreground">
+              <p>Markdown 格式支持富文本标记，可转换为其他格式</p>
+            </div>
+          )}
+
+          {outputConfig.format === 'html' && (
+            <div className="p-3 rounded-md bg-muted/50 text-sm text-muted-foreground">
+              <p>HTML 格式可直接在浏览器中预览，支持样式和交互</p>
+            </div>
+          )}
+
+          {outputConfig.format === 'pdf' && (
+            <div className="p-3 rounded-md bg-muted/50 text-sm text-muted-foreground">
+              <p>PDF 格式适合正式文档输出，保持排版一致性</p>
+            </div>
+          )}
+
+          {outputConfig.format === 'image' && (
+            <div className="p-3 rounded-md bg-muted/50 text-sm text-muted-foreground">
+              <p>图片格式会调用图像生成模型，根据提示词生成图片</p>
+            </div>
+          )}
+
+          {outputConfig.format === 'audio' && (
+            <div className="p-3 rounded-md bg-muted/50 text-sm text-muted-foreground">
+              <p>音频格式会调用语音合成模型，将文本转换为语音</p>
+            </div>
+          )}
+
+          {outputConfig.format === 'video' && (
+            <div className="p-3 rounded-md bg-muted/50 text-sm text-muted-foreground">
+              <p>视频格式会调用视频生成模型，根据提示词生成视频</p>
+            </div>
+          )}
         </div>
       )}
 
-      <div className="space-y-2">
-        <Label>输出提示词</Label>
-        <textarea
-          className="min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-          placeholder="描述输出的内容和格式，AI 会按要求整理输出...&#10;&#10;可以引用前面节点：&#10;{{处理.结果}} - 引用处理节点&#10;{{代码.output}} - 引用代码节点&#10;{{输入.标题}} - 引用输入"
-          value={outputConfig.prompt || ''}
-          onChange={(e) => handleChange('prompt', e.target.value)}
-        />
-        <p className="text-xs text-muted-foreground">
-          使用 {'{{节点名.字段名}}'} 引用前面节点的输出内容
-        </p>
-      </div>
+      {/* 输出提示词 Tab */}
+      {activeTab === 'prompt' && (
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>输出提示词</Label>
+              <ReferenceSelector
+                knowledgeItems={[]}
+                onInsert={handleInsertReference}
+              />
+            </div>
+            <textarea
+              ref={promptRef}
+              className="min-h-[200px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-y"
+              placeholder="描述输出的内容和格式，点击「插入引用」选择变量..."
+              value={outputConfig.prompt || ''}
+              onChange={(e) => handleChange('prompt', e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              点击「插入引用」按钮选择节点和字段，或直接输入 {'{{节点名.字段名}}'}
+            </p>
+          </div>
+        </div>
+      )}
     </div>
+  )
+}
+
+// ============== 媒体节点通用配置面板 ==============
+type MediaTabType = 'import' | 'prompt'
+
+interface MediaNodeConfigPanelProps {
+  config?: Record<string, unknown>
+  onUpdate: (config: Record<string, unknown>) => void
+  nodeType: 'data' | 'image' | 'video' | 'audio'
+  title: string
+  acceptFormats: string
+  formatDescription: string
+  icon: React.ReactNode
+}
+
+function MediaNodeConfigPanel({
+  config,
+  onUpdate,
+  nodeType,
+  title,
+  acceptFormats,
+  formatDescription,
+  icon,
+}: MediaNodeConfigPanelProps) {
+  const [activeTab, setActiveTab] = useState<MediaTabType>('import')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const mediaConfig = config as {
+    files?: ImportedFile[]
+    prompt?: string
+  } || {}
+
+  const files = mediaConfig.files || []
+
+  const handleChange = (key: string, value: unknown) => {
+    onUpdate({ ...mediaConfig, [key]: value })
+  }
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = e.target.files
+    if (!selectedFiles || selectedFiles.length === 0) return
+
+    const newFiles: ImportedFile[] = []
+    for (let i = 0; i < selectedFiles.length; i++) {
+      const file = selectedFiles[i]
+      // 创建临时 URL（实际应用中需要上传到服务器）
+      const url = URL.createObjectURL(file)
+      newFiles.push({
+        id: `file_${Date.now()}_${i}`,
+        name: file.name,
+        url: url,
+        size: file.size,
+        type: file.type,
+        uploadedAt: new Date().toISOString(),
+      })
+    }
+
+    handleChange('files', [...files, ...newFiles])
+    // 清空 input 以便可以再次选择相同文件
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  const removeFile = (fileId: string) => {
+    const newFiles = files.filter(f => f.id !== fileId)
+    handleChange('files', newFiles)
+  }
+
+  const formatFileSize = (bytes?: number) => {
+    if (!bytes) return ''
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  }
+
+  const tabs: { key: MediaTabType; label: string; badge?: number }[] = [
+    { key: 'import', label: '导入', badge: files.length || undefined },
+    { key: 'prompt', label: '提示词' },
+  ]
+
+  return (
+    <div className="space-y-4">
+      {/* Tab 切换 */}
+      <div className="flex border-b">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${
+              activeTab === tab.key
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+            onClick={() => setActiveTab(tab.key)}
+          >
+            {tab.label}
+            {tab.badge !== undefined && (
+              <span className={`px-1.5 py-0.5 text-xs rounded-full ${
+                activeTab === tab.key ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+              }`}>
+                {tab.badge}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* 导入 Tab */}
+      {activeTab === 'import' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <Label>{title}</Label>
+              <p className="text-xs text-muted-foreground mt-1">
+                {formatDescription}
+              </p>
+            </div>
+          </div>
+
+          {/* 文件上传区域 */}
+          <div
+            className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:bg-muted/50 transition-colors"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={acceptFormats}
+              multiple
+              className="hidden"
+              onChange={handleFileSelect}
+            />
+            <div className="flex flex-col items-center gap-2">
+              {icon}
+              <p className="text-sm text-muted-foreground">
+                点击或拖拽文件到此处上传
+              </p>
+              <p className="text-xs text-muted-foreground">
+                支持格式: {formatDescription}
+              </p>
+            </div>
+          </div>
+
+          {/* 已上传文件列表 */}
+          {files.length > 0 && (
+            <div className="space-y-2">
+              <Label>已导入文件 ({files.length})</Label>
+              <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                {files.map((file) => (
+                  <div
+                    key={file.id}
+                    className="flex items-center justify-between p-2 border rounded-md bg-muted/30"
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      {icon}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">{file.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {formatFileSize(file.size)}
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 flex-shrink-0"
+                      onClick={() => removeFile(file.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 提示词 Tab */}
+      {activeTab === 'prompt' && (
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label>处理提示词</Label>
+            <textarea
+              className="min-h-[150px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-y"
+              placeholder={`描述如何处理导入的${title}...\n\n例如：\n- 提取数据中的关键信息\n- 对内容进行分析或转换`}
+              value={mediaConfig.prompt || ''}
+              onChange={(e) => handleChange('prompt', e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              使用 {'{{节点名.字段名}}'} 引用其他节点的内容
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ============== 数据节点配置 ==============
+function DataNodeConfigPanel({
+  config,
+  onUpdate,
+}: {
+  config?: Record<string, unknown>
+  onUpdate: (config: Record<string, unknown>) => void
+}) {
+  return (
+    <MediaNodeConfigPanel
+      config={config}
+      onUpdate={onUpdate}
+      nodeType="data"
+      title="数据文件"
+      acceptFormats=".xlsx,.xls,.csv"
+      formatDescription="Excel (.xlsx, .xls), CSV (.csv)"
+      icon={<FileSpreadsheet className="h-8 w-8 text-cyan-500" />}
+    />
+  )
+}
+
+// ============== 图片节点配置 ==============
+function ImageNodeConfigPanel({
+  config,
+  onUpdate,
+}: {
+  config?: Record<string, unknown>
+  onUpdate: (config: Record<string, unknown>) => void
+}) {
+  return (
+    <MediaNodeConfigPanel
+      config={config}
+      onUpdate={onUpdate}
+      nodeType="image"
+      title="图片"
+      acceptFormats=".jpg,.jpeg,.png,.gif,.webp,.svg,.bmp"
+      formatDescription="JPG, PNG, GIF, WebP, SVG, BMP"
+      icon={<ImageIcon className="h-8 w-8 text-pink-500" />}
+    />
+  )
+}
+
+// ============== 视频节点配置 ==============
+function VideoNodeConfigPanel({
+  config,
+  onUpdate,
+}: {
+  config?: Record<string, unknown>
+  onUpdate: (config: Record<string, unknown>) => void
+}) {
+  return (
+    <MediaNodeConfigPanel
+      config={config}
+      onUpdate={onUpdate}
+      nodeType="video"
+      title="视频/图片"
+      acceptFormats=".mp4,.mov,.avi,.webm,.mkv,.jpg,.jpeg,.png,.gif"
+      formatDescription="MP4, MOV, AVI, WebM, MKV, 或图片格式"
+      icon={<VideoIcon className="h-8 w-8 text-red-500" />}
+    />
+  )
+}
+
+// ============== 音频节点配置 ==============
+function AudioNodeConfigPanel({
+  config,
+  onUpdate,
+}: {
+  config?: Record<string, unknown>
+  onUpdate: (config: Record<string, unknown>) => void
+}) {
+  return (
+    <MediaNodeConfigPanel
+      config={config}
+      onUpdate={onUpdate}
+      nodeType="audio"
+      title="音频"
+      acceptFormats=".mp3,.wav,.ogg,.flac,.aac,.m4a"
+      formatDescription="MP3, WAV, OGG, FLAC, AAC, M4A"
+      icon={<MusicIcon className="h-8 w-8 text-amber-500" />}
+    />
   )
 }

@@ -243,7 +243,7 @@ export default function WorkflowsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>确认删除</AlertDialogTitle>
             <AlertDialogDescription>
-              确定要删除工作流 "{workflowToDelete?.name}" 吗？此操作无法撤销。
+              确定要删除工作流 &ldquo;{workflowToDelete?.name}&rdquo; 吗？此操作无法撤销。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

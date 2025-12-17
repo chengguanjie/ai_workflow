@@ -37,8 +37,8 @@ export interface Model {
 
 export interface AIProvider {
   name: string
-  chat(request: ChatRequest, apiKey: string): Promise<ChatResponse>
-  listModels?(apiKey: string): Promise<Model[]>
+  chat(request: ChatRequest, apiKey: string, baseUrl?: string): Promise<ChatResponse>
+  listModels?(apiKey: string, baseUrl?: string): Promise<Model[]>
 }
 
 export type AIProviderType = 'SHENSUAN' | 'OPENROUTER'

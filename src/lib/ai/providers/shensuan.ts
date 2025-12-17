@@ -2,13 +2,14 @@
 
 import type { AIProvider, ChatRequest, ChatResponse, Model } from '../types'
 
-const SHENSUAN_BASE_URL = process.env.SHENSUAN_BASE_URL || 'https://api.siliconflow.cn/v1'
+const DEFAULT_SHENSUAN_BASE_URL = process.env.SHENSUAN_BASE_URL || 'https://api.siliconflow.cn/v1'
 
 export class ShensuanProvider implements AIProvider {
   name = 'shensuan'
 
-  async chat(request: ChatRequest, apiKey: string): Promise<ChatResponse> {
-    const response = await fetch(`${SHENSUAN_BASE_URL}/chat/completions`, {
+  async chat(request: ChatRequest, apiKey: string, baseUrl?: string): Promise<ChatResponse> {
+    const url = baseUrl || DEFAULT_SHENSUAN_BASE_URL
+    const response = await fetch(`${url}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -42,8 +43,9 @@ export class ShensuanProvider implements AIProvider {
     }
   }
 
-  async listModels(apiKey: string): Promise<Model[]> {
-    const response = await fetch(`${SHENSUAN_BASE_URL}/models`, {
+  async listModels(apiKey: string, baseUrl?: string): Promise<Model[]> {
+    const url = baseUrl || DEFAULT_SHENSUAN_BASE_URL
+    const response = await fetch(`${url}/models`, {
       headers: {
         Authorization: `Bearer ${apiKey}`,
       },

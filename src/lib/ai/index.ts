@@ -25,21 +25,23 @@ class AIService {
   async chat(
     providerType: AIProviderType,
     request: ChatRequest,
-    apiKey: string
+    apiKey: string,
+    baseUrl?: string
   ): Promise<ChatResponse> {
     const provider = this.getProvider(providerType)
-    return provider.chat(request, apiKey)
+    return provider.chat(request, apiKey, baseUrl)
   }
 
   async listModels(
     providerType: AIProviderType,
-    apiKey: string
+    apiKey: string,
+    baseUrl?: string
   ): Promise<Model[]> {
     const provider = this.getProvider(providerType)
     if (!provider.listModels) {
       return []
     }
-    return provider.listModels(apiKey)
+    return provider.listModels(apiKey, baseUrl)
   }
 }
 

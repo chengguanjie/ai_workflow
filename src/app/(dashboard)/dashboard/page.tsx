@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { GitBranch, PlayCircle, Clock, Zap } from 'lucide-react'
+import Link from 'next/link'
 
 export default function DashboardPage() {
   return (
@@ -66,12 +67,12 @@ export default function DashboardPage() {
             <p className="text-sm text-muted-foreground">
               创建您的第一个 AI 工作流，自动化文本处理任务。
             </p>
-            <a
+            <Link
               href="/workflows/new"
               className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
             >
               创建工作流
-            </a>
+            </Link>
           </CardContent>
         </Card>
 
