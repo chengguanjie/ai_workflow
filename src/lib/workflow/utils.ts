@@ -249,6 +249,57 @@ export function isConditionNode(node: NodeConfig): boolean {
 }
 
 /**
+ * 判断节点是否为循环节点
+ */
+export function isLoopNode(node: NodeConfig): boolean {
+  return node.type === 'LOOP'
+}
+
+/**
+ * 获取循环节点的循环体节点
+ * 循环体节点是通过 sourceHandle='body' 连接的直接下游节点
+ * 及其所有后续节点（直到遇到循环汇合点）
+ */
+export function getLoopBodyNodes(
+  loopNodeId: string,
+  edges: EdgeConfig[],
+  allNodes: NodeConfig[]
+): string[] {
+  const bodyStartEdges = edges.filter(
+    e => e.source === loopNodeId && e.sourceHandle === 'body'
+  )
+  
+  if (bodyStartEdges.length === 0) {
+    return []
+  }
+  
+  const loopEndEdges = edges.filter(
+    e => e.source === loopNodeId && e.sourceHandle === 'done'
+  )
+  const loopEndTargets = new Set(loopEndEdges.map(e => e.target))
+  
+  const bodyNodes: string[] = []
+  const visited = new Set<string>()
+  const queue = bodyStartEdges.map(e => e.target)
+  
+  while (queue.length > 0) {
+    const nodeId = queue.shift()!
+    if (visited.has(nodeId) || loopEndTargets.has(nodeId)) continue
+    visited.add(nodeId)
+    bodyNodes.push(nodeId)
+    
+    const outgoing = edges.filter(e => e.source === nodeId)
+    for (const edge of outgoing) {
+      if (!visited.has(edge.target) && edge.target !== loopNodeId) {
+        queue.push(edge.target)
+      }
+    }
+  }
+  
+  return bodyNodes
+}
+
+/**
  * 获取节点的所有前置节点输出
  */
 export function getPredecessorOutputs(

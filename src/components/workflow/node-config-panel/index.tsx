@@ -14,6 +14,7 @@ import { ProcessNodeConfigPanel } from './process-node-config'
 import { CodeNodeConfigPanel } from './code-node-config'
 import { OutputNodeConfigPanel } from './output-node-config'
 import { ConditionNodeConfigPanel } from './condition-node-config'
+import { LoopNodeConfigPanel } from './loop-node-config'
 import { 
   DataNodeConfigPanel, 
   ImageNodeConfigPanel, 
@@ -130,6 +131,13 @@ export function NodeConfigPanel() {
             onUpdate={handleConfigChange}
           />
         )
+      case 'loop':
+        return (
+          <LoopNodeConfigPanel
+            config={nodeData.config}
+            onUpdate={handleConfigChange}
+          />
+        )
       default:
         return null
     }
@@ -179,6 +187,7 @@ export { ProcessNodeConfigPanel } from './process-node-config'
 export { CodeNodeConfigPanel } from './code-node-config'
 export { OutputNodeConfigPanel } from './output-node-config'
 export { ConditionNodeConfigPanel } from './condition-node-config'
+export { LoopNodeConfigPanel } from './loop-node-config'
 export { 
   DataNodeConfigPanel, 
   ImageNodeConfigPanel, 

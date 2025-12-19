@@ -3,15 +3,24 @@
  */
 
 import { prisma } from '@/lib/db'
-import type { WorkflowConfig, NodeConfig, EdgeConfig } from '@/types/workflow'
+import type { WorkflowConfig, NodeConfig, EdgeConfig, LoopNodeConfig } from '@/types/workflow'
 import type {
   ExecutionContext,
   ExecutionResult,
   NodeOutput,
   ExecutionStatus,
 } from './types'
-import { getExecutionOrder, getConditionBranchNodes, isConditionNode } from './utils'
+import { getExecutionOrder, getConditionBranchNodes, isConditionNode, getLoopBodyNodes, isLoopNode } from './utils'
 import { getProcessor, outputNodeProcessor } from './processors'
+import {
+  type LoopState,
+  initializeForLoop,
+  initializeWhileLoop,
+  advanceForLoop,
+  advanceWhileLoop,
+  getLoopContextVariables,
+  shouldLoopContinue,
+} from './processors/loop'
 
 /**
  * 工作流执行引擎
@@ -22,6 +31,9 @@ export class WorkflowEngine {
   private userId: string
   private config: WorkflowConfig
   private skippedNodes: Set<string> = new Set()
+  private loopStates: Map<string, LoopState> = new Map()
+  private loopBodyNodes: Map<string, string[]> = new Map()
+  private loopIterationResults: Map<string, Record<string, unknown>[]> = new Map()
 
   constructor(
     workflowId: string,
@@ -92,7 +104,7 @@ export class WorkflowEngine {
       let lastOutput: Record<string, unknown> = {}
 
       for (const node of executionOrder) {
-        // 检查节点是否应该被跳过（由于条件分支）
+        // 检查节点是否应该被跳过（由于条件分支或循环体已处理）
         if (this.skippedNodes.has(node.id)) {
           await this.saveNodeLog(execution.id, node, {
             nodeId: node.id,
@@ -104,6 +116,25 @@ export class WorkflowEngine {
             completedAt: new Date(),
             duration: 0,
           })
+          continue
+        }
+
+        // 处理循环节点
+        if (isLoopNode(node)) {
+          const loopTokens = await this.executeLoopNode(
+            node as LoopNodeConfig,
+            context,
+            execution.id
+          )
+          totalTokens += loopTokens.totalTokens
+          promptTokens += loopTokens.promptTokens
+          completionTokens += loopTokens.completionTokens
+          
+          // 保存循环节点的执行日志
+          const loopOutput = context.nodeOutputs.get(node.id)
+          if (loopOutput) {
+            await this.saveNodeLog(execution.id, node, loopOutput)
+          }
           continue
         }
 
@@ -251,6 +282,119 @@ export class WorkflowEngine {
   }
 
   /**
+   * 处理循环节点
+   * 执行循环体直到循环条件不满足
+   */
+  private async executeLoopNode(
+    loopNode: LoopNodeConfig,
+    context: ExecutionContext,
+    executionId: string
+  ): Promise<{ totalTokens: number; promptTokens: number; completionTokens: number }> {
+    const bodyNodeIds = getLoopBodyNodes(loopNode.id, this.config.edges, this.config.nodes)
+    const bodyNodes = this.config.nodes.filter(n => bodyNodeIds.includes(n.id))
+    const bodyExecutionOrder = getExecutionOrder(bodyNodes, this.config.edges.filter(
+      e => bodyNodeIds.includes(e.source) && bodyNodeIds.includes(e.target)
+    ))
+    
+    let state: LoopState
+    const { loopType, forConfig, whileConfig, maxIterations } = loopNode.config
+    
+    if (loopType === 'FOR') {
+      state = initializeForLoop(loopNode, {
+        input: {},
+        nodeOutputs: context.nodeOutputs,
+        globalVariables: new Map(Object.entries(context.globalVariables || {})),
+      })
+    } else {
+      state = initializeWhileLoop(loopNode, {
+        input: {},
+        nodeOutputs: context.nodeOutputs,
+        globalVariables: new Map(Object.entries(context.globalVariables || {})),
+      })
+    }
+    
+    this.loopStates.set(loopNode.id, state)
+    this.loopIterationResults.set(loopNode.id, [])
+    
+    let totalTokens = 0
+    let promptTokens = 0
+    let completionTokens = 0
+    
+    while (shouldLoopContinue(state)) {
+      const loopVars = getLoopContextVariables(state)
+      context.nodeOutputs.set('loop', {
+        nodeId: 'loop',
+        nodeName: 'loop',
+        nodeType: 'LOOP',
+        status: 'success',
+        data: loopVars,
+        startedAt: new Date(),
+        completedAt: new Date(),
+        duration: 0,
+      })
+      
+      const iterationOutputs: Record<string, unknown> = {}
+      
+      for (const bodyNode of bodyExecutionOrder) {
+        const result = await this.executeNode(bodyNode, context)
+        await this.saveNodeLog(executionId, bodyNode, result)
+        
+        if (result.status === 'error' && !loopNode.config.continueOnError) {
+          throw new Error(`循环体节点 "${bodyNode.name}" 执行失败: ${result.error}`)
+        }
+        
+        if (result.tokenUsage) {
+          totalTokens += result.tokenUsage.totalTokens
+          promptTokens += result.tokenUsage.promptTokens
+          completionTokens += result.tokenUsage.completionTokens
+        }
+        
+        iterationOutputs[bodyNode.name] = result.data
+      }
+      
+      this.loopIterationResults.get(loopNode.id)!.push({
+        iteration: state.iterationsCompleted + 1,
+        outputs: iterationOutputs,
+        success: true,
+      })
+      
+      if (loopType === 'FOR') {
+        state = advanceForLoop(state)
+      } else {
+        state = advanceWhileLoop(state, whileConfig!.condition, {
+          input: {},
+          nodeOutputs: context.nodeOutputs,
+          globalVariables: new Map(Object.entries(context.globalVariables || {})),
+        })
+      }
+      
+      this.loopStates.set(loopNode.id, state)
+    }
+    
+    const iterationResults = this.loopIterationResults.get(loopNode.id) || []
+    context.nodeOutputs.set(loopNode.id, {
+      nodeId: loopNode.id,
+      nodeName: loopNode.name,
+      nodeType: 'LOOP',
+      status: 'success',
+      data: {
+        iterations: iterationResults.length,
+        results: iterationResults,
+        allSucceeded: iterationResults.every(r => r.success !== false),
+      },
+      startedAt: new Date(),
+      completedAt: new Date(),
+      duration: 0,
+    })
+    
+    for (const bodyNodeId of bodyNodeIds) {
+      this.skippedNodes.add(bodyNodeId)
+    }
+    
+    return { totalTokens, promptTokens, completionTokens }
+  }
+
+  /**
    * 执行单个节点
    */
   private async executeNode(
@@ -328,6 +472,7 @@ export class WorkflowEngine {
       VIDEO: 'INPUT',
       AUDIO: 'INPUT',
       CONDITION: 'PROCESS',
+      LOOP: 'PROCESS',
     }
 
     const dbNodeType = nodeTypeMap[node.type] || 'PROCESS'

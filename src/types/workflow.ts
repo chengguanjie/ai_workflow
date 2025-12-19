@@ -11,7 +11,7 @@
 // Basic Types
 // ============================================
 
-export type NodeType = 'INPUT' | 'PROCESS' | 'CODE' | 'OUTPUT' | 'DATA' | 'IMAGE' | 'VIDEO' | 'AUDIO' | 'CONDITION'
+export type NodeType = 'INPUT' | 'PROCESS' | 'CODE' | 'OUTPUT' | 'DATA' | 'IMAGE' | 'VIDEO' | 'AUDIO' | 'CONDITION' | 'LOOP'
 
 export type AIProviderType = 'SHENSUAN' | 'OPENROUTER'
 
@@ -389,6 +389,58 @@ export interface ConditionNodeConfig extends BaseNodeConfig {
   config: ConditionNodeConfigData
 }
 
+// ============================================
+// Loop Node Configuration
+// ============================================
+
+/**
+ * Loop type
+ */
+export type LoopType = 'FOR' | 'WHILE'
+
+/**
+ * FOR loop configuration - iterate over arrays
+ */
+export interface ForLoopConfig {
+  /** Array variable to iterate (supports {{node.output.items}} syntax) */
+  arrayVariable: string
+  /** Variable name for current item (accessible as {{loop.item}}) */
+  itemName: string
+  /** Variable name for current index (accessible as {{loop.index}}) */
+  indexName?: string
+}
+
+/**
+ * WHILE loop configuration - repeat until condition is false
+ */
+export interface WhileLoopConfig {
+  /** Condition to evaluate each iteration */
+  condition: Condition
+  /** Maximum iterations to prevent infinite loops (default: 100) */
+  maxIterations: number
+}
+
+/**
+ * LOOP node configuration - iteration control
+ */
+export interface LoopNodeConfigData {
+  /** Loop type: FOR (array iteration) or WHILE (condition-based) */
+  loopType: LoopType
+  /** FOR loop configuration */
+  forConfig?: ForLoopConfig
+  /** WHILE loop configuration */
+  whileConfig?: WhileLoopConfig
+  /** Maximum iterations safeguard (applies to both types, default: 1000) */
+  maxIterations?: number
+  /** Continue on error within loop body */
+  continueOnError?: boolean
+}
+
+export interface LoopNodeConfig extends BaseNodeConfig {
+  type: 'LOOP'
+  config: LoopNodeConfigData
+}
+
 /**
  * Union type of all node configurations
  */
@@ -402,6 +454,7 @@ export type NodeConfig =
   | VideoNodeConfig
   | AudioNodeConfig
   | ConditionNodeConfig
+  | LoopNodeConfig
 
 /**
  * Union type of all node config data types
@@ -416,6 +469,7 @@ export type NodeConfigData =
   | VideoNodeConfigData
   | AudioNodeConfigData
   | ConditionNodeConfigData
+  | LoopNodeConfigData
 
 // ============================================
 // Edge Configuration
@@ -659,6 +713,13 @@ export function isConditionNode(node: NodeConfig): node is ConditionNodeConfig {
 }
 
 /**
+ * Type guard to check if a node is a LOOP node
+ */
+export function isLoopNode(node: NodeConfig): node is LoopNodeConfig {
+  return node.type === 'LOOP'
+}
+
+/**
  * Type guard to check if a node uses AI
  */
 export function isAINode(node: NodeConfig): node is ProcessNodeConfig | CodeNodeConfig | OutputNodeConfig {
@@ -675,6 +736,6 @@ export function isFileNode(node: NodeConfig): node is DataNodeConfig | ImageNode
 /**
  * Type guard to check if a node is a control flow node
  */
-export function isControlFlowNode(node: NodeConfig): node is ConditionNodeConfig {
-  return node.type === 'CONDITION'
+export function isControlFlowNode(node: NodeConfig): node is ConditionNodeConfig | LoopNodeConfig {
+  return node.type === 'CONDITION' || node.type === 'LOOP'
 }
