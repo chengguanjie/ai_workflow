@@ -473,6 +473,7 @@ export class WorkflowEngine {
       AUDIO: 'INPUT',
       CONDITION: 'PROCESS',
       LOOP: 'PROCESS',
+      HTTP: 'PROCESS',
     }
 
     const dbNodeType = nodeTypeMap[node.type] || 'PROCESS'

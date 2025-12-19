@@ -11,7 +11,7 @@
 // Basic Types
 // ============================================
 
-export type NodeType = 'INPUT' | 'PROCESS' | 'CODE' | 'OUTPUT' | 'DATA' | 'IMAGE' | 'VIDEO' | 'AUDIO' | 'CONDITION' | 'LOOP'
+export type NodeType = 'INPUT' | 'PROCESS' | 'CODE' | 'OUTPUT' | 'DATA' | 'IMAGE' | 'VIDEO' | 'AUDIO' | 'CONDITION' | 'LOOP' | 'HTTP'
 
 export type AIProviderType = 'SHENSUAN' | 'OPENROUTER'
 
@@ -441,6 +441,106 @@ export interface LoopNodeConfig extends BaseNodeConfig {
   config: LoopNodeConfigData
 }
 
+// ============================================
+// HTTP Node Configuration
+// ============================================
+
+/**
+ * HTTP method types
+ */
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH'
+
+/**
+ * HTTP body content type
+ */
+export type HttpBodyType = 'json' | 'form' | 'text' | 'file' | 'none'
+
+/**
+ * HTTP authentication type
+ */
+export type HttpAuthType = 'none' | 'basic' | 'bearer' | 'apikey'
+
+/**
+ * HTTP request body configuration
+ */
+export interface HttpBodyConfig {
+  /** Body content type */
+  type: HttpBodyType
+  /** Body content (string for text/json, object for form data) */
+  content?: string | Record<string, unknown>
+}
+
+/**
+ * API key authentication configuration
+ */
+export interface ApiKeyAuthConfig {
+  /** Header or query parameter name */
+  key: string
+  /** API key value */
+  value: string
+  /** Where to add the API key */
+  addTo: 'header' | 'query'
+}
+
+/**
+ * HTTP authentication configuration
+ */
+export interface HttpAuthConfig {
+  /** Authentication type */
+  type: HttpAuthType
+  /** Username for basic auth */
+  username?: string
+  /** Password for basic auth */
+  password?: string
+  /** Token for bearer auth */
+  token?: string
+  /** API key configuration */
+  apiKey?: ApiKeyAuthConfig
+}
+
+/**
+ * HTTP retry configuration
+ */
+export interface HttpRetryConfig {
+  /** Maximum retry attempts (default: 3) */
+  maxRetries: number
+  /** Delay between retries in milliseconds (default: 1000) */
+  retryDelay: number
+  /** HTTP status codes to retry on */
+  retryOnStatus?: number[]
+}
+
+/**
+ * HTTP node configuration - External API calls
+ */
+export interface HttpNodeConfigData {
+  /** HTTP method */
+  method: HttpMethod
+  /** Request URL (supports variables like {{node.url}}) */
+  url: string
+  /** Request headers */
+  headers?: Record<string, string>
+  /** Query parameters */
+  queryParams?: Record<string, string>
+  /** Request body */
+  body?: HttpBodyConfig
+  /** Authentication configuration */
+  auth?: HttpAuthConfig
+  /** Request timeout in milliseconds (default: 30000) */
+  timeout?: number
+  /** Retry configuration */
+  retry?: HttpRetryConfig
+  /** Expected response type */
+  responseType?: 'json' | 'text' | 'blob'
+  /** Validate SSL certificates (default: true) */
+  validateSSL?: boolean
+}
+
+export interface HttpNodeConfig extends BaseNodeConfig {
+  type: 'HTTP'
+  config: HttpNodeConfigData
+}
+
 /**
  * Union type of all node configurations
  */
@@ -455,6 +555,7 @@ export type NodeConfig =
   | AudioNodeConfig
   | ConditionNodeConfig
   | LoopNodeConfig
+  | HttpNodeConfig
 
 /**
  * Union type of all node config data types
@@ -470,6 +571,7 @@ export type NodeConfigData =
   | AudioNodeConfigData
   | ConditionNodeConfigData
   | LoopNodeConfigData
+  | HttpNodeConfigData
 
 // ============================================
 // Edge Configuration
@@ -717,6 +819,13 @@ export function isConditionNode(node: NodeConfig): node is ConditionNodeConfig {
  */
 export function isLoopNode(node: NodeConfig): node is LoopNodeConfig {
   return node.type === 'LOOP'
+}
+
+/**
+ * Type guard to check if a node is an HTTP node
+ */
+export function isHttpNode(node: NodeConfig): node is HttpNodeConfig {
+  return node.type === 'HTTP'
 }
 
 /**

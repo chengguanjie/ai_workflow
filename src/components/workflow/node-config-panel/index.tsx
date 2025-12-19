@@ -15,6 +15,7 @@ import { CodeNodeConfigPanel } from './code-node-config'
 import { OutputNodeConfigPanel } from './output-node-config'
 import { ConditionNodeConfigPanel } from './condition-node-config'
 import { LoopNodeConfigPanel } from './loop-node-config'
+import { HttpNodeConfigPanel } from './http-node-config'
 import { 
   DataNodeConfigPanel, 
   ImageNodeConfigPanel, 
@@ -138,6 +139,13 @@ export function NodeConfigPanel() {
             onUpdate={handleConfigChange}
           />
         )
+      case 'http':
+        return (
+          <HttpNodeConfigPanel
+            config={nodeData.config}
+            onUpdate={handleConfigChange}
+          />
+        )
       default:
         return null
     }
@@ -188,6 +196,7 @@ export { CodeNodeConfigPanel } from './code-node-config'
 export { OutputNodeConfigPanel } from './output-node-config'
 export { ConditionNodeConfigPanel } from './condition-node-config'
 export { LoopNodeConfigPanel } from './loop-node-config'
+export { HttpNodeConfigPanel } from './http-node-config'
 export { 
   DataNodeConfigPanel, 
   ImageNodeConfigPanel, 
