@@ -3,14 +3,14 @@
  */
 
 import { prisma } from '@/lib/db'
-import type { WorkflowConfig, NodeConfig } from '@/types/workflow'
+import type { WorkflowConfig, NodeConfig, EdgeConfig } from '@/types/workflow'
 import type {
   ExecutionContext,
   ExecutionResult,
   NodeOutput,
   ExecutionStatus,
 } from './types'
-import { getExecutionOrder } from './utils'
+import { getExecutionOrder, getConditionBranchNodes, isConditionNode } from './utils'
 import { getProcessor, outputNodeProcessor } from './processors'
 
 /**
@@ -21,6 +21,7 @@ export class WorkflowEngine {
   private organizationId: string
   private userId: string
   private config: WorkflowConfig
+  private skippedNodes: Set<string> = new Set()
 
   constructor(
     workflowId: string,
@@ -91,6 +92,21 @@ export class WorkflowEngine {
       let lastOutput: Record<string, unknown> = {}
 
       for (const node of executionOrder) {
+        // 检查节点是否应该被跳过（由于条件分支）
+        if (this.skippedNodes.has(node.id)) {
+          await this.saveNodeLog(execution.id, node, {
+            nodeId: node.id,
+            nodeName: node.name,
+            nodeType: node.type,
+            status: 'skipped',
+            data: { reason: '条件分支跳过' },
+            startedAt: new Date(),
+            completedAt: new Date(),
+            duration: 0,
+          })
+          continue
+        }
+
         const result = await this.executeNode(node, context)
 
         // 保存执行日志
@@ -99,6 +115,11 @@ export class WorkflowEngine {
         // 如果节点执行失败，终止执行
         if (result.status === 'error') {
           throw new Error(`节点 "${node.name}" 执行失败: ${result.error}`)
+        }
+
+        // 处理条件分支
+        if (isConditionNode(node)) {
+          this.handleConditionBranching(node, result, executionOrder)
         }
 
         // 累计 token 使用
@@ -166,6 +187,65 @@ export class WorkflowEngine {
         totalTokens: 0,
         promptTokens: 0,
         completionTokens: 0,
+      }
+    }
+  }
+
+  /**
+   * 处理条件分支
+   * 根据条件节点的执行结果，标记需要跳过的分支节点
+   */
+  private handleConditionBranching(
+    conditionNode: NodeConfig,
+    result: NodeOutput,
+    allNodes: NodeConfig[]
+  ): void {
+    const conditionResult = result.data?.result === true || result.data?.conditionsMet === true
+    
+    // 获取要跳过的分支
+    const branchToSkip = conditionResult ? 'false' : 'true'
+    const nodesToSkip = getConditionBranchNodes(
+      conditionNode.id,
+      this.config.edges,
+      branchToSkip as 'true' | 'false'
+    )
+
+    // 递归标记所有需要跳过的节点
+    this.markNodesForSkipping(nodesToSkip, conditionNode.id)
+  }
+
+  /**
+   * 递归标记需要跳过的节点
+   */
+  private markNodesForSkipping(nodeIds: string[], conditionNodeId: string): void {
+    const queue = [...nodeIds]
+    const visited = new Set<string>()
+
+    while (queue.length > 0) {
+      const nodeId = queue.shift()!
+      if (visited.has(nodeId)) continue
+      visited.add(nodeId)
+
+      // 检查这个节点是否只有来自被跳过分支的入边
+      // 如果有其他有效的入边，则不应该跳过
+      const incomingEdges = this.config.edges.filter(e => e.target === nodeId)
+      const hasValidIncomingEdge = incomingEdges.some(e => {
+        if (e.source === conditionNodeId) {
+          return false // 来自条件节点的边
+        }
+        return !this.skippedNodes.has(e.source) // 来自非跳过节点的边
+      })
+
+      if (!hasValidIncomingEdge) {
+        this.skippedNodes.add(nodeId)
+
+        // 继续标记下游节点
+        const outgoingEdges = this.config.edges.filter(e => e.source === nodeId)
+        for (const edge of outgoingEdges) {
+          if (!visited.has(edge.target)) {
+            queue.push(edge.target)
+          }
+        }
       }
     }
   }
@@ -247,6 +327,7 @@ export class WorkflowEngine {
       IMAGE: 'INPUT',
       VIDEO: 'INPUT',
       AUDIO: 'INPUT',
+      CONDITION: 'PROCESS',
     }
 
     const dbNodeType = nodeTypeMap[node.type] || 'PROCESS'

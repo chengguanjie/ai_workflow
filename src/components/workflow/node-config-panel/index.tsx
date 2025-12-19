@@ -13,6 +13,7 @@ import { InputNodeConfigPanel } from './input-node-config'
 import { ProcessNodeConfigPanel } from './process-node-config'
 import { CodeNodeConfigPanel } from './code-node-config'
 import { OutputNodeConfigPanel } from './output-node-config'
+import { ConditionNodeConfigPanel } from './condition-node-config'
 import { 
   DataNodeConfigPanel, 
   ImageNodeConfigPanel, 
@@ -122,6 +123,13 @@ export function NodeConfigPanel() {
             onUpdate={handleConfigChange}
           />
         )
+      case 'condition':
+        return (
+          <ConditionNodeConfigPanel
+            config={nodeData.config}
+            onUpdate={handleConfigChange}
+          />
+        )
       default:
         return null
     }
@@ -170,6 +178,7 @@ export { InputNodeConfigPanel } from './input-node-config'
 export { ProcessNodeConfigPanel } from './process-node-config'
 export { CodeNodeConfigPanel } from './code-node-config'
 export { OutputNodeConfigPanel } from './output-node-config'
+export { ConditionNodeConfigPanel } from './condition-node-config'
 export { 
   DataNodeConfigPanel, 
   ImageNodeConfigPanel, 

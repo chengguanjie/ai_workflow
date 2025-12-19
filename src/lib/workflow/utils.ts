@@ -199,6 +199,56 @@ export function getExecutionOrder(
 }
 
 /**
+ * 获取条件节点的下游节点
+ * @param nodeId 条件节点ID
+ * @param edges 所有边
+ * @param branch 分支类型 'true' 或 'false'
+ */
+export function getConditionBranchNodes(
+  nodeId: string,
+  edges: EdgeConfig[],
+  branch: 'true' | 'false'
+): string[] {
+  return edges
+    .filter(e => e.source === nodeId && e.sourceHandle === branch)
+    .map(e => e.target)
+}
+
+/**
+ * 获取所有可达节点（从指定节点开始）
+ */
+export function getReachableNodes(
+  startNodeIds: string[],
+  edges: EdgeConfig[],
+  allNodes: NodeConfig[]
+): Set<string> {
+  const reachable = new Set<string>()
+  const queue = [...startNodeIds]
+  
+  while (queue.length > 0) {
+    const nodeId = queue.shift()!
+    if (reachable.has(nodeId)) continue
+    reachable.add(nodeId)
+    
+    const outgoingEdges = edges.filter(e => e.source === nodeId)
+    for (const edge of outgoingEdges) {
+      if (!reachable.has(edge.target)) {
+        queue.push(edge.target)
+      }
+    }
+  }
+  
+  return reachable
+}
+
+/**
+ * 判断节点是否为条件节点
+ */
+export function isConditionNode(node: NodeConfig): boolean {
+  return node.type === 'CONDITION'
+}
+
+/**
  * 获取节点的所有前置节点输出
  */
 export function getPredecessorOutputs(
