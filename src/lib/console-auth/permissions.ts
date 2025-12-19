@@ -42,7 +42,7 @@ export function hasPermission(
   permission: Permission
 ): boolean {
   const allowedRoles = PERMISSIONS[permission]
-  return allowedRoles.includes(role as (typeof allowedRoles)[number])
+  return (allowedRoles as readonly string[]).includes(role)
 }
 
 /**

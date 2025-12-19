@@ -187,7 +187,7 @@ ${transcription}`
 
     const config: AIConfigCache = {
       id: apiKey.id,
-      provider: apiKey.provider,
+      provider: apiKey.provider as AIConfigCache['provider'],
       baseUrl: apiKey.baseUrl,
       apiKey: decryptApiKey(apiKey.keyEncrypted),
       defaultModel: apiKey.defaultModel,

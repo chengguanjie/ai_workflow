@@ -43,12 +43,19 @@ export function AIProviderSelect({
         const res = await fetch('/api/ai/providers')
         if (res.ok) {
           const data = await res.json()
-          setProviders(data.providers || [])
+          const providerList = data.providers || []
+          setProviders(providerList)
+
           // 如果节点没有选择配置，使用默认配置
           if (!aiConfigId && data.defaultProvider) {
             onProviderChange(data.defaultProvider.id)
-            if (!model) {
-              onModelChange(data.defaultProvider.defaultModel)
+            // 始终设置默认模型，确保 model 字段有值
+            onModelChange(data.defaultProvider.defaultModel)
+          } else if (aiConfigId && !model) {
+            // 配置存在但 model 为空，使用当前服务商的默认模型
+            const currentProvider = providerList.find((p: { id: string }) => p.id === aiConfigId)
+            if (currentProvider?.defaultModel) {
+              onModelChange(currentProvider.defaultModel)
             }
           }
         }
@@ -64,7 +71,9 @@ export function AIProviderSelect({
   const handleProviderChange = (configId: string) => {
     const selected = providers.find(p => p.id === configId)
     onProviderChange(configId)
-    if (selected && !model) {
+    // 切换服务商时，始终更新为新服务商的默认模型
+    // 因为不同服务商的模型列表不同，旧的 model 可能在新服务商中不存在
+    if (selected) {
       onModelChange(selected.defaultModel)
     }
   }

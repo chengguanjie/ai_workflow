@@ -9,7 +9,9 @@
 
 import { prisma } from '@/lib/db'
 import { NotFoundError, ValidationError, BusinessError } from '@/lib/errors'
-import type { Workflow, Prisma } from '@prisma/client'
+import type { Workflow, Prisma, TriggerType } from '@prisma/client'
+import type { WorkflowConfig, TriggerNodeConfig, TriggerNodeConfigData } from '@/types/workflow'
+import crypto from 'crypto'
 
 /**
  * Parameters for listing workflows with pagination and filtering
@@ -264,7 +266,98 @@ export class WorkflowService {
       data: updateData,
     })
 
+    // Sync trigger from workflow config if config was updated
+    if (data.config) {
+      await this.syncTriggerFromConfig(workflow.id, data.config as unknown as WorkflowConfig, existing.creatorId)
+    }
+
     return workflow
+  }
+
+  /**
+   * Sync trigger from workflow config to WorkflowTrigger table
+   *
+   * @param workflowId - Workflow ID
+   * @param config - Workflow configuration
+   * @param creatorId - Creator ID for new triggers
+   */
+  private async syncTriggerFromConfig(
+    workflowId: string,
+    config: WorkflowConfig,
+    creatorId: string
+  ): Promise<void> {
+    // Find trigger node in config
+    const triggerNode = config.nodes?.find(
+      (node) => node.type === 'TRIGGER'
+    ) as TriggerNodeConfig | undefined
+
+    // Get existing trigger for this workflow
+    const existingTrigger = await prisma.workflowTrigger.findFirst({
+      where: { workflowId },
+    })
+
+    if (!triggerNode) {
+      // No trigger node - delete existing trigger if any
+      if (existingTrigger) {
+        await prisma.workflowTrigger.delete({
+          where: { id: existingTrigger.id },
+        })
+      }
+      return
+    }
+
+    const triggerConfig = triggerNode.config as TriggerNodeConfigData | undefined
+    const triggerType = (triggerConfig?.triggerType || 'MANUAL') as TriggerType
+
+    // Build trigger data
+    const triggerData: Prisma.WorkflowTriggerCreateInput = {
+      name: triggerNode.name || '触发器',
+      type: triggerType,
+      enabled: triggerConfig?.enabled ?? true,
+      webhookPath: triggerConfig?.webhookPath || null,
+      webhookSecret: existingTrigger?.webhookSecret || null,
+      cronExpression: triggerConfig?.cronExpression || null,
+      timezone: triggerConfig?.timezone || 'Asia/Shanghai',
+      inputTemplate: triggerConfig?.inputTemplate as Prisma.InputJsonValue || Prisma.DbNull,
+      retryOnFail: triggerConfig?.retryOnFail ?? false,
+      maxRetries: triggerConfig?.maxRetries ?? 3,
+      workflow: { connect: { id: workflowId } },
+      createdById: creatorId,
+    }
+
+    // Generate webhook secret if needed and not exists
+    if (triggerType === 'WEBHOOK' && triggerConfig?.hasWebhookSecret && !existingTrigger?.webhookSecret) {
+      triggerData.webhookSecret = crypto.randomBytes(32).toString('hex')
+    }
+
+    // Clear webhook secret if disabled
+    if (!triggerConfig?.hasWebhookSecret) {
+      triggerData.webhookSecret = null
+    }
+
+    if (existingTrigger) {
+      // Update existing trigger
+      await prisma.workflowTrigger.update({
+        where: { id: existingTrigger.id },
+        data: {
+          name: triggerData.name,
+          type: triggerData.type,
+          enabled: triggerData.enabled,
+          webhookPath: triggerData.webhookPath,
+          webhookSecret: triggerData.webhookSecret,
+          cronExpression: triggerData.cronExpression,
+          timezone: triggerData.timezone,
+          inputTemplate: triggerData.inputTemplate,
+          retryOnFail: triggerData.retryOnFail,
+          maxRetries: triggerData.maxRetries,
+        },
+      })
+    } else {
+      // Create new trigger
+      await prisma.workflowTrigger.create({
+        data: triggerData,
+      })
+    }
   }
 
   /**

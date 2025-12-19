@@ -12,9 +12,17 @@ import {
   Music,
   ChevronDown,
   ChevronUp,
+  GitBranch,
+  Repeat,
+  Globe,
+  GitMerge,
+  Sparkles,
+  Bell,
+  Zap,
+  Route,
 } from 'lucide-react'
 
-interface NodeType {
+export interface NodeType {
   type: string
   name: string
   description: string
@@ -23,8 +31,8 @@ interface NodeType {
   bgColor: string
 }
 
-// 主要节点（直接显示）
-const primaryNodes: NodeType[] = [
+// 主要节点（直接显示）：输入、文本、输出
+export const primaryNodes: NodeType[] = [
   {
     type: 'input',
     name: '输入',
@@ -51,8 +59,8 @@ const primaryNodes: NodeType[] = [
   },
 ]
 
-// 更多节点（折叠显示）
-const moreNodes: NodeType[] = [
+// 多媒体节点：代码、数据、图片、视频、音频
+export const mediaNodes: NodeType[] = [
   {
     type: 'code',
     name: '代码',
@@ -64,7 +72,7 @@ const moreNodes: NodeType[] = [
   {
     type: 'data',
     name: '数据',
-    description: '导入 Excel/CSV 数据',
+    description: '结构化数据输入/输出',
     icon: Database,
     color: 'text-cyan-500',
     bgColor: 'bg-cyan-500/10',
@@ -72,7 +80,7 @@ const moreNodes: NodeType[] = [
   {
     type: 'image',
     name: '图片',
-    description: '导入图片文件',
+    description: '图片输入/输出处理',
     icon: Image,
     color: 'text-pink-500',
     bgColor: 'bg-pink-500/10',
@@ -80,7 +88,7 @@ const moreNodes: NodeType[] = [
   {
     type: 'video',
     name: '视频',
-    description: '导入视频或图片',
+    description: '视频输入/输出处理',
     icon: Video,
     color: 'text-red-500',
     bgColor: 'bg-red-500/10',
@@ -88,15 +96,102 @@ const moreNodes: NodeType[] = [
   {
     type: 'audio',
     name: '音频',
-    description: '导入音频文件',
+    description: '音频输入/输出处理',
     icon: Music,
-    color: 'text-amber-500',
-    bgColor: 'bg-amber-500/10',
+    color: 'text-orange-500',
+    bgColor: 'bg-orange-500/10',
   },
 ]
 
+// 逻辑类节点：条件、循环、分支、合并
+export const logicNodes: NodeType[] = [
+  {
+    type: 'condition',
+    name: '条件',
+    description: '根据条件执行不同分支',
+    icon: GitBranch,
+    color: 'text-yellow-500',
+    bgColor: 'bg-yellow-500/10',
+  },
+  {
+    type: 'loop',
+    name: '循环',
+    description: '循环执行节点',
+    icon: Repeat,
+    color: 'text-indigo-500',
+    bgColor: 'bg-indigo-500/10',
+  },
+  {
+    type: 'switch',
+    name: '分支',
+    description: '多路分支路由',
+    icon: Route,
+    color: 'text-emerald-500',
+    bgColor: 'bg-emerald-500/10',
+  },
+  {
+    type: 'merge',
+    name: '合并',
+    description: '合并多个分支结果',
+    icon: GitMerge,
+    color: 'text-slate-500',
+    bgColor: 'bg-slate-500/10',
+  },
+]
+
+// 连接类节点：触发器、通知、HTTP
+export const connectionNodes: NodeType[] = [
+  {
+    type: 'trigger',
+    name: '触发器',
+    description: '定义工作流触发方式',
+    icon: Zap,
+    color: 'text-amber-500',
+    bgColor: 'bg-amber-500/10',
+  },
+  {
+    type: 'notification',
+    name: '通知',
+    description: '发送通知消息',
+    icon: Bell,
+    color: 'text-rose-500',
+    bgColor: 'bg-rose-500/10',
+  },
+  {
+    type: 'http',
+    name: 'HTTP',
+    description: '发送 HTTP 请求',
+    icon: Globe,
+    color: 'text-teal-500',
+    bgColor: 'bg-teal-500/10',
+  },
+]
+
+// 图像生成节点（保留但暂时不在面板显示）
+export const imageGenNode: NodeType = {
+  type: 'image_gen',
+  name: '图像生成',
+  description: 'AI 生成图像',
+  icon: Sparkles,
+  color: 'text-violet-500',
+  bgColor: 'bg-violet-500/10',
+}
+
+// 兼容旧的导出名称
+export const moreNodes: NodeType[] = [...mediaNodes]
+export const advancedNodes: NodeType[] = [...logicNodes, ...connectionNodes]
+export const mediaDataNodes: NodeType[] = [...mediaNodes]
+
+// 合并所有更多节点（用于测试和外部引用）
+export const allMoreNodes: NodeType[] = [...mediaNodes, ...logicNodes, ...connectionNodes]
+
+// 所有节点类型（用于测试完整性验证）
+export const allNodeTypes: NodeType[] = [...primaryNodes, ...mediaNodes, ...logicNodes, ...connectionNodes, imageGenNode]
+
 export function NodePanel() {
-  const [expanded, setExpanded] = useState(false)
+  const [mediaExpanded, setMediaExpanded] = useState(false)
+  const [logicExpanded, setLogicExpanded] = useState(false)
+  const [connectionExpanded, setConnectionExpanded] = useState(false)
 
   const onDragStart = (event: DragEvent, nodeType: string) => {
     event.dataTransfer.setData('application/reactflow', nodeType)
@@ -122,24 +217,56 @@ export function NodePanel() {
     <div className="flex shrink-0 items-center gap-4 border-t bg-background px-6 py-3">
       <span className="text-sm font-medium text-muted-foreground">节点:</span>
 
-      {/* 主要节点 */}
+      {/* 主要节点：输入、文本、输出 */}
       {primaryNodes.map(renderNode)}
 
-      {/* 更多节点按钮 */}
+      {/* 多媒体节点按钮 */}
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => setMediaExpanded(!mediaExpanded)}
         className="flex items-center gap-1 rounded-lg border bg-card px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
-        更多
-        {expanded ? (
+        多媒体
+        {mediaExpanded ? (
           <ChevronUp className="h-4 w-4" />
         ) : (
           <ChevronDown className="h-4 w-4" />
         )}
       </button>
 
-      {/* 展开的更多节点 */}
-      {expanded && moreNodes.map(renderNode)}
+      {/* 展开的多媒体节点：代码、数据、图片、视频、音频 */}
+      {mediaExpanded && mediaNodes.map(renderNode)}
+
+      {/* 逻辑类节点按钮 */}
+      <button
+        onClick={() => setLogicExpanded(!logicExpanded)}
+        className="flex items-center gap-1 rounded-lg border bg-card px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      >
+        逻辑类
+        {logicExpanded ? (
+          <ChevronUp className="h-4 w-4" />
+        ) : (
+          <ChevronDown className="h-4 w-4" />
+        )}
+      </button>
+
+      {/* 展开的逻辑类节点：条件、循环、合并 */}
+      {logicExpanded && logicNodes.map(renderNode)}
+
+      {/* 连接类节点按钮 */}
+      <button
+        onClick={() => setConnectionExpanded(!connectionExpanded)}
+        className="flex items-center gap-1 rounded-lg border bg-card px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      >
+        连接类
+        {connectionExpanded ? (
+          <ChevronUp className="h-4 w-4" />
+        ) : (
+          <ChevronDown className="h-4 w-4" />
+        )}
+      </button>
+
+      {/* 展开的连接类节点：触发器、通知、HTTP */}
+      {connectionExpanded && connectionNodes.map(renderNode)}
     </div>
   )
 }

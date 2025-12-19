@@ -5,16 +5,20 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Loader2, AlertCircle } from 'lucide-react'
 import { ReferenceSelector } from './shared/reference-selector'
+import { HighlightedTextarea } from './shared/highlighted-textarea'
+import { OutputTabContent } from './shared/output-tab-content'
 import type { AIProviderConfig } from './shared/types'
 
-type OutputTabType = 'ai' | 'output' | 'prompt'
+type OutputTabType = 'ai' | 'output' | 'prompt' | 'result'
 
 interface OutputNodeConfigPanelProps {
+  nodeId: string
   config?: Record<string, unknown>
   onUpdate: (config: Record<string, unknown>) => void
 }
 
 export function OutputNodeConfigPanel({
+  nodeId,
   config,
   onUpdate,
 }: OutputNodeConfigPanelProps) {
@@ -42,13 +46,29 @@ export function OutputNodeConfigPanel({
         const res = await fetch('/api/ai/providers')
         if (res.ok) {
           const data = await res.json()
-          setProviders(data.providers || [])
-          if (!outputConfig.aiConfigId && data.defaultProvider) {
+          const providerList = data.providers || []
+          setProviders(providerList)
+
+          // 如果节点没有选择配置，或者当前配置已不存在，使用默认配置
+          const currentConfigExists = outputConfig.aiConfigId &&
+            providerList.some((p: AIProviderConfig) => p.id === outputConfig.aiConfigId)
+
+          if (!currentConfigExists && data.defaultProvider) {
+            // 使用默认服务商配置
             onUpdate({
               ...outputConfig,
               aiConfigId: data.defaultProvider.id,
-              model: data.defaultProvider.defaultModel,
+              model: data.defaultProvider.defaultModel, // 始终使用服务商的默认模型
             })
+          } else if (currentConfigExists && !outputConfig.model) {
+            // 配置存在但 model 为空，使用当前服务商的默认模型
+            const currentProvider = providerList.find((p: AIProviderConfig) => p.id === outputConfig.aiConfigId)
+            if (currentProvider?.defaultModel) {
+              onUpdate({
+                ...outputConfig,
+                model: currentProvider.defaultModel,
+              })
+            }
           }
         }
       } catch (error) {
@@ -58,6 +78,7 @@ export function OutputNodeConfigPanel({
       }
     }
     loadProviders()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleChange = (key: string, value: unknown) => {
@@ -66,10 +87,13 @@ export function OutputNodeConfigPanel({
 
   const handleProviderChange = (configId: string) => {
     const selected = providers.find(p => p.id === configId)
-    handleChange('aiConfigId', configId)
-    if (selected && !outputConfig.model) {
-      handleChange('model', selected.defaultModel)
-    }
+    // 切换服务商时，始终更新为新服务商的默认模型
+    // 因为不同服务商的模型列表不同，旧的 model 可能在新服务商中不存在
+    onUpdate({
+      ...outputConfig,
+      aiConfigId: configId,
+      model: selected?.defaultModel || '',
+    })
   }
 
   // 插入引用到光标位置
@@ -103,7 +127,8 @@ export function OutputNodeConfigPanel({
   const tabs: { key: OutputTabType; label: string }[] = [
     { key: 'ai', label: 'AI 设置' },
     { key: 'output', label: '输出设置' },
-    { key: 'prompt', label: '输出提示词' },
+    { key: 'prompt', label: '提示词' },
+    { key: 'result', label: '运行结果' },
   ]
 
   return (
@@ -351,18 +376,24 @@ export function OutputNodeConfigPanel({
                 onInsert={handleInsertReference}
               />
             </div>
-            <textarea
+            <HighlightedTextarea
               ref={promptRef}
-              className="min-h-[200px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-y"
+              className="bg-background"
               placeholder="描述输出的内容和格式，点击「插入引用」选择变量..."
               value={outputConfig.prompt || ''}
-              onChange={(e) => handleChange('prompt', e.target.value)}
+              onChange={(value) => handleChange('prompt', value)}
+              minHeight="200px"
             />
             <p className="text-xs text-muted-foreground">
               点击「插入引用」按钮选择节点和字段，或直接输入 {'{{节点名.字段名}}'}
             </p>
           </div>
         </div>
+      )}
+
+      {/* 运行结果 Tab */}
+      {activeTab === 'result' && (
+        <OutputTabContent nodeId={nodeId} />
       )}
     </div>
   )

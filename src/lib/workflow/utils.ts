@@ -322,3 +322,165 @@ export function getPredecessorOutputs(
 
   return outputs
 }
+
+// ============================================
+// Parallel Execution Utilities
+// ============================================
+
+/**
+ * 并行执行层
+ * 同一层的节点可以并行执行，不同层按顺序执行
+ */
+export interface ExecutionLayer {
+  /** 层级索引 (0-based) */
+  level: number
+  /** 该层的节点列表 */
+  nodes: NodeConfig[]
+}
+
+/**
+ * 获取可并行执行的节点分层
+ * 使用改进的 Kahn's algorithm，将同一批入度为0的节点放在同一层
+ * 
+ * @param nodes - 所有节点
+ * @param edges - 所有边
+ * @returns 按执行顺序排列的层级数组
+ */
+export function getParallelExecutionLayers(
+  nodes: NodeConfig[],
+  edges: EdgeConfig[]
+): ExecutionLayer[] {
+  const adjList = new Map<string, string[]>()
+  const inDegree = new Map<string, number>()
+  const nodeMap = new Map<string, NodeConfig>()
+  
+  for (const node of nodes) {
+    adjList.set(node.id, [])
+    inDegree.set(node.id, 0)
+    nodeMap.set(node.id, node)
+  }
+  
+  for (const edge of edges) {
+    const targets = adjList.get(edge.source) || []
+    targets.push(edge.target)
+    adjList.set(edge.source, targets)
+    inDegree.set(edge.target, (inDegree.get(edge.target) || 0) + 1)
+  }
+  
+  const layers: ExecutionLayer[] = []
+  let currentLevel = 0
+  
+  let currentQueue: string[] = []
+  for (const [nodeId, degree] of inDegree) {
+    if (degree === 0) {
+      currentQueue.push(nodeId)
+    }
+  }
+  
+  while (currentQueue.length > 0) {
+    const layerNodes: NodeConfig[] = []
+    const nextQueue: string[] = []
+    
+    for (const nodeId of currentQueue) {
+      const node = nodeMap.get(nodeId)
+      if (node) {
+        layerNodes.push(node)
+      }
+      
+      const neighbors = adjList.get(nodeId) || []
+      for (const neighbor of neighbors) {
+        const newDegree = (inDegree.get(neighbor) || 0) - 1
+        inDegree.set(neighbor, newDegree)
+        
+        if (newDegree === 0) {
+          nextQueue.push(neighbor)
+        }
+      }
+    }
+    
+    if (layerNodes.length > 0) {
+      layers.push({
+        level: currentLevel,
+        nodes: layerNodes,
+      })
+      currentLevel++
+    }
+    
+    currentQueue = nextQueue
+  }
+  
+  const totalProcessed = layers.reduce((sum, layer) => sum + layer.nodes.length, 0)
+  if (totalProcessed !== nodes.length) {
+    throw new Error('工作流中存在循环依赖')
+  }
+  
+  return layers
+}
+
+/**
+ * 检查节点是否可以执行（所有前置节点都已完成）
+ */
+export function canNodeExecute(
+  nodeId: string,
+  edges: EdgeConfig[],
+  completedNodes: Set<string>,
+  skippedNodes: Set<string>
+): boolean {
+  const predecessors = edges
+    .filter(e => e.target === nodeId)
+    .map(e => e.source)
+  
+  if (predecessors.length === 0) {
+    return true
+  }
+  
+  return predecessors.every(
+    predId => completedNodes.has(predId) || skippedNodes.has(predId)
+  )
+}
+
+/**
+ * 获取节点的所有前置节点ID
+ */
+export function getPredecessorIds(
+  nodeId: string,
+  edges: EdgeConfig[]
+): string[] {
+  return edges
+    .filter(e => e.target === nodeId)
+    .map(e => e.source)
+}
+
+/**
+ * 获取节点的所有后继节点ID
+ */
+export function getSuccessorIds(
+  nodeId: string,
+  edges: EdgeConfig[]
+): string[] {
+  return edges
+    .filter(e => e.source === nodeId)
+    .map(e => e.target)
+}
+
+/**
+ * 检查节点是否是合并节点（有多个入边）
+ */
+export function isMergeNode(
+  nodeId: string,
+  edges: EdgeConfig[]
+): boolean {
+  const incomingEdges = edges.filter(e => e.target === nodeId)
+  return incomingEdges.length > 1
+}
+
+/**
+ * 检查节点是否是分叉节点（有多个出边）
+ */
+export function isForkNode(
+  nodeId: string,
+  edges: EdgeConfig[]
+): boolean {
+  const outgoingEdges = edges.filter(e => e.source === nodeId)
+  return outgoingEdges.length > 1
+}

@@ -1,28 +1,35 @@
 'use client'
 
 import { useCallback, useRef, useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import {
   ReactFlow,
   Background,
   Controls,
+  ControlButton,
   MiniMap,
   Panel,
   useReactFlow,
   ReactFlowProvider,
+  SelectionMode,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useWorkflowStore } from '@/stores/workflow-store'
-import { Save, Play, ArrowLeft, Loader2, Cloud, CloudOff, History, Link2 } from 'lucide-react'
+import { Save, Play, ArrowLeft, Loader2, Cloud, CloudOff, History, Link2, Eye, Group, Sparkles, Trash2, LayoutGrid } from 'lucide-react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { NodePanel } from '@/components/workflow/node-panel'
 import { NodeConfigPanel } from '@/components/workflow/node-config-panel'
 import { ExecutionPanel } from '@/components/workflow/execution-panel'
 import { ExecutionHistoryPanel } from '@/components/workflow/execution-history-panel'
+import { NodeDebugPanel } from '@/components/workflow/node-debug-panel'
+import { ExecutionVisualizer } from '@/components/workflow/execution-visualizer'
+import { AIAssistantPanel } from '@/components/workflow/ai-assistant-panel'
 import { nodeTypes } from '@/components/workflow/nodes'
+import { useAIAssistantStore } from '@/stores/ai-assistant-store'
 import { toast } from 'sonner'
 
 function WorkflowEditor() {
@@ -36,7 +43,19 @@ function WorkflowEditor() {
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved')
   const [showExecutionPanel, setShowExecutionPanel] = useState(false)
   const [showHistoryPanel, setShowHistoryPanel] = useState(false)
+  const [showVisualizer, setShowVisualizer] = useState(false)
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
+
+  // 选区右键菜单状态
+  const [selectionContextMenu, setSelectionContextMenu] = useState<{ x: number; y: number } | null>(null)
+  const selectionMenuRef = useRef<HTMLDivElement>(null)
+
+  // Edge 右键菜单状态
+  const [edgeContextMenu, setEdgeContextMenu] = useState<{ x: number; y: number; edgeId: string } | null>(null)
+  const edgeMenuRef = useRef<HTMLDivElement>(null)
+
+  // AI助手
+  const { openPanel: openAIPanel } = useAIAssistantStore()
 
   const {
     nodes,
@@ -56,6 +75,9 @@ function WorkflowEditor() {
     getWorkflowConfig,
     markSaved,
     setViewport,
+    groupNodes,
+    getSelectedNodeIds,
+    autoLayout,
   } = useWorkflowStore()
 
   // 加载工作流数据
@@ -66,7 +88,8 @@ function WorkflowEditor() {
         if (!response.ok) {
           throw new Error('加载工作流失败')
         }
-        const workflow = await response.json()
+        const result = await response.json()
+        const workflow = result.data
 
         // 使用 setWorkflow 初始化 store
         setWorkflow({
@@ -228,7 +251,84 @@ function WorkflowEditor() {
 
   const onPaneClick = useCallback(() => {
     selectNode(null)
+    setSelectionContextMenu(null)
+    setEdgeContextMenu(null)
   }, [selectNode])
+
+  // 点击外部关闭选区右键菜单
+  useEffect(() => {
+    if (!selectionContextMenu) return
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (selectionMenuRef.current && !selectionMenuRef.current.contains(e.target as globalThis.Node)) {
+        setSelectionContextMenu(null)
+      }
+    }
+
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('mousedown', handleClickOutside, true)
+    }, 0)
+
+    return () => {
+      clearTimeout(timeoutId)
+      document.removeEventListener('mousedown', handleClickOutside, true)
+    }
+  }, [selectionContextMenu])
+
+  // 处理选区右键菜单
+  const onSelectionContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const selectedIds = getSelectedNodeIds()
+    // 只有选中多个节点时才显示组合菜单
+    if (selectedIds.length >= 2) {
+      setSelectionContextMenu({ x: e.clientX, y: e.clientY })
+    }
+  }, [getSelectedNodeIds])
+
+  // 处理组合节点
+  const handleGroupNodes = useCallback(() => {
+    const selectedIds = getSelectedNodeIds()
+    if (selectedIds.length >= 2) {
+      groupNodes(selectedIds)
+      toast.success('节点已组合')
+    }
+    setSelectionContextMenu(null)
+  }, [getSelectedNodeIds, groupNodes])
+
+  // 点击外部关闭 Edge 右键菜单
+  useEffect(() => {
+    if (!edgeContextMenu) return
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (edgeMenuRef.current && !edgeMenuRef.current.contains(e.target as globalThis.Node)) {
+        setEdgeContextMenu(null)
+      }
+    }
+
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('mousedown', handleClickOutside, true)
+    }, 0)
+
+    return () => {
+      clearTimeout(timeoutId)
+      document.removeEventListener('mousedown', handleClickOutside, true)
+    }
+  }, [edgeContextMenu])
+
+  // 处理 Edge 右键菜单
+  const onEdgeContextMenu = useCallback((e: React.MouseEvent, edge: { id: string }) => {
+    e.preventDefault()
+    setEdgeContextMenu({ x: e.clientX, y: e.clientY, edgeId: edge.id })
+  }, [])
+
+  // 删除 Edge
+  const handleDeleteEdge = useCallback(() => {
+    if (edgeContextMenu) {
+      onEdgesChange([{ type: 'remove', id: edgeContextMenu.edgeId }])
+      toast.success('连线已删除')
+      setEdgeContextMenu(null)
+    }
+  }, [edgeContextMenu, onEdgesChange])
 
   // 复制 API 调用链接
   const copyApiUrl = useCallback(async () => {
@@ -270,6 +370,16 @@ function WorkflowEditor() {
           className="text-green-600 hover:text-green-700 hover:bg-green-50"
         >
           <Play className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setShowVisualizer(true)}
+          disabled={nodes.length === 0}
+          title="可视化执行"
+          className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+        >
+          <Eye className="h-4 w-4" />
         </Button>
         <Button
           variant="ghost"
@@ -343,9 +453,20 @@ function WorkflowEditor() {
               nodeTypes={nodeTypes}
               snapToGrid
               snapGrid={[15, 15]}
+              selectionOnDrag={false}
+              selectionMode={SelectionMode.Partial}
+              selectionKeyCode="Shift"
+              multiSelectionKeyCode="Shift"
+              panOnScroll
+              onSelectionContextMenu={onSelectionContextMenu}
+              onEdgeContextMenu={onEdgeContextMenu}
             >
               <Background gap={15} />
-              <Controls />
+              <Controls>
+                <ControlButton onClick={() => autoLayout('LR')} title="自动布局">
+                  <LayoutGrid className="h-4 w-4" />
+                </ControlButton>
+              </Controls>
               <MiniMap />
               <Panel position="top-left" className="text-xs text-muted-foreground">
                 节点: {nodes.length} | 连接: {edges.length}
@@ -374,6 +495,74 @@ function WorkflowEditor() {
         isOpen={showHistoryPanel}
         onClose={() => setShowHistoryPanel(false)}
       />
+
+      {/* 执行可视化面板 */}
+      <ExecutionVisualizer
+        workflowId={workflowId}
+        isOpen={showVisualizer}
+        onClose={() => setShowVisualizer(false)}
+      />
+
+      {/* 节点调试面板 */}
+      <NodeDebugPanel />
+
+      {/* AI助手面板 */}
+      <AIAssistantPanel workflowId={workflowId} />
+
+      {/* AI助手悬浮按钮 - 右下角 */}
+      <Button
+        onClick={openAIPanel}
+        title="AI 助手"
+        className="fixed bottom-6 right-6 z-40 h-12 w-12 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 shadow-lg hover:from-violet-600 hover:to-purple-700 hover:shadow-xl transition-all"
+      >
+        <Sparkles className="h-5 w-5 text-white" />
+      </Button>
+
+      {/* 选区右键菜单 - 使用 Portal 渲染到 body */}
+      {selectionContextMenu && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={selectionMenuRef}
+          className="min-w-[120px] rounded-md border bg-popover p-1 shadow-lg"
+          style={{
+            position: 'fixed',
+            left: selectionContextMenu.x,
+            top: selectionContextMenu.y,
+            zIndex: 9999,
+          }}
+        >
+          <button
+            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
+            onClick={handleGroupNodes}
+          >
+            <Group className="h-4 w-4" />
+            组合节点
+          </button>
+        </div>,
+        document.body
+      )}
+
+      {/* Edge 右键菜单 - 使用 Portal 渲染到 body */}
+      {edgeContextMenu && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={edgeMenuRef}
+          className="min-w-[100px] rounded-md border bg-popover p-1 shadow-lg"
+          style={{
+            position: 'fixed',
+            left: edgeContextMenu.x,
+            top: edgeContextMenu.y,
+            zIndex: 9999,
+          }}
+        >
+          <button
+            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10"
+            onClick={handleDeleteEdge}
+          >
+            <Trash2 className="h-4 w-4" />
+            删除连线
+          </button>
+        </div>,
+        document.body
+      )}
     </div>
   )
 }

@@ -13,6 +13,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Bot,
+  LayoutTemplate,
+  Database,
+  Zap,
 } from 'lucide-react'
 import { useSidebarStore } from '@/stores/sidebar-store'
 import { Button } from '@/components/ui/button'
@@ -26,6 +29,9 @@ import {
 const navigation = [
   { name: '工作台', href: '/dashboard', icon: LayoutDashboard },
   { name: '工作流', href: '/workflows', icon: GitBranch },
+  { name: '触发器', href: '/triggers', icon: Zap },
+  { name: '模板库', href: '/templates', icon: LayoutTemplate },
+  { name: '知识库', href: '/knowledge-bases', icon: Database },
   { name: '执行历史', href: '/executions', icon: History },
 ]
 

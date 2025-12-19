@@ -13,9 +13,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Plus, X, Globe, Key, Clock, RefreshCw } from 'lucide-react'
+import { OutputTabContent } from './shared/output-tab-content'
 import type { HttpMethod, HttpBodyType, HttpAuthType } from '@/types/workflow'
 
+type HttpTabType = 'params' | 'headers' | 'body' | 'auth' | 'output'
+
 interface HttpNodeConfigPanelProps {
+  nodeId: string
   config?: Record<string, unknown>
   onUpdate: (config: Record<string, unknown>) => void
   availableVariables?: Array<{ label: string; value: string }>
@@ -44,10 +48,11 @@ const AUTH_TYPES: { value: HttpAuthType; label: string }[] = [
 ]
 
 export function HttpNodeConfigPanel({
+  nodeId,
   config,
   onUpdate,
 }: HttpNodeConfigPanelProps) {
-  const [activeTab, setActiveTab] = useState<'params' | 'headers' | 'body' | 'auth'>('params')
+  const [activeTab, setActiveTab] = useState<HttpTabType>('params')
   
   const method = (config?.method as HttpMethod) || 'GET'
   const url = (config?.url as string) || ''
@@ -208,7 +213,7 @@ export function HttpNodeConfigPanel({
       </div>
 
       <div className="flex border-b">
-        {(['params', 'headers', 'body', 'auth'] as const).map((tab) => (
+        {(['params', 'headers', 'body', 'auth', 'output'] as const).map((tab) => (
           <button
             key={tab}
             className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
@@ -222,6 +227,7 @@ export function HttpNodeConfigPanel({
             {tab === 'headers' && '请求头'}
             {tab === 'body' && '请求体'}
             {tab === 'auth' && '认证'}
+            {tab === 'output' && '输出'}
           </button>
         ))}
       </div>
@@ -401,11 +407,18 @@ export function HttpNodeConfigPanel({
         </div>
       )}
 
-      <div className="border-t pt-4 space-y-4">
-        <div className="flex items-center gap-2 text-sm font-medium">
-          <Clock className="h-4 w-4" />
-          高级设置
-        </div>
+      {/* 输出 Tab */}
+      {activeTab === 'output' && (
+        <OutputTabContent nodeId={nodeId} />
+      )}
+
+      {activeTab !== 'output' && (
+        <>
+          <div className="border-t pt-4 space-y-4">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Clock className="h-4 w-4" />
+              高级设置
+            </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
@@ -450,18 +463,20 @@ export function HttpNodeConfigPanel({
         </div>
       </div>
 
-      <div className="border-t pt-4 space-y-2">
-        <p className="text-xs font-medium text-muted-foreground">输出说明</p>
-        <div className="p-2 bg-muted rounded text-xs">
-          <p><strong>响应数据:</strong></p>
-          <ul className="list-disc list-inside mt-1 space-y-1">
-            <li>{"{{节点名.data}}"} - 响应体内容</li>
-            <li>{"{{节点名.statusCode}}"} - HTTP 状态码</li>
-            <li>{"{{节点名.headers}}"} - 响应头</li>
-            <li>{"{{节点名.duration}}"} - 请求耗时 (毫秒)</li>
-          </ul>
-        </div>
-      </div>
+          <div className="border-t pt-4 space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">输出说明</p>
+            <div className="p-2 bg-muted rounded text-xs">
+              <p><strong>响应数据:</strong></p>
+              <ul className="list-disc list-inside mt-1 space-y-1">
+                <li>{"{{节点名.data}}"} - 响应体内容</li>
+                <li>{"{{节点名.statusCode}}"} - HTTP 状态码</li>
+                <li>{"{{节点名.headers}}"} - 响应头</li>
+                <li>{"{{节点名.duration}}"} - 请求耗时 (毫秒)</li>
+              </ul>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

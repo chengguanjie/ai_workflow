@@ -39,11 +39,18 @@ export type AuthenticatedHandler<T = unknown> = (
 ) => Promise<NextResponse<T>>
 
 /**
+ * Route context type for Next.js 15
+ */
+export interface RouteContext {
+  params: Promise<Record<string, string>>
+}
+
+/**
  * Route handler type returned by withAuth
  */
 export type RouteHandler<T = unknown> = (
   request: NextRequest,
-  context?: { params?: Promise<Record<string, string>> }
+  context: RouteContext
 ) => Promise<NextResponse<T | ApiErrorResponse>>
 
 /**
@@ -72,7 +79,7 @@ export function withAuth<T>(
 ): RouteHandler<T> {
   return async (
     request: NextRequest,
-    context?: { params?: Promise<Record<string, string>> }
+    context: RouteContext
   ): Promise<NextResponse<T | ApiErrorResponse>> => {
     try {
       // Get the session
@@ -100,8 +107,8 @@ export function withAuth<T>(
         organizationName: organizationName ?? '',
       }
 
-      // Resolve params if provided (Next.js 15 uses Promise for params)
-      const resolvedParams = context?.params ? await context.params : undefined
+      // Resolve params (Next.js 15 uses Promise for params)
+      const resolvedParams = await context.params
 
       // Call the handler with authenticated context
       return await handler(request, {

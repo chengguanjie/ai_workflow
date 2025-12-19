@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -11,9 +12,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { X, Plus } from 'lucide-react'
+import { OutputTabContent } from './shared/output-tab-content'
 import type { Condition, ConditionOperator } from '@/types/workflow'
 
+type ConditionTabType = 'config' | 'output'
+
 interface ConditionNodeConfigPanelProps {
+  nodeId: string
   config?: Record<string, unknown>
   onUpdate: (config: Record<string, unknown>) => void
   availableVariables?: Array<{ label: string; value: string }>
@@ -35,12 +40,20 @@ const OPERATORS: { value: ConditionOperator; label: string; needsValue: boolean 
 ]
 
 export function ConditionNodeConfigPanel({
+  nodeId,
   config,
   onUpdate,
   availableVariables = [],
 }: ConditionNodeConfigPanelProps) {
+  const [activeTab, setActiveTab] = useState<ConditionTabType>('config')
   const conditions = (config?.conditions as Condition[]) || []
   const evaluationMode = (config?.evaluationMode as 'all' | 'any') || 'all'
+
+  // Tab 配置
+  const tabs: { key: ConditionTabType; label: string }[] = [
+    { key: 'config', label: '配置' },
+    { key: 'output', label: '输出' },
+  ]
 
   const addCondition = () => {
     const newCondition: Condition = {
@@ -73,8 +86,28 @@ export function ConditionNodeConfigPanel({
 
   return (
     <div className="space-y-4">
-      <div className="space-y-2">
-        <Label className="text-sm font-medium">条件逻辑</Label>
+      {/* Tab 切换 */}
+      <div className="flex border-b">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              activeTab === tab.key
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+            onClick={() => setActiveTab(tab.key)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* 配置 Tab */}
+      {activeTab === 'config' && (
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">条件逻辑</Label>
         <Select value={evaluationMode} onValueChange={(v) => updateEvaluationMode(v as 'all' | 'any')}>
           <SelectTrigger className="h-8">
             <SelectValue />
@@ -201,19 +234,26 @@ export function ConditionNodeConfigPanel({
         )}
       </div>
 
-      <div className="border-t pt-4 space-y-2">
-        <p className="text-xs font-medium text-muted-foreground">分支说明</p>
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <div className="flex items-center gap-2 p-2 bg-green-50 dark:bg-green-950 rounded">
-            <div className="w-3 h-3 rounded-full bg-green-500" />
-            <span>是 (True): 条件满足</span>
-          </div>
-          <div className="flex items-center gap-2 p-2 bg-red-50 dark:bg-red-950 rounded">
-            <div className="w-3 h-3 rounded-full bg-red-500" />
-            <span>否 (False): 条件不满足</span>
+          <div className="border-t pt-4 space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">分支说明</p>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="flex items-center gap-2 p-2 bg-green-50 dark:bg-green-950 rounded">
+                <div className="w-3 h-3 rounded-full bg-green-500" />
+                <span>是 (True): 条件满足</span>
+              </div>
+              <div className="flex items-center gap-2 p-2 bg-red-50 dark:bg-red-950 rounded">
+                <div className="w-3 h-3 rounded-full bg-red-500" />
+                <span>否 (False): 条件不满足</span>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* 输出 Tab */}
+      {activeTab === 'output' && (
+        <OutputTabContent nodeId={nodeId} />
+      )}
     </div>
   )
 }

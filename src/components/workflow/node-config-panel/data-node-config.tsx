@@ -4,16 +4,19 @@ import { FileSpreadsheet, ImageIcon, VideoIcon, MusicIcon } from 'lucide-react'
 import { MediaNodeConfigPanel } from './media-node-config'
 
 interface DataNodeConfigPanelProps {
+  nodeId: string
   config?: Record<string, unknown>
   onUpdate: (config: Record<string, unknown>) => void
 }
 
 export function DataNodeConfigPanel({
+  nodeId,
   config,
   onUpdate,
 }: DataNodeConfigPanelProps) {
   return (
     <MediaNodeConfigPanel
+      nodeId={nodeId}
       config={config}
       onUpdate={onUpdate}
       nodeType="data"
@@ -26,16 +29,19 @@ export function DataNodeConfigPanel({
 }
 
 interface ImageNodeConfigPanelProps {
+  nodeId: string
   config?: Record<string, unknown>
   onUpdate: (config: Record<string, unknown>) => void
 }
 
 export function ImageNodeConfigPanel({
+  nodeId,
   config,
   onUpdate,
 }: ImageNodeConfigPanelProps) {
   return (
     <MediaNodeConfigPanel
+      nodeId={nodeId}
       config={config}
       onUpdate={onUpdate}
       nodeType="image"
@@ -48,16 +54,19 @@ export function ImageNodeConfigPanel({
 }
 
 interface VideoNodeConfigPanelProps {
+  nodeId: string
   config?: Record<string, unknown>
   onUpdate: (config: Record<string, unknown>) => void
 }
 
 export function VideoNodeConfigPanel({
+  nodeId,
   config,
   onUpdate,
 }: VideoNodeConfigPanelProps) {
   return (
     <MediaNodeConfigPanel
+      nodeId={nodeId}
       config={config}
       onUpdate={onUpdate}
       nodeType="video"
@@ -70,16 +79,19 @@ export function VideoNodeConfigPanel({
 }
 
 interface AudioNodeConfigPanelProps {
+  nodeId: string
   config?: Record<string, unknown>
   onUpdate: (config: Record<string, unknown>) => void
 }
 
 export function AudioNodeConfigPanel({
+  nodeId,
   config,
   onUpdate,
 }: AudioNodeConfigPanelProps) {
   return (
     <MediaNodeConfigPanel
+      nodeId={nodeId}
       config={config}
       onUpdate={onUpdate}
       nodeType="audio"

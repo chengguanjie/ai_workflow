@@ -1,22 +1,23 @@
 /**
  * 阿里云 OSS 存储提供商
  *
- * 使用前需要安装依赖: npm install ali-oss
+ * 使用前需要安装依赖: pnpm add ali-oss
  * 环境变量配置:
- *   OSS_ENDPOINT=oss-cn-hangzhou.aliyuncs.com
- *   OSS_BUCKET=your-bucket-name
- *   OSS_ACCESS_KEY_ID=your-access-key-id
- *   OSS_ACCESS_KEY_SECRET=your-access-key-secret
+ *   STORAGE_TYPE=ALIYUN_OSS
+ *   ALIYUN_OSS_REGION=oss-cn-hangzhou
+ *   ALIYUN_OSS_BUCKET=your-bucket-name
+ *   ALIYUN_OSS_ACCESS_KEY_ID=your-access-key-id
+ *   ALIYUN_OSS_ACCESS_KEY_SECRET=your-access-key-secret
  */
 
 import { StorageProvider, UploadRequest, UploadResult } from '../types'
 
 // 阿里云 OSS 配置
 const OSS_CONFIG = {
-  endpoint: process.env.OSS_ENDPOINT || '',
-  bucket: process.env.OSS_BUCKET || '',
-  accessKeyId: process.env.OSS_ACCESS_KEY_ID || '',
-  accessKeySecret: process.env.OSS_ACCESS_KEY_SECRET || '',
+  region: process.env.ALIYUN_OSS_REGION || 'oss-cn-hangzhou',
+  bucket: process.env.ALIYUN_OSS_BUCKET || '',
+  accessKeyId: process.env.ALIYUN_OSS_ACCESS_KEY_ID || '',
+  accessKeySecret: process.env.ALIYUN_OSS_ACCESS_KEY_SECRET || '',
 }
 
 export class AliyunOSSProvider implements StorageProvider {
@@ -36,18 +37,23 @@ export class AliyunOSSProvider implements StorageProvider {
   private async getClient(): Promise<unknown> {
     if (this.client) return this.client
 
+    // 验证配置
+    if (!OSS_CONFIG.accessKeyId || !OSS_CONFIG.accessKeySecret || !OSS_CONFIG.bucket) {
+      throw new Error('阿里云 OSS 未配置: 请检查 ALIYUN_OSS_ACCESS_KEY_ID, ALIYUN_OSS_ACCESS_KEY_SECRET, ALIYUN_OSS_BUCKET 环境变量')
+    }
+
     try {
       // 动态导入 ali-oss
       const OSS = await import('ali-oss').then(m => m.default)
       this.client = new OSS({
-        region: OSS_CONFIG.endpoint.replace('.aliyuncs.com', ''),
+        region: OSS_CONFIG.region,
         accessKeyId: OSS_CONFIG.accessKeyId,
         accessKeySecret: OSS_CONFIG.accessKeySecret,
         bucket: OSS_CONFIG.bucket,
       })
       return this.client
-    } catch {
-      throw new Error('阿里云 OSS 未配置或 ali-oss 包未安装')
+    } catch (error) {
+      throw new Error(`阿里云 OSS 初始化失败: ${error instanceof Error ? error.message : 'ali-oss 包未安装'}`)
     }
   }
 

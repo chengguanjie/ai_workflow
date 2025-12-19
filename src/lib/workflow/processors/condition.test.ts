@@ -13,11 +13,11 @@ function createContext(nodeOutputs: Record<string, unknown> = {}): ExecutionCont
     nodeOutputs: new Map(),
     globalVariables: new Map(),
   }
-  
+
   for (const [key, value] of Object.entries(nodeOutputs)) {
     context.nodeOutputs.set(key, value as Record<string, unknown>)
   }
-  
+
   return context
 }
 
@@ -44,16 +44,17 @@ describe('processConditionNode', () => {
           },
         ],
       })
-      
+
       const context = createContext({
         input1: { value: 'hello' },
       })
-      
+
       const result = await processConditionNode(node, context)
-      expect(result.result).toBe(true)
-      expect(result.conditionsMet).toBe(true)
+      expect(result.status).toBe('success')
+      expect(result.data.result).toBe(true)
+      expect(result.data.conditionsMet).toBe(true)
     })
-    
+
     it('should return false when values are not equal', async () => {
       const node = createConditionNode({
         conditions: [
@@ -64,16 +65,17 @@ describe('processConditionNode', () => {
           },
         ],
       })
-      
+
       const context = createContext({
         input1: { value: 'world' },
       })
-      
+
       const result = await processConditionNode(node, context)
-      expect(result.result).toBe(false)
+      expect(result.status).toBe('success')
+      expect(result.data.result).toBe(false)
     })
   })
-  
+
   describe('Numeric operators', () => {
     it('should handle greaterThan operator', async () => {
       const node = createConditionNode({
@@ -85,15 +87,16 @@ describe('processConditionNode', () => {
           },
         ],
       })
-      
+
       const context = createContext({
         node1: { count: 15 },
       })
-      
+
       const result = await processConditionNode(node, context)
-      expect(result.result).toBe(true)
+      expect(result.status).toBe('success')
+      expect(result.data.result).toBe(true)
     })
-    
+
     it('should handle lessThan operator', async () => {
       const node = createConditionNode({
         conditions: [
@@ -104,15 +107,16 @@ describe('processConditionNode', () => {
           },
         ],
       })
-      
+
       const context = createContext({
         node1: { count: 5 },
       })
-      
+
       const result = await processConditionNode(node, context)
-      expect(result.result).toBe(true)
+      expect(result.status).toBe('success')
+      expect(result.data.result).toBe(true)
     })
-    
+
     it('should handle greaterOrEqual operator', async () => {
       const node = createConditionNode({
         conditions: [
@@ -123,16 +127,17 @@ describe('processConditionNode', () => {
           },
         ],
       })
-      
+
       const context = createContext({
         node1: { count: 10 },
       })
-      
+
       const result = await processConditionNode(node, context)
-      expect(result.result).toBe(true)
+      expect(result.status).toBe('success')
+      expect(result.data.result).toBe(true)
     })
   })
-  
+
   describe('String operators', () => {
     it('should handle contains operator', async () => {
       const node = createConditionNode({
@@ -144,15 +149,16 @@ describe('processConditionNode', () => {
           },
         ],
       })
-      
+
       const context = createContext({
         node1: { text: 'hello world' },
       })
-      
+
       const result = await processConditionNode(node, context)
-      expect(result.result).toBe(true)
+      expect(result.status).toBe('success')
+      expect(result.data.result).toBe(true)
     })
-    
+
     it('should handle notContains operator', async () => {
       const node = createConditionNode({
         conditions: [
@@ -163,15 +169,16 @@ describe('processConditionNode', () => {
           },
         ],
       })
-      
+
       const context = createContext({
         node1: { text: 'hello world' },
       })
-      
+
       const result = await processConditionNode(node, context)
-      expect(result.result).toBe(true)
+      expect(result.status).toBe('success')
+      expect(result.data.result).toBe(true)
     })
-    
+
     it('should handle startsWith operator', async () => {
       const node = createConditionNode({
         conditions: [
@@ -182,15 +189,16 @@ describe('processConditionNode', () => {
           },
         ],
       })
-      
+
       const context = createContext({
         node1: { text: 'hello world' },
       })
-      
+
       const result = await processConditionNode(node, context)
-      expect(result.result).toBe(true)
+      expect(result.status).toBe('success')
+      expect(result.data.result).toBe(true)
     })
-    
+
     it('should handle endsWith operator', async () => {
       const node = createConditionNode({
         conditions: [
@@ -201,16 +209,17 @@ describe('processConditionNode', () => {
           },
         ],
       })
-      
+
       const context = createContext({
         node1: { text: 'hello world' },
       })
-      
+
       const result = await processConditionNode(node, context)
-      expect(result.result).toBe(true)
+      expect(result.status).toBe('success')
+      expect(result.data.result).toBe(true)
     })
   })
-  
+
   describe('Empty/null operators', () => {
     it('should handle isEmpty operator', async () => {
       const node = createConditionNode({
@@ -221,15 +230,16 @@ describe('processConditionNode', () => {
           },
         ],
       })
-      
+
       const context = createContext({
         node1: { text: '' },
       })
-      
+
       const result = await processConditionNode(node, context)
-      expect(result.result).toBe(true)
+      expect(result.status).toBe('success')
+      expect(result.data.result).toBe(true)
     })
-    
+
     it('should handle isNotEmpty operator', async () => {
       const node = createConditionNode({
         conditions: [
@@ -239,16 +249,17 @@ describe('processConditionNode', () => {
           },
         ],
       })
-      
+
       const context = createContext({
         node1: { text: 'hello' },
       })
-      
+
       const result = await processConditionNode(node, context)
-      expect(result.result).toBe(true)
+      expect(result.status).toBe('success')
+      expect(result.data.result).toBe(true)
     })
   })
-  
+
   describe('Multiple conditions', () => {
     it('should evaluate all conditions with AND logic (default)', async () => {
       const node = createConditionNode({
@@ -266,15 +277,16 @@ describe('processConditionNode', () => {
         ],
         evaluationMode: 'all',
       })
-      
+
       const context = createContext({
         node1: { count: 10, text: 'hello world' },
       })
-      
+
       const result = await processConditionNode(node, context)
-      expect(result.result).toBe(true)
+      expect(result.status).toBe('success')
+      expect(result.data.result).toBe(true)
     })
-    
+
     it('should return false if any condition fails in AND mode', async () => {
       const node = createConditionNode({
         conditions: [
@@ -291,15 +303,16 @@ describe('processConditionNode', () => {
         ],
         evaluationMode: 'all',
       })
-      
+
       const context = createContext({
         node1: { count: 10, text: 'hello world' },
       })
-      
+
       const result = await processConditionNode(node, context)
-      expect(result.result).toBe(false)
+      expect(result.status).toBe('success')
+      expect(result.data.result).toBe(false)
     })
-    
+
     it('should evaluate conditions with OR logic', async () => {
       const node = createConditionNode({
         conditions: [
@@ -316,16 +329,17 @@ describe('processConditionNode', () => {
         ],
         evaluationMode: 'any',
       })
-      
+
       const context = createContext({
         node1: { count: 10, text: 'hello world' },
       })
-      
+
       const result = await processConditionNode(node, context)
-      expect(result.result).toBe(true) // Second condition is true
+      expect(result.status).toBe('success')
+      expect(result.data.result).toBe(true) // Second condition is true
     })
   })
-  
+
   describe('Nested properties', () => {
     it('should handle nested object properties', async () => {
       const node = createConditionNode({
@@ -337,31 +351,32 @@ describe('processConditionNode', () => {
           },
         ],
       })
-      
+
       const context = createContext({
         node1: {
           user: { name: 'John', age: 30 },
         },
       })
-      
+
       const result = await processConditionNode(node, context)
-      expect(result.result).toBe(true)
+      expect(result.status).toBe('success')
+      expect(result.data.result).toBe(true)
     })
   })
-  
+
   describe('Error handling', () => {
-    it('should throw error if no conditions provided', async () => {
+    it('should return error if no conditions provided', async () => {
       const node = createConditionNode({
         conditions: [],
       })
-      
+
       const context = createContext()
-      
-      await expect(processConditionNode(node, context)).rejects.toThrow(
-        'CONDITION node must have at least one condition'
-      )
+
+      const result = await processConditionNode(node, context)
+      expect(result.status).toBe('error')
+      expect(result.error).toContain('at least one condition')
     })
-    
+
     it('should return false for undefined variables', async () => {
       const node = createConditionNode({
         conditions: [
@@ -372,11 +387,12 @@ describe('processConditionNode', () => {
           },
         ],
       })
-      
+
       const context = createContext()
-      
+
       const result = await processConditionNode(node, context)
-      expect(result.result).toBe(false)
+      expect(result.status).toBe('success')
+      expect(result.data.result).toBe(false)
     })
   })
 })

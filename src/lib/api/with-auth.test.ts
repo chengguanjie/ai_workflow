@@ -87,8 +87,8 @@ describe('Property 3: Authentication Context Injection', () => {
           // Create a mock request
           const request = new NextRequest('http://localhost:3000/api/test')
 
-          // Execute the handler
-          await handler(request)
+          // Execute the handler with proper context
+          await handler(request, { params: Promise.resolve({}) })
 
           // Verify context was received
           expect(receivedContext).not.toBeNull()
@@ -127,7 +127,7 @@ describe('Property 3: Authentication Context Injection', () => {
           })
 
           const request = new NextRequest('http://localhost:3000/api/test')
-          await handler(request)
+          await handler(request, { params: Promise.resolve({}) })
 
           expect(capturedUser).not.toBeNull()
           expect(capturedUser!.id).toBe(sessionUser.id)
@@ -156,7 +156,7 @@ describe('Property 3: Authentication Context Injection', () => {
           })
 
           const request = new NextRequest('http://localhost:3000/api/test')
-          await handler(request)
+          await handler(request, { params: Promise.resolve({}) })
 
           expect(capturedUser).not.toBeNull()
           expect(capturedUser!.email).toBe(sessionUser.email)
@@ -185,7 +185,7 @@ describe('Property 3: Authentication Context Injection', () => {
           })
 
           const request = new NextRequest('http://localhost:3000/api/test')
-          await handler(request)
+          await handler(request, { params: Promise.resolve({}) })
 
           expect(capturedUser).not.toBeNull()
           expect(capturedUser!.role).toBe(sessionUser.role)
@@ -214,7 +214,7 @@ describe('Property 3: Authentication Context Injection', () => {
           })
 
           const request = new NextRequest('http://localhost:3000/api/test')
-          await handler(request)
+          await handler(request, { params: Promise.resolve({}) })
 
           expect(capturedUser).not.toBeNull()
           expect(capturedUser!.organizationId).toBe(sessionUser.organizationId)
@@ -233,7 +233,7 @@ describe('Property 3: Authentication Context Injection', () => {
     })
 
     const request = new NextRequest('http://localhost:3000/api/test')
-    const response = await handler(request)
+    const response = await handler(request, { params: Promise.resolve({}) })
 
     expect(response.status).toBe(401)
     const body = await response.json()
@@ -252,7 +252,7 @@ describe('Property 3: Authentication Context Injection', () => {
     })
 
     const request = new NextRequest('http://localhost:3000/api/test')
-    const response = await handler(request)
+    const response = await handler(request, { params: Promise.resolve({}) })
 
     expect(response.status).toBe(401)
     const body = await response.json()
@@ -282,7 +282,7 @@ describe('Property 3: Authentication Context Injection', () => {
           })
 
           const request = new NextRequest('http://localhost:3000/api/test')
-          const response = await handler(request)
+          const response = await handler(request, { params: Promise.resolve({}) })
 
           expect(response.status).toBe(401)
           const body = await response.json()

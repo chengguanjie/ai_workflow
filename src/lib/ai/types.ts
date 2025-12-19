@@ -41,4 +41,4 @@ export interface AIProvider {
   listModels?(apiKey: string, baseUrl?: string): Promise<Model[]>
 }
 
-export type AIProviderType = 'SHENSUAN' | 'OPENROUTER'
+export type AIProviderType = 'SHENSUAN' | 'OPENROUTER' | 'OPENAI' | 'ANTHROPIC' | 'BAIDU_WENXIN' | 'ALIYUN_TONGYI' | 'XUNFEI_SPARK' | 'STABILITYAI'

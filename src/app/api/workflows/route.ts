@@ -66,7 +66,7 @@ export const POST = withAuth(async (request: NextRequest, { user }: AuthContext)
   const workflow = await workflowService.create({
     name: data.name,
     description: data.description,
-    config: data.config,
+    config: JSON.parse(JSON.stringify(data.config)),
     organizationId: user.organizationId,
     creatorId: user.id,
   })

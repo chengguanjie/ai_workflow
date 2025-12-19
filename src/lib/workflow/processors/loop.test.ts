@@ -76,14 +76,15 @@ describe('processLoopNode', () => {
       const context = createContext({
         data: { items: ['a', 'b', 'c'] },
       })
-      
+
       const result = await processLoopNode(node, context)
-      
-      expect(result.loopType).toBe('FOR')
-      expect(result.shouldContinue).toBe(true)
-      expect(result.currentIndex).toBe(0)
-      expect(result.currentItem).toBe('a')
-      expect(result.arrayLength).toBe(3)
+
+      expect(result.status).toBe('success')
+      expect(result.data.loopType).toBe('FOR')
+      expect(result.data.shouldContinue).toBe(true)
+      expect(result.data.currentIndex).toBe(0)
+      expect(result.data.currentItem).toBe('a')
+      expect(result.data.arrayLength).toBe(3)
     })
     
     it('should handle empty array', async () => {
@@ -91,23 +92,27 @@ describe('processLoopNode', () => {
       const context = createContext({
         data: { items: [] },
       })
-      
+
       const result = await processLoopNode(node, context)
-      
-      expect(result.shouldContinue).toBe(false)
-      expect(result.arrayLength).toBe(0)
+
+      expect(result.status).toBe('success')
+      expect(result.data.shouldContinue).toBe(false)
+      expect(result.data.arrayLength).toBe(0)
     })
     
-    it('should throw error for non-array variable', async () => {
+    it('should return error for non-array variable', async () => {
       const node = createForLoopNode({})
       const context = createContext({
         data: { items: 'not-an-array' },
       })
-      
-      await expect(processLoopNode(node, context)).rejects.toThrow('not an array')
+
+      const result = await processLoopNode(node, context)
+
+      expect(result.status).toBe('error')
+      expect(result.error).toContain('not an array')
     })
     
-    it('should throw error when forConfig is missing', async () => {
+    it('should return error when forConfig is missing', async () => {
       const node: LoopNodeConfig = {
         id: 'test',
         type: 'LOOP',
@@ -116,8 +121,11 @@ describe('processLoopNode', () => {
         config: { loopType: 'FOR' },
       }
       const context = createContext()
-      
-      await expect(processLoopNode(node, context)).rejects.toThrow('requires forConfig')
+
+      const result = await processLoopNode(node, context)
+
+      expect(result.status).toBe('error')
+      expect(result.error).toContain('requires forConfig')
     })
   })
   
@@ -127,26 +135,28 @@ describe('processLoopNode', () => {
       const context = createContext({
         counter: { value: 0 },
       })
-      
+
       const result = await processLoopNode(node, context)
-      
-      expect(result.loopType).toBe('WHILE')
-      expect(result.shouldContinue).toBe(true)
-      expect(result.currentIndex).toBe(0)
+
+      expect(result.status).toBe('success')
+      expect(result.data.loopType).toBe('WHILE')
+      expect(result.data.shouldContinue).toBe(true)
+      expect(result.data.currentIndex).toBe(0)
     })
-    
+
     it('should not start WHILE loop when condition is false', async () => {
       const node = createWhileLoopNode({})
       const context = createContext({
         counter: { value: 10 },
       })
-      
+
       const result = await processLoopNode(node, context)
-      
-      expect(result.shouldContinue).toBe(false)
+
+      expect(result.status).toBe('success')
+      expect(result.data.shouldContinue).toBe(false)
     })
-    
-    it('should throw error when whileConfig is missing', async () => {
+
+    it('should return error when whileConfig is missing', async () => {
       const node: LoopNodeConfig = {
         id: 'test',
         type: 'LOOP',
@@ -155,8 +165,11 @@ describe('processLoopNode', () => {
         config: { loopType: 'WHILE' },
       }
       const context = createContext()
-      
-      await expect(processLoopNode(node, context)).rejects.toThrow('requires whileConfig')
+
+      const result = await processLoopNode(node, context)
+
+      expect(result.status).toBe('error')
+      expect(result.error).toContain('requires whileConfig')
     })
   })
 })
@@ -427,7 +440,7 @@ describe('Condition operators in WHILE loop', () => {
     { op: 'isEmpty', left: '', right: undefined, expected: true },
     { op: 'isNotEmpty', left: 'value', right: undefined, expected: true },
   ] as const
-  
+
   operators.forEach(({ op, left, right, expected }) => {
     it(`should handle ${op} operator`, async () => {
       const node: LoopNodeConfig = {
@@ -447,13 +460,14 @@ describe('Condition operators in WHILE loop', () => {
           },
         },
       }
-      
+
       const context = createContext({
         test: { value: left },
       })
-      
+
       const result = await processLoopNode(node, context)
-      expect(result.shouldContinue).toBe(expected)
+      expect(result.status).toBe('success')
+      expect(result.data.shouldContinue).toBe(expected)
     })
   })
 })

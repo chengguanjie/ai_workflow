@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { signIn } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Shield, Loader2 } from 'lucide-react'
@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
-export default function ConsoleLoginPage() {
+function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const callbackUrl = searchParams.get('callbackUrl') || '/console/dashboard'
@@ -104,5 +104,34 @@ export default function ConsoleLoginPage() {
         </p>
       </div>
     </div>
+  )
+}
+
+function LoginFormSkeleton() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-muted/30">
+      <div className="w-full max-w-md space-y-8 rounded-xl bg-background p-8 shadow-lg">
+        <div className="text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+            <Shield className="h-7 w-7" />
+          </div>
+          <h1 className="mt-4 text-2xl font-bold">Platform Console</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            平台管理后台
+          </p>
+        </div>
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function ConsoleLoginPage() {
+  return (
+    <Suspense fallback={<LoginFormSkeleton />}>
+      <LoginForm />
+    </Suspense>
   )
 }

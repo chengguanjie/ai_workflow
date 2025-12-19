@@ -1,14 +1,18 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-import { Trash2 } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Trash2, AlertCircle, Loader2 } from 'lucide-react'
+import { OutputTabContent } from './shared/output-tab-content'
 import type { ImportedFile } from '@/types/workflow'
+import type { AIProviderConfig } from './shared/types'
 
-type MediaTabType = 'import' | 'prompt'
+type MediaTabType = 'import' | 'prompt' | 'ai' | 'output'
 
 interface MediaNodeConfigPanelProps {
+  nodeId: string
   config?: Record<string, unknown>
   onUpdate: (config: Record<string, unknown>) => void
   nodeType: 'data' | 'image' | 'video' | 'audio'
@@ -19,6 +23,7 @@ interface MediaNodeConfigPanelProps {
 }
 
 export function MediaNodeConfigPanel({
+  nodeId,
   config,
   onUpdate,
   title,
@@ -27,12 +32,47 @@ export function MediaNodeConfigPanel({
   icon,
 }: MediaNodeConfigPanelProps) {
   const [activeTab, setActiveTab] = useState<MediaTabType>('import')
+  const [providers, setProviders] = useState<AIProviderConfig[]>([])
+  const [loadingProviders, setLoadingProviders] = useState(true)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const mediaConfig = config as {
     files?: ImportedFile[]
     prompt?: string
+    aiConfigId?: string
+    model?: string
   } || {}
+
+  // 加载可用的服务商列表
+  useEffect(() => {
+    async function loadProviders() {
+      try {
+        const res = await fetch('/api/ai/providers')
+        if (res.ok) {
+          const data = await res.json()
+          const providerList = data.providers || []
+          setProviders(providerList)
+
+          // 如果节点没有选择配置，或者当前配置已不存在，使用默认配置
+          const currentConfigExists = mediaConfig.aiConfigId &&
+            providerList.some((p: AIProviderConfig) => p.id === mediaConfig.aiConfigId)
+
+          if (!currentConfigExists && data.defaultProvider) {
+            onUpdate({
+              ...mediaConfig,
+              aiConfigId: data.defaultProvider.id,
+            })
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load providers:', error)
+      } finally {
+        setLoadingProviders(false)
+      }
+    }
+    loadProviders()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const files = mediaConfig.files || []
 
@@ -81,6 +121,8 @@ export function MediaNodeConfigPanel({
   const tabs: { key: MediaTabType; label: string; badge?: number }[] = [
     { key: 'import', label: '导入', badge: files.length || undefined },
     { key: 'prompt', label: '提示词' },
+    { key: 'ai', label: 'AI 配置' },
+    { key: 'output', label: '输出' },
   ]
 
   return (
@@ -195,6 +237,61 @@ export function MediaNodeConfigPanel({
             </p>
           </div>
         </div>
+      )}
+
+      {/* AI 配置 Tab */}
+      {activeTab === 'ai' && (
+        <div className="space-y-4">
+          {loadingProviders ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              加载服务商...
+            </div>
+          ) : providers.length === 0 ? (
+            <div className="flex items-center gap-2 p-3 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+              <AlertCircle className="h-4 w-4 flex-shrink-0" />
+              <span>请先在 <a href="/settings/ai-config" className="underline font-medium">设置 → AI 配置</a> 添加服务商</span>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label>服务商配置</Label>
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={mediaConfig.aiConfigId || ''}
+                  onChange={(e) => handleChange('aiConfigId', e.target.value)}
+                >
+                  <option value="">选择服务商配置...</option>
+                  {providers.map((provider) => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.displayName}{provider.isDefault ? ' (默认)' : ''}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  选择用于处理提示词的 AI 服务商
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>模型（可选）</Label>
+                <Input
+                  value={mediaConfig.model || ''}
+                  onChange={(e) => handleChange('model', e.target.value)}
+                  placeholder="留空使用服务商默认模型"
+                />
+                <p className="text-xs text-muted-foreground">
+                  自定义模型名称，留空则使用服务商的默认模型
+                </p>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* 输出 Tab */}
+      {activeTab === 'output' && (
+        <OutputTabContent nodeId={nodeId} />
       )}
     </div>
   )

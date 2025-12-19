@@ -30,7 +30,7 @@ export function createMockRequest(options: MockRequestOptions = {}): NextRequest
     }
   }
 
-  return new NextRequest(url, init)
+  return new NextRequest(url, init as RequestInit & { signal?: AbortSignal })
 }
 
 export function createMockGetRequest(

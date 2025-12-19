@@ -9,19 +9,25 @@ import { Separator } from '@/components/ui/separator'
 import { X } from 'lucide-react'
 
 // Import split components
+import { TriggerNodeConfigPanel } from './trigger-node-config'
 import { InputNodeConfigPanel } from './input-node-config'
 import { ProcessNodeConfigPanel } from './process-node-config'
 import { CodeNodeConfigPanel } from './code-node-config'
 import { OutputNodeConfigPanel } from './output-node-config'
 import { ConditionNodeConfigPanel } from './condition-node-config'
 import { LoopNodeConfigPanel } from './loop-node-config'
+import { SwitchNodeConfigPanel } from './switch-node-config'
 import { HttpNodeConfigPanel } from './http-node-config'
-import { 
-  DataNodeConfigPanel, 
-  ImageNodeConfigPanel, 
-  VideoNodeConfigPanel, 
-  AudioNodeConfigPanel 
+import { MergeNodeConfigPanel } from './merge-node-config'
+import { ImageGenNodeConfigPanel } from './image-gen-node-config'
+import { NotificationNodeConfigPanel } from './notification-node-config'
+import {
+  DataNodeConfigPanel,
+  ImageNodeConfigPanel,
+  VideoNodeConfigPanel,
+  AudioNodeConfigPanel
 } from './data-node-config'
+import { GroupNodeConfigPanel } from './group-node-config'
 
 export function NodeConfigPanel() {
   const { nodes, selectedNodeId, selectNode, updateNode } = useWorkflowStore()
@@ -69,6 +75,14 @@ export function NodeConfigPanel() {
     const nodeType = nodeData.type.toLowerCase()
 
     switch (nodeType) {
+      case 'trigger':
+        return (
+          <TriggerNodeConfigPanel
+            nodeId={selectedNodeId!}
+            config={nodeData.config}
+            onUpdate={handleConfigChange}
+          />
+        )
       case 'input':
         return (
           <InputNodeConfigPanel
@@ -79,6 +93,7 @@ export function NodeConfigPanel() {
       case 'process':
         return (
           <ProcessNodeConfigPanel
+            nodeId={selectedNodeId!}
             config={nodeData.config}
             onUpdate={handleConfigChange}
           />
@@ -86,6 +101,7 @@ export function NodeConfigPanel() {
       case 'code':
         return (
           <CodeNodeConfigPanel
+            nodeId={selectedNodeId!}
             config={nodeData.config}
             onUpdate={handleConfigChange}
           />
@@ -93,6 +109,7 @@ export function NodeConfigPanel() {
       case 'output':
         return (
           <OutputNodeConfigPanel
+            nodeId={selectedNodeId!}
             config={nodeData.config}
             onUpdate={handleConfigChange}
           />
@@ -100,6 +117,7 @@ export function NodeConfigPanel() {
       case 'data':
         return (
           <DataNodeConfigPanel
+            nodeId={selectedNodeId!}
             config={nodeData.config}
             onUpdate={handleConfigChange}
           />
@@ -107,6 +125,7 @@ export function NodeConfigPanel() {
       case 'image':
         return (
           <ImageNodeConfigPanel
+            nodeId={selectedNodeId!}
             config={nodeData.config}
             onUpdate={handleConfigChange}
           />
@@ -114,6 +133,7 @@ export function NodeConfigPanel() {
       case 'video':
         return (
           <VideoNodeConfigPanel
+            nodeId={selectedNodeId!}
             config={nodeData.config}
             onUpdate={handleConfigChange}
           />
@@ -121,6 +141,7 @@ export function NodeConfigPanel() {
       case 'audio':
         return (
           <AudioNodeConfigPanel
+            nodeId={selectedNodeId!}
             config={nodeData.config}
             onUpdate={handleConfigChange}
           />
@@ -128,6 +149,7 @@ export function NodeConfigPanel() {
       case 'condition':
         return (
           <ConditionNodeConfigPanel
+            nodeId={selectedNodeId!}
             config={nodeData.config}
             onUpdate={handleConfigChange}
           />
@@ -135,6 +157,15 @@ export function NodeConfigPanel() {
       case 'loop':
         return (
           <LoopNodeConfigPanel
+            nodeId={selectedNodeId!}
+            config={nodeData.config}
+            onUpdate={handleConfigChange}
+          />
+        )
+      case 'switch':
+        return (
+          <SwitchNodeConfigPanel
+            nodeId={selectedNodeId!}
             config={nodeData.config}
             onUpdate={handleConfigChange}
           />
@@ -142,6 +173,37 @@ export function NodeConfigPanel() {
       case 'http':
         return (
           <HttpNodeConfigPanel
+            nodeId={selectedNodeId!}
+            config={nodeData.config}
+            onUpdate={handleConfigChange}
+          />
+        )
+      case 'merge':
+        return (
+          <MergeNodeConfigPanel
+            nodeId={selectedNodeId!}
+            config={nodeData.config}
+            onUpdate={handleConfigChange}
+          />
+        )
+      case 'image_gen':
+        return (
+          <ImageGenNodeConfigPanel
+            nodeId={selectedNodeId!}
+            config={nodeData.config}
+            onUpdate={handleConfigChange}
+          />
+        )
+      case 'notification':
+        return (
+          <NotificationNodeConfigPanel
+            config={nodeData.config}
+            onUpdate={handleConfigChange}
+          />
+        )
+      case 'group':
+        return (
+          <GroupNodeConfigPanel
             config={nodeData.config}
             onUpdate={handleConfigChange}
           />
@@ -190,17 +252,23 @@ export function NodeConfigPanel() {
 }
 
 // Re-export all sub-components for direct access if needed
+export { TriggerNodeConfigPanel } from './trigger-node-config'
 export { InputNodeConfigPanel } from './input-node-config'
 export { ProcessNodeConfigPanel } from './process-node-config'
 export { CodeNodeConfigPanel } from './code-node-config'
 export { OutputNodeConfigPanel } from './output-node-config'
 export { ConditionNodeConfigPanel } from './condition-node-config'
 export { LoopNodeConfigPanel } from './loop-node-config'
+export { SwitchNodeConfigPanel } from './switch-node-config'
 export { HttpNodeConfigPanel } from './http-node-config'
-export { 
-  DataNodeConfigPanel, 
-  ImageNodeConfigPanel, 
-  VideoNodeConfigPanel, 
-  AudioNodeConfigPanel 
+export { MergeNodeConfigPanel } from './merge-node-config'
+export { ImageGenNodeConfigPanel } from './image-gen-node-config'
+export { NotificationNodeConfigPanel } from './notification-node-config'
+export {
+  DataNodeConfigPanel,
+  ImageNodeConfigPanel,
+  VideoNodeConfigPanel,
+  AudioNodeConfigPanel
 } from './data-node-config'
 export { MediaNodeConfigPanel } from './media-node-config'
+export { GroupNodeConfigPanel } from './group-node-config'

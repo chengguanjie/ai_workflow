@@ -3,6 +3,7 @@
 import { useRef } from 'react'
 import { Label } from '@/components/ui/label'
 import { ReferenceSelector } from './reference-selector'
+import { HighlightedTextarea } from './highlighted-textarea'
 import type { KnowledgeItem } from '@/types/workflow'
 
 interface PromptTabContentProps {
@@ -68,12 +69,13 @@ export function PromptTabContent({
             onInsert={handleInsertReference}
           />
         </div>
-        <textarea
+        <HighlightedTextarea
           ref={userPromptRef}
-          className="min-h-[150px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-y"
+          className="bg-background"
           placeholder="用户提示词，点击「插入引用」选择变量..."
           value={processConfig.userPrompt || ''}
-          onChange={(e) => onUserPromptChange(e.target.value)}
+          onChange={onUserPromptChange}
+          minHeight="150px"
         />
         <p className="text-xs text-muted-foreground">
           点击「插入引用」按钮选择节点和字段，或直接输入 {'{{节点名.字段名}}'}

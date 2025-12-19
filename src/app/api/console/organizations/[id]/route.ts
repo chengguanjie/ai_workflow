@@ -42,7 +42,7 @@ export async function GET(
       _count: {
         select: {
           workflows: true,
-          executions: true,
+          users: true,
           apiKeys: true,
           apiTokens: true,
         },
@@ -68,11 +68,21 @@ export async function GET(
     _count: true,
   })
 
+  // Get total executions count for this organization's workflows
+  const executionCount = await prisma.execution.count({
+    where: {
+      workflow: {
+        organizationId: id,
+      },
+    },
+  })
+
   return NextResponse.json({
     ...organization,
     stats: {
       workflowCount: organization._count.workflows,
-      executionCount: organization._count.executions,
+      userCount: organization._count.users,
+      executionCount,
       apiKeyCount: organization._count.apiKeys,
       apiTokenCount: organization._count.apiTokens,
       recentExecutions: recentExecutions.reduce(
@@ -158,14 +168,14 @@ export async function PUT(
         action: 'UPDATE_ORG',
         resource: 'organization',
         resourceId: id,
-        detail: {
+        detail: JSON.parse(JSON.stringify({
           changes: updateData,
           previousValues: {
             name: existing.name,
             plan: existing.plan,
             apiQuota: existing.apiQuota,
           },
-        },
+        })),
         adminId: session.user.id,
       },
     })

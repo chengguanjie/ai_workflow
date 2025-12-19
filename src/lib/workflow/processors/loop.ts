@@ -16,10 +16,10 @@
 
 import type {
   LoopNodeConfig,
-  NodeOutput,
-  ExecutionContext,
   Condition,
+  NodeConfig,
 } from '@/types/workflow'
+import type { NodeProcessor, ExecutionContext, NodeOutput } from '../types'
 
 const DEFAULT_MAX_ITERATIONS = 1000
 
@@ -271,7 +271,7 @@ export function getLoopContextVariables(state: LoopState): Record<string, unknow
 
 /**
  * Process LOOP node - Initialize loop and return initial state
- * 
+ *
  * @param node - LOOP node configuration
  * @param context - Execution context with node outputs
  * @returns Node output with loop state for engine to manage iterations
@@ -280,47 +280,80 @@ export async function processLoopNode(
   node: LoopNodeConfig,
   context: ExecutionContext
 ): Promise<NodeOutput> {
-  const { loopType, forConfig, whileConfig, maxIterations } = node.config
-  
-  if (loopType === 'FOR') {
-    if (!forConfig) {
-      throw new Error('LOOP node with type FOR requires forConfig')
+  const startedAt = new Date()
+  const { loopType, forConfig, whileConfig } = node.config
+
+  try {
+    if (loopType === 'FOR') {
+      if (!forConfig) {
+        throw new Error('LOOP node with type FOR requires forConfig')
+      }
+
+      const state = initializeForLoop(node, context)
+      const loopVars = getLoopContextVariables(state)
+
+      return {
+        nodeId: node.id,
+        nodeName: node.name,
+        nodeType: node.type,
+        status: 'success',
+        data: {
+          loopType: 'FOR',
+          state,
+          loopVariables: loopVars,
+          arrayLength: state.array?.length ?? 0,
+          shouldContinue: state.shouldContinue,
+          currentIndex: state.currentIndex,
+          currentItem: state.currentItem,
+          maxIterations: state.maxIterations,
+        },
+        startedAt,
+        completedAt: new Date(),
+        duration: Date.now() - startedAt.getTime(),
+      }
     }
-    
-    const state = initializeForLoop(node, context)
-    const loopVars = getLoopContextVariables(state)
-    
+
+    if (loopType === 'WHILE') {
+      if (!whileConfig) {
+        throw new Error('LOOP node with type WHILE requires whileConfig')
+      }
+
+      const state = initializeWhileLoop(node, context)
+      const loopVars = getLoopContextVariables(state)
+
+      return {
+        nodeId: node.id,
+        nodeName: node.name,
+        nodeType: node.type,
+        status: 'success',
+        data: {
+          loopType: 'WHILE',
+          state,
+          loopVariables: loopVars,
+          shouldContinue: state.shouldContinue,
+          currentIndex: state.currentIndex,
+          maxIterations: state.maxIterations,
+        },
+        startedAt,
+        completedAt: new Date(),
+        duration: Date.now() - startedAt.getTime(),
+      }
+    }
+
+    throw new Error(`Unknown loop type: ${loopType}`)
+  } catch (error) {
     return {
-      loopType: 'FOR',
-      state,
-      loopVariables: loopVars,
-      arrayLength: state.array?.length ?? 0,
-      shouldContinue: state.shouldContinue,
-      currentIndex: state.currentIndex,
-      currentItem: state.currentItem,
-      maxIterations: state.maxIterations,
+      nodeId: node.id,
+      nodeName: node.name,
+      nodeType: node.type,
+      status: 'error',
+      data: {},
+      error: error instanceof Error ? error.message : '循环节点处理失败',
+      startedAt,
+      completedAt: new Date(),
+      duration: Date.now() - startedAt.getTime(),
     }
   }
-  
-  if (loopType === 'WHILE') {
-    if (!whileConfig) {
-      throw new Error('LOOP node with type WHILE requires whileConfig')
-    }
-    
-    const state = initializeWhileLoop(node, context)
-    const loopVars = getLoopContextVariables(state)
-    
-    return {
-      loopType: 'WHILE',
-      state,
-      loopVariables: loopVars,
-      shouldContinue: state.shouldContinue,
-      currentIndex: state.currentIndex,
-      maxIterations: state.maxIterations,
-    }
-  }
-  
-  throw new Error(`Unknown loop type: ${loopType}`)
 }
 
 /**
@@ -339,10 +372,19 @@ export function shouldLoopContinue(state: LoopState): boolean {
  */
 export function aggregateLoopResults(
   iterationResults: Record<string, unknown>[]
-): NodeOutput {
+): Record<string, unknown> {
   return {
     iterations: iterationResults.length,
     results: iterationResults,
     allSucceeded: iterationResults.every(r => r.success !== false),
   }
+}
+
+/**
+ * LOOP 节点处理器
+ */
+export const loopNodeProcessor: NodeProcessor = {
+  nodeType: 'LOOP',
+  process: (node: NodeConfig, context: ExecutionContext) =>
+    processLoopNode(node as LoopNodeConfig, context),
 }

@@ -3,6 +3,8 @@
 import type { AIProvider, AIProviderType, ChatRequest, ChatResponse, Model } from './types'
 import { shensuanProvider } from './providers/shensuan'
 import { openRouterProvider } from './providers/openrouter'
+import { openAIProvider } from './providers/openai'
+import { anthropicProvider } from './providers/anthropic'
 
 export * from './types'
 
@@ -12,6 +14,8 @@ class AIService {
   constructor() {
     this.providers.set('SHENSUAN', shensuanProvider)
     this.providers.set('OPENROUTER', openRouterProvider)
+    this.providers.set('OPENAI', openAIProvider)
+    this.providers.set('ANTHROPIC', anthropicProvider)
   }
 
   getProvider(type: AIProviderType): AIProvider {
@@ -42,6 +46,13 @@ class AIService {
       return []
     }
     return provider.listModels(apiKey, baseUrl)
+  }
+
+  /**
+   * 获取所有支持的提供商类型
+   */
+  getSupportedProviders(): AIProviderType[] {
+    return Array.from(this.providers.keys())
   }
 }
 

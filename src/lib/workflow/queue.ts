@@ -1,22 +1,21 @@
 /**
  * 工作流异步执行队列
  *
- * 简单的内存队列实现，支持：
- * - 后台异步执行
- * - 执行状态轮询
- * - 并发控制
- * - 超时处理
+ * 统一队列接口，支持两种后端：
+ * - BullMQ + Redis（推荐生产环境）
+ * - 内存队列（开发/测试环境）
  *
- * 注意：生产环境建议使用 Redis + Bull 或类似方案
+ * 自动根据 Redis 配置选择后端
  */
 
 import { executeWorkflow, ExecutionResult } from './engine'
 import { prisma } from '@/lib/db'
+import { bullmqManager, isRedisConfigured } from './bullmq-queue'
 
 /**
  * 队列任务
  */
-interface QueueTask {
+export interface QueueTask {
   id: string
   workflowId: string
   organizationId: string
@@ -34,23 +33,23 @@ interface QueueTask {
  * 队列配置
  */
 interface QueueConfig {
-  maxConcurrent: number      // 最大并发数
-  taskTimeout: number        // 任务超时时间（毫秒）
-  cleanupInterval: number    // 清理间隔（毫秒）
-  taskRetention: number      // 任务保留时间（毫秒）
+  maxConcurrent: number
+  taskTimeout: number
+  cleanupInterval: number
+  taskRetention: number
 }
 
 const DEFAULT_CONFIG: QueueConfig = {
   maxConcurrent: 5,
-  taskTimeout: 5 * 60 * 1000,      // 5 分钟
-  cleanupInterval: 60 * 1000,       // 1 分钟
-  taskRetention: 30 * 60 * 1000,    // 30 分钟
+  taskTimeout: 5 * 60 * 1000,
+  cleanupInterval: 60 * 1000,
+  taskRetention: 30 * 60 * 1000,
 }
 
 /**
- * 执行队列类
+ * 内存队列实现（备用）
  */
-class ExecutionQueue {
+class InMemoryQueue {
   private tasks: Map<string, QueueTask> = new Map()
   private runningCount = 0
   private config: QueueConfig
@@ -61,9 +60,6 @@ class ExecutionQueue {
     this.startCleanup()
   }
 
-  /**
-   * 添加任务到队列
-   */
   async enqueue(
     workflowId: string,
     organizationId: string,
@@ -83,23 +79,15 @@ class ExecutionQueue {
     }
 
     this.tasks.set(taskId, task)
-
-    // 尝试处理队列
     this.processQueue()
 
     return taskId
   }
 
-  /**
-   * 获取任务状态
-   */
   getTask(taskId: string): QueueTask | undefined {
     return this.tasks.get(taskId)
   }
 
-  /**
-   * 获取任务状态（包含执行详情）
-   */
   async getTaskWithDetails(taskId: string): Promise<{
     task: QueueTask | null
     execution?: {
@@ -117,19 +105,14 @@ class ExecutionQueue {
       return { task: null }
     }
 
-    // 如果任务已完成，尝试从数据库获取执行详情
     if (task.status === 'completed' || task.status === 'failed') {
       const execution = await prisma.execution.findFirst({
         where: {
           workflowId: task.workflowId,
           userId: task.userId,
-          createdAt: {
-            gte: task.createdAt,
-          },
+          createdAt: { gte: task.createdAt },
         },
-        orderBy: {
-          createdAt: 'desc',
-        },
+        orderBy: { createdAt: 'desc' },
         select: {
           id: true,
           status: true,
@@ -142,23 +125,22 @@ class ExecutionQueue {
 
       return {
         task,
-        execution: execution ? {
-          id: execution.id,
-          status: execution.status,
-          output: execution.output,
-          error: execution.error || undefined,
-          duration: execution.duration || undefined,
-          totalTokens: execution.totalTokens,
-        } : undefined,
+        execution: execution
+          ? {
+              id: execution.id,
+              status: execution.status,
+              output: execution.output,
+              error: execution.error || undefined,
+              duration: execution.duration || undefined,
+              totalTokens: execution.totalTokens,
+            }
+          : undefined,
       }
     }
 
     return { task }
   }
 
-  /**
-   * 取消任务
-   */
   cancelTask(taskId: string): boolean {
     const task = this.tasks.get(taskId)
 
@@ -173,34 +155,26 @@ class ExecutionQueue {
     return true
   }
 
-  /**
-   * 处理队列
-   */
   private async processQueue(): Promise<void> {
-    // 检查并发限制
     if (this.runningCount >= this.config.maxConcurrent) {
       return
     }
 
-    // 找到下一个待处理任务
     for (const [, task] of this.tasks) {
       if (task.status === 'pending') {
         this.runningCount++
         task.status = 'running'
         task.startedAt = new Date()
 
-        // 异步执行任务
         this.executeTask(task)
           .catch((error) => {
             console.error(`Task ${task.id} failed:`, error)
           })
           .finally(() => {
             this.runningCount--
-            // 继续处理队列
             this.processQueue()
           })
 
-        // 检查是否还能处理更多任务
         if (this.runningCount >= this.config.maxConcurrent) {
           break
         }
@@ -208,17 +182,12 @@ class ExecutionQueue {
     }
   }
 
-  /**
-   * 执行任务
-   */
   private async executeTask(task: QueueTask): Promise<void> {
     try {
-      // 设置超时
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => reject(new Error('任务执行超时')), this.config.taskTimeout)
       })
 
-      // 执行工作流
       const resultPromise = executeWorkflow(
         task.workflowId,
         task.organizationId,
@@ -239,24 +208,17 @@ class ExecutionQueue {
     }
   }
 
-  /**
-   * 启动清理定时器
-   */
   private startCleanup(): void {
     this.cleanupTimer = setInterval(() => {
       this.cleanup()
     }, this.config.cleanupInterval)
   }
 
-  /**
-   * 清理过期任务
-   */
   private cleanup(): void {
     const now = Date.now()
     const expireTime = now - this.config.taskRetention
 
     for (const [taskId, task] of this.tasks) {
-      // 删除已完成且超过保留时间的任务
       if (
         (task.status === 'completed' || task.status === 'failed') &&
         task.completedAt &&
@@ -267,9 +229,6 @@ class ExecutionQueue {
     }
   }
 
-  /**
-   * 获取队列状态
-   */
   getQueueStatus(): {
     pending: number
     running: number
@@ -299,22 +258,221 @@ class ExecutionQueue {
       }
     }
 
-    return {
-      pending,
-      running,
-      completed,
-      failed,
-      total: this.tasks.size,
+    return { pending, running, completed, failed, total: this.tasks.size }
+  }
+
+  stop(): void {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer)
+      this.cleanupTimer = null
     }
+  }
+}
+
+/**
+ * 统一执行队列类
+ * 根据 Redis 配置自动选择 BullMQ 或内存队列
+ */
+class ExecutionQueue {
+  private memoryQueue: InMemoryQueue
+  private useBullMQ = false
+  private initialized = false
+
+  constructor() {
+    this.memoryQueue = new InMemoryQueue()
+  }
+
+  /**
+   * 初始化队列
+   */
+  async initialize(): Promise<void> {
+    if (this.initialized) return
+
+    if (isRedisConfigured()) {
+      const success = await bullmqManager.initialize()
+      if (success) {
+        this.useBullMQ = true
+        console.log('[Queue] Using BullMQ + Redis')
+      } else {
+        console.log('[Queue] BullMQ init failed, falling back to memory queue')
+      }
+    } else {
+      console.log('[Queue] Redis not configured, using memory queue')
+    }
+
+    this.initialized = true
+  }
+
+  /**
+   * 添加任务到队列
+   */
+  async enqueue(
+    workflowId: string,
+    organizationId: string,
+    userId: string,
+    input?: Record<string, unknown>,
+    options?: {
+      triggerId?: string
+      priority?: number
+      delay?: number
+    }
+  ): Promise<string> {
+    // 确保已初始化
+    if (!this.initialized) {
+      await this.initialize()
+    }
+
+    if (this.useBullMQ) {
+      return bullmqManager.enqueue(workflowId, organizationId, userId, input, options)
+    }
+
+    return this.memoryQueue.enqueue(workflowId, organizationId, userId, input)
+  }
+
+  /**
+   * 获取任务状态
+   */
+  getTask(taskId: string): QueueTask | undefined {
+    if (this.useBullMQ) {
+      // BullMQ 使用异步方法
+      return undefined
+    }
+    return this.memoryQueue.getTask(taskId)
+  }
+
+  /**
+   * 获取任务状态（包含执行详情）
+   */
+  async getTaskWithDetails(taskId: string): Promise<{
+    task: QueueTask | null
+    execution?: {
+      id: string
+      status: string
+      output: unknown
+      error?: string
+      duration?: number
+      totalTokens?: number
+    }
+  }> {
+    if (this.useBullMQ) {
+      const jobStatus = await bullmqManager.getJobStatus(taskId)
+
+      if (jobStatus.status === 'unknown') {
+        return { task: null }
+      }
+
+      // 优先使用执行结果中的状态（因为 BullMQ 的 completed 可能包含 FAILED 的执行）
+      let taskStatus: QueueTask['status'] = 'pending'
+      let taskError: string | undefined = jobStatus.failedReason
+
+      if (jobStatus.result) {
+        // 使用执行引擎返回的真实状态
+        if (jobStatus.result.status === 'COMPLETED') {
+          taskStatus = 'completed'
+        } else if (jobStatus.result.status === 'FAILED') {
+          taskStatus = 'failed'
+          // 优先使用执行结果中的错误信息
+          taskError = jobStatus.result.error || jobStatus.failedReason || '执行失败'
+        } else {
+          taskStatus = 'running'
+        }
+      } else {
+        // 没有执行结果，使用 BullMQ 的任务状态
+        const statusMap: Record<string, QueueTask['status']> = {
+          pending: 'pending',
+          delayed: 'pending',
+          running: 'running',
+          completed: 'completed',
+          failed: 'failed',
+        }
+        taskStatus = statusMap[jobStatus.status] || 'pending'
+
+        // 如果是失败状态但没有错误信息，设置默认错误信息
+        if (taskStatus === 'failed' && !taskError) {
+          taskError = '执行失败，请查看执行历史获取详细信息'
+        }
+      }
+
+      const task: QueueTask = {
+        id: taskId,
+        workflowId: '',
+        organizationId: '',
+        userId: '',
+        status: taskStatus,
+        createdAt: new Date(),
+        error: taskError,
+      }
+
+      if (jobStatus.result) {
+        return {
+          task,
+          execution: {
+            id: jobStatus.result.executionId,
+            status: jobStatus.result.status,
+            output: jobStatus.result.output,
+            error: jobStatus.result.error || taskError,
+            duration: jobStatus.result.duration,
+          },
+        }
+      }
+
+      return { task }
+    }
+
+    return this.memoryQueue.getTaskWithDetails(taskId)
+  }
+
+  /**
+   * 取消任务
+   */
+  async cancelTask(taskId: string): Promise<boolean> {
+    if (this.useBullMQ) {
+      return bullmqManager.cancelJob(taskId)
+    }
+    return this.memoryQueue.cancelTask(taskId)
+  }
+
+  /**
+   * 获取队列状态
+   */
+  async getQueueStatus(): Promise<{
+    pending: number
+    running: number
+    completed: number
+    failed: number
+    total: number
+    backend: 'bullmq' | 'memory'
+  }> {
+    if (this.useBullMQ) {
+      const status = await bullmqManager.getQueueStatus()
+      return {
+        pending: status.waiting + status.delayed,
+        running: status.active,
+        completed: status.completed,
+        failed: status.failed,
+        total: status.waiting + status.delayed + status.active + status.completed + status.failed,
+        backend: 'bullmq',
+      }
+    }
+
+    const status = this.memoryQueue.getQueueStatus()
+    return { ...status, backend: 'memory' }
+  }
+
+  /**
+   * 检查是否使用 BullMQ
+   */
+  isUsingBullMQ(): boolean {
+    return this.useBullMQ
   }
 
   /**
    * 停止队列
    */
-  stop(): void {
-    if (this.cleanupTimer) {
-      clearInterval(this.cleanupTimer)
-      this.cleanupTimer = null
+  async stop(): Promise<void> {
+    this.memoryQueue.stop()
+    if (this.useBullMQ) {
+      await bullmqManager.close()
     }
   }
 }
@@ -331,4 +489,4 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 // 导出类型
-export type { QueueTask, QueueConfig }
+export type { QueueConfig }

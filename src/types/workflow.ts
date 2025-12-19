@@ -11,9 +11,14 @@
 // Basic Types
 // ============================================
 
-export type NodeType = 'INPUT' | 'PROCESS' | 'CODE' | 'OUTPUT' | 'DATA' | 'IMAGE' | 'VIDEO' | 'AUDIO' | 'CONDITION' | 'LOOP' | 'HTTP'
+export type NodeType = 'TRIGGER' | 'INPUT' | 'PROCESS' | 'CODE' | 'OUTPUT' | 'DATA' | 'IMAGE' | 'VIDEO' | 'AUDIO' | 'CONDITION' | 'LOOP' | 'HTTP' | 'MERGE' | 'IMAGE_GEN' | 'NOTIFICATION' | 'SWITCH' | 'GROUP'
 
-export type AIProviderType = 'SHENSUAN' | 'OPENROUTER'
+/**
+ * Trigger type for TRIGGER nodes
+ */
+export type TriggerType = 'MANUAL' | 'WEBHOOK' | 'SCHEDULE'
+
+export type AIProviderType = 'SHENSUAN' | 'OPENROUTER' | 'OPENAI' | 'ANTHROPIC' | 'BAIDU_WENXIN' | 'ALIYUN_TONGYI' | 'XUNFEI_SPARK' | 'STABILITYAI'
 
 export type OutputFormat =
   | 'text'
@@ -45,6 +50,13 @@ export interface WorkflowSettings {
   retryDelay?: number
   /** Enable parallel execution of independent nodes */
   enableParallelExecution?: boolean
+  /**
+   * Error handling strategy for parallel execution:
+   * - 'fail_fast': Stop all branches on first error (default)
+   * - 'continue': Continue with successful branches
+   * - 'collect': Collect all errors and report at the end
+   */
+  parallelErrorStrategy?: ParallelErrorStrategy
   /** Log level for execution */
   logLevel?: 'debug' | 'info' | 'warn' | 'error'
   /** Webhook URL for execution notifications */
@@ -139,6 +151,37 @@ export interface BaseNodeConfig {
 // ============================================
 
 /**
+ * TRIGGER node configuration - Workflow trigger configuration
+ */
+export interface TriggerNodeConfigData {
+  /** Trigger type: manual, webhook, or schedule */
+  triggerType: TriggerType
+  /** Whether the trigger is enabled */
+  enabled?: boolean
+  /** Webhook path (auto-generated, for WEBHOOK type) */
+  webhookPath?: string
+  /** Whether webhook has a secret configured */
+  hasWebhookSecret?: boolean
+  /** Cron expression (for SCHEDULE type) */
+  cronExpression?: string
+  /** Timezone for cron (default: Asia/Shanghai) */
+  timezone?: string
+  /** Default input template (JSON) */
+  inputTemplate?: Record<string, unknown>
+  /** Retry on failure */
+  retryOnFail?: boolean
+  /** Maximum retry attempts */
+  maxRetries?: number
+  /** Associated trigger ID in database (for syncing) */
+  triggerId?: string
+}
+
+export interface TriggerNodeConfig extends BaseNodeConfig {
+  type: 'TRIGGER'
+  config: TriggerNodeConfigData
+}
+
+/**
  * INPUT node configuration - User input fields
  */
 export interface InputNodeConfigData {
@@ -152,11 +195,27 @@ export interface InputNodeConfig extends BaseNodeConfig {
 }
 
 /**
+ * RAG (Retrieval Augmented Generation) configuration
+ */
+export interface RAGConfig {
+  /** Number of top results to retrieve (default: 5) */
+  topK?: number
+  /** Minimum similarity threshold (0-1, default: 0.7) */
+  threshold?: number
+  /** Maximum context tokens to include */
+  maxContextTokens?: number
+}
+
+/**
  * PROCESS node configuration - AI processing with knowledge base
  */
 export interface ProcessNodeConfigData extends NodeAIConfig {
   /** Knowledge base items for context */
   knowledgeItems?: KnowledgeItem[]
+  /** Knowledge base ID for RAG retrieval */
+  knowledgeBaseId?: string
+  /** RAG configuration */
+  ragConfig?: RAGConfig
   /** System prompt for AI */
   systemPrompt?: string
   /** User prompt with variable support ({{nodeName.fieldName}}) */
@@ -442,6 +501,50 @@ export interface LoopNodeConfig extends BaseNodeConfig {
 }
 
 // ============================================
+// Switch Node Configuration
+// ============================================
+
+/**
+ * Single case definition for SWITCH node
+ */
+export interface SwitchCase {
+  /** Unique case identifier */
+  id: string
+  /** Case label for display */
+  label: string
+  /** Value to match against (supports string, number, boolean) */
+  value: string | number | boolean
+  /** Whether this is the default case */
+  isDefault?: boolean
+}
+
+/**
+ * Match type for switch comparison
+ */
+export type SwitchMatchType = 'exact' | 'contains' | 'regex' | 'range'
+
+/**
+ * SWITCH node configuration - Multi-way branching based on value matching
+ */
+export interface SwitchNodeConfigData {
+  /** Variable to switch on (supports {{node.output.field}} syntax) */
+  switchVariable: string
+  /** Array of case definitions */
+  cases: SwitchCase[]
+  /** Match type for comparison (default: 'exact') */
+  matchType?: SwitchMatchType
+  /** Case-insensitive matching for string comparison (default: false) */
+  caseSensitive?: boolean
+  /** Include default branch for unmatched values (default: true) */
+  includeDefault?: boolean
+}
+
+export interface SwitchNodeConfig extends BaseNodeConfig {
+  type: 'SWITCH'
+  config: SwitchNodeConfigData
+}
+
+// ============================================
 // HTTP Node Configuration
 // ============================================
 
@@ -541,10 +644,177 @@ export interface HttpNodeConfig extends BaseNodeConfig {
   config: HttpNodeConfigData
 }
 
+// ============================================
+// MERGE Node Configuration
+// ============================================
+
+/**
+ * Merge strategy for parallel branches
+ */
+export type MergeStrategy = 'all' | 'any' | 'race'
+
+/**
+ * Error handling strategy for parallel execution
+ */
+export type ParallelErrorStrategy = 'fail_fast' | 'continue' | 'collect'
+
+/**
+ * MERGE node configuration - Merges multiple parallel branches
+ */
+export interface MergeNodeConfigData {
+  /**
+   * Merge strategy:
+   * - 'all': Wait for all branches to complete (default)
+   * - 'any': Continue when any branch completes
+   * - 'race': Continue with first completed branch, cancel others
+   */
+  mergeStrategy: MergeStrategy
+
+  /**
+   * Error handling strategy:
+   * - 'fail_fast': Fail immediately when any branch fails (default)
+   * - 'continue': Continue with successful branches, collect errors
+   * - 'collect': Wait for all branches, then report all errors
+   */
+  errorStrategy?: ParallelErrorStrategy
+
+  /**
+   * Timeout for waiting branches in milliseconds (default: 300000 = 5 min)
+   * Only applies when mergeStrategy is 'all'
+   */
+  timeout?: number
+
+  /**
+   * Output mode:
+   * - 'merge': Merge all branch outputs into a single object
+   * - 'array': Collect all branch outputs as an array
+   * - 'first': Use only the first completed branch output
+   */
+  outputMode?: 'merge' | 'array' | 'first'
+}
+
+export interface MergeNodeConfig extends BaseNodeConfig {
+  type: 'MERGE'
+  config: MergeNodeConfigData
+}
+
+// ============================================
+// IMAGE_GEN Node Configuration
+// ============================================
+
+/**
+ * Image generation provider type
+ */
+export type ImageGenProvider = 'OPENAI' | 'STABILITYAI' | 'ALIYUN_TONGYI' | 'SHENSUAN'
+
+/**
+ * Image size options
+ */
+export type ImageSize = '256x256' | '512x512' | '1024x1024' | '1024x1792' | '1792x1024'
+
+/**
+ * Image generation quality
+ */
+export type ImageQuality = 'standard' | 'hd'
+
+/**
+ * IMAGE_GEN node configuration - AI image generation
+ */
+export interface ImageGenNodeConfigData extends NodeAIConfig {
+  /** Image generation prompt (supports variables) */
+  prompt?: string
+  /** Negative prompt for things to avoid */
+  negativePrompt?: string
+  /** Image provider */
+  provider?: ImageGenProvider
+  /** Image generation model */
+  imageModel?: string
+  /** Image size */
+  size?: ImageSize
+  /** Image quality */
+  quality?: ImageQuality
+  /** Number of images to generate (1-4) */
+  n?: number
+  /** Style preset (provider-specific) */
+  style?: string
+  /** Reference image URL for image-to-image */
+  referenceImageUrl?: string
+  /** Output filename template */
+  outputFileName?: string
+}
+
+export interface ImageGenNodeConfig extends BaseNodeConfig {
+  type: 'IMAGE_GEN'
+  config: ImageGenNodeConfigData
+}
+
+// ============================================
+// NOTIFICATION Node Configuration
+// ============================================
+
+/**
+ * Notification platform type
+ */
+export type NotificationPlatform = 'feishu' | 'dingtalk' | 'wecom'
+
+/**
+ * Notification message type
+ */
+export type NotificationMessageType = 'text' | 'markdown' | 'card'
+
+/**
+ * NOTIFICATION node configuration - Send notifications to messaging platforms
+ */
+export interface NotificationNodeConfigData {
+  /** Target platform */
+  platform: NotificationPlatform
+  /** Webhook URL for the platform */
+  webhookUrl: string
+  /** Message type */
+  messageType: NotificationMessageType
+  /** Message content (supports {{variable}} syntax) */
+  content: string
+  /** Message title (for markdown and card types) */
+  title?: string
+  /** Phone numbers to @ mention (platform-specific) */
+  atMobiles?: string[]
+  /** Whether to @ all members */
+  atAll?: boolean
+}
+
+export interface NotificationNodeConfig extends BaseNodeConfig {
+  type: 'NOTIFICATION'
+  config: NotificationNodeConfigData
+}
+
+// ============================================
+// GROUP Node Configuration
+// ============================================
+
+/**
+ * GROUP node configuration - Groups multiple nodes together
+ */
+export interface GroupNodeConfigData {
+  /** IDs of nodes contained in this group */
+  childNodeIds: string[]
+  /** Group display name */
+  label?: string
+  /** Whether the group is collapsed */
+  collapsed?: boolean
+  /** Original positions of child nodes relative to group origin */
+  childRelativePositions?: Record<string, NodePosition>
+}
+
+export interface GroupNodeConfig extends BaseNodeConfig {
+  type: 'GROUP'
+  config: GroupNodeConfigData
+}
+
 /**
  * Union type of all node configurations
  */
 export type NodeConfig =
+  | TriggerNodeConfig
   | InputNodeConfig
   | ProcessNodeConfig
   | CodeNodeConfig
@@ -555,12 +825,18 @@ export type NodeConfig =
   | AudioNodeConfig
   | ConditionNodeConfig
   | LoopNodeConfig
+  | SwitchNodeConfig
   | HttpNodeConfig
+  | MergeNodeConfig
+  | ImageGenNodeConfig
+  | NotificationNodeConfig
+  | GroupNodeConfig
 
 /**
  * Union type of all node config data types
  */
 export type NodeConfigData =
+  | TriggerNodeConfigData
   | InputNodeConfigData
   | ProcessNodeConfigData
   | CodeNodeConfigData
@@ -571,7 +847,12 @@ export type NodeConfigData =
   | AudioNodeConfigData
   | ConditionNodeConfigData
   | LoopNodeConfigData
+  | SwitchNodeConfigData
   | HttpNodeConfigData
+  | MergeNodeConfigData
+  | ImageGenNodeConfigData
+  | NotificationNodeConfigData
+  | GroupNodeConfigData
 
 // ============================================
 // Edge Configuration
@@ -752,6 +1033,13 @@ export type StorageType = 'LOCAL' | 'ALIYUN_OSS' | 'AWS_S3' | 'CUSTOM'
 // ============================================
 
 /**
+ * Type guard to check if a node is a TRIGGER node
+ */
+export function isTriggerNode(node: NodeConfig): node is TriggerNodeConfig {
+  return node.type === 'TRIGGER'
+}
+
+/**
  * Type guard to check if a node is an INPUT node
  */
 export function isInputNode(node: NodeConfig): node is InputNodeConfig {
@@ -829,10 +1117,45 @@ export function isHttpNode(node: NodeConfig): node is HttpNodeConfig {
 }
 
 /**
+ * Type guard to check if a node is a MERGE node
+ */
+export function isMergeNode(node: NodeConfig): node is MergeNodeConfig {
+  return node.type === 'MERGE'
+}
+
+/**
+ * Type guard to check if a node is a SWITCH node
+ */
+export function isSwitchNode(node: NodeConfig): node is SwitchNodeConfig {
+  return node.type === 'SWITCH'
+}
+
+/**
+ * Type guard to check if a node is an IMAGE_GEN node
+ */
+export function isImageGenNode(node: NodeConfig): node is ImageGenNodeConfig {
+  return node.type === 'IMAGE_GEN'
+}
+
+/**
+ * Type guard to check if a node is a NOTIFICATION node
+ */
+export function isNotificationNode(node: NodeConfig): node is NotificationNodeConfig {
+  return node.type === 'NOTIFICATION'
+}
+
+/**
+ * Type guard to check if a node is a GROUP node
+ */
+export function isGroupNode(node: NodeConfig): node is GroupNodeConfig {
+  return node.type === 'GROUP'
+}
+
+/**
  * Type guard to check if a node uses AI
  */
-export function isAINode(node: NodeConfig): node is ProcessNodeConfig | CodeNodeConfig | OutputNodeConfig {
-  return node.type === 'PROCESS' || node.type === 'CODE' || node.type === 'OUTPUT'
+export function isAINode(node: NodeConfig): node is ProcessNodeConfig | CodeNodeConfig | OutputNodeConfig | ImageGenNodeConfig {
+  return node.type === 'PROCESS' || node.type === 'CODE' || node.type === 'OUTPUT' || node.type === 'IMAGE_GEN'
 }
 
 /**
@@ -845,6 +1168,6 @@ export function isFileNode(node: NodeConfig): node is DataNodeConfig | ImageNode
 /**
  * Type guard to check if a node is a control flow node
  */
-export function isControlFlowNode(node: NodeConfig): node is ConditionNodeConfig | LoopNodeConfig {
-  return node.type === 'CONDITION' || node.type === 'LOOP'
+export function isControlFlowNode(node: NodeConfig): node is ConditionNodeConfig | LoopNodeConfig | MergeNodeConfig | SwitchNodeConfig {
+  return node.type === 'CONDITION' || node.type === 'LOOP' || node.type === 'MERGE' || node.type === 'SWITCH'
 }

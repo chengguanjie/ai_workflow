@@ -69,7 +69,7 @@ export const PUT = withAuth(async (request: NextRequest, { user, params }: AuthC
   const workflow = await workflowService.update(id, user.organizationId, {
     name: data.name,
     description: data.description,
-    config: data.config,
+    config: data.config ? JSON.parse(JSON.stringify(data.config)) : undefined,
     isActive: data.isActive,
     category: data.category,
     tags: data.tags,

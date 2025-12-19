@@ -50,20 +50,22 @@ function WorkflowEditor() {
     getWorkflowConfig,
     markSaved,
     setViewport,
+    reset,
   } = useWorkflowStore()
+
+  // 新建工作流页面：重置 store 以创建全新的工作流
+  useEffect(() => {
+    reset()
+  }, [reset])
 
   // 等待 zustand 持久化加载完成后恢复 viewport
   useEffect(() => {
     // 延迟一帧确保 store 已经 hydrate
     const timer = setTimeout(() => {
       setIsHydrated(true)
-      const savedViewport = useWorkflowStore.getState().viewport
-      if (savedViewport && (savedViewport.x !== 0 || savedViewport.y !== 0 || savedViewport.zoom !== 1)) {
-        setReactFlowViewport(savedViewport)
-      }
     }, 50)
     return () => clearTimeout(timer)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [])
 
   // 自动保存到数据库（仅当已有 workflowId 时）
   const autoSaveToDb = useCallback(async (silent = true) => {
@@ -168,7 +170,8 @@ function WorkflowEditor() {
           throw new Error(error.error || '创建失败')
         }
 
-        const workflow = await response.json()
+        const result = await response.json()
+        const workflow = result.data
         markSaved()
         setSaveStatus('saved')
         toast.success('工作流已创建')

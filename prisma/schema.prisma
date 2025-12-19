@@ -60,6 +60,7 @@ model Organization {
   apiKeys     ApiKey[]
   apiTokens   ApiToken[]
   invitations Invitation[]
+  knowledgeBases KnowledgeBase[]
 
   @@map("organizations")
 }
@@ -167,6 +168,12 @@ model ApiKey {
 enum AIProvider {
   SHENSUAN
   OPENROUTER
+  OPENAI
+  ANTHROPIC
+  BAIDU_WENXIN
+  ALIYUN_TONGYI
+  XUNFEI_SPARK
+  STABILITYAI
 }
 
 // ============================================
@@ -232,11 +239,152 @@ model Workflow {
   creator   User   @relation(fields: [creatorId], references: [id])
 
   executions Execution[]
+  triggers   WorkflowTrigger[]
 
   @@index([organizationId])
   @@index([creatorId])
   @@index([deletedAt])
   @@map("workflows")
+}
+
+// ============================================
+// 工作流触发器（Webhook / 定时任务）
+// ============================================
+
+model WorkflowTrigger {
+  id          String       @id @default(cuid())
+  name        String       // 触发器名称
+  type        TriggerType  // 触发器类型
+  enabled     Boolean      @default(true)
+
+  // Webhook 配置
+  webhookPath   String?    @unique  // Webhook 路径标识 (如: abc123)
+  webhookSecret String?    @db.Text // 签名密钥 (HMAC-SHA256)
+
+  // 定时任务配置
+  cronExpression String?   // Cron 表达式 (如: 0 0 * * *)
+  timezone       String?   @default("Asia/Shanghai")
+
+  // 执行配置
+  inputTemplate  Json?     // 默认输入模板
+  retryOnFail    Boolean   @default(false)
+  maxRetries     Int       @default(3)
+
+  // 统计信息
+  triggerCount     Int       @default(0)
+  lastTriggeredAt  DateTime?
+  lastSuccessAt    DateTime?
+  lastFailureAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // 关联
+  workflowId String
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  createdById String  // 创建者 ID
+
+  logs TriggerLog[]
+
+  @@index([workflowId])
+  @@index([type])
+  @@index([enabled])
+  @@index([webhookPath])
+  @@map("workflow_triggers")
+}
+
+enum TriggerType {
+  MANUAL    // 手动触发
+  WEBHOOK   // Webhook 触发
+  SCHEDULE  // 定时任务
+}
+
+model TriggerLog {
+  id          String        @id @default(cuid())
+  status      TriggerStatus
+
+  // 请求信息 (Webhook)
+  requestMethod  String?    // GET, POST 等
+  requestHeaders Json?      // 请求头
+  requestBody    Json?      // 请求体
+  requestIp      String?    // 来源 IP
+
+  // 响应/结果
+  executionId    String?    // 关联的执行记录 ID
+  responseCode   Int?       // HTTP 响应码
+  errorMessage   String?    @db.Text
+
+  // 时间
+  triggeredAt    DateTime   @default(now())
+  completedAt    DateTime?
+  duration       Int?       // 毫秒
+
+  // 关联
+  triggerId String
+  trigger   WorkflowTrigger @relation(fields: [triggerId], references: [id], onDelete: Cascade)
+
+  @@index([triggerId])
+  @@index([status])
+  @@index([triggeredAt])
+  @@map("trigger_logs")
+}
+
+enum TriggerStatus {
+  PENDING    // 等待中
+  RUNNING    // 执行中
+  SUCCESS    // 成功
+  FAILED     // 失败
+  SKIPPED    // 跳过（如工作流未激活）
+}
+
+// ============================================
+// 工作流模板
+// ============================================
+
+model WorkflowTemplate {
+  id            String   @id @default(cuid())
+  name          String
+  description   String?  @db.Text
+  category      String   // AI处理/数据分析/文档生成等
+  tags          Json     @default("[]") // 搜索标签
+  thumbnail     String?  // 缩略图 URL
+
+  // 工作流配置（节点+边）
+  config        Json
+
+  // 可见性控制
+  visibility    TemplateVisibility @default(PRIVATE)
+  organizationId String? // 企业模板归属（null 表示官方模板）
+
+  // 创建者信息
+  creatorId     String?  // null 表示官方模板
+  creatorName   String?  // 创建者名称（用于显示）
+
+  // 统计信息
+  usageCount    Int      @default(0)
+  rating        Float    @default(0)
+  ratingCount   Int      @default(0)
+
+  // 是否为官方模板
+  isOfficial    Boolean  @default(false)
+
+  // 版本信息
+  version       String   @default("1.0.0")
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([category])
+  @@index([visibility, organizationId])
+  @@index([isOfficial])
+  @@map("workflow_templates")
+}
+
+enum TemplateVisibility {
+  PRIVATE      // 仅自己可见
+  ORGANIZATION // 企业内可见
+  PUBLIC       // 公开
 }
 
 // ============================================
@@ -261,6 +409,12 @@ model Execution {
 
   error       String? @db.Text
   errorDetail Json?
+
+  // 断点续执行支持
+  checkpoint      Json?     // 保存已完成节点的输出和当前执行位置
+  lastCheckpoint  DateTime? // 最后一次保存检查点的时间
+  resumedFromId   String?   // 如果是恢复执行，关联原执行ID
+  canResume       Boolean   @default(false) // 是否可以恢复执行
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -321,10 +475,21 @@ model ExecutionLog {
 }
 
 enum NodeType {
+  TRIGGER
   INPUT
   PROCESS
   CODE
   OUTPUT
+  DATA
+  IMAGE
+  VIDEO
+  AUDIO
+  CONDITION
+  LOOP
+  HTTP
+  MERGE
+  IMAGE_GEN
+  NOTIFICATION
 }
 
 // ============================================
@@ -517,4 +682,127 @@ enum ApplicationStatus {
   PENDING  // 待审批
   APPROVED // 已通过
   REJECTED // 已拒绝
+}
+
+// ============================================
+// 知识库 RAG 系统
+// ============================================
+
+model KnowledgeBase {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?  @db.Text
+
+  // 向量化配置
+  embeddingModel   String  @default("text-embedding-ada-002")
+  embeddingProvider AIProvider @default(OPENAI)
+  chunkSize        Int     @default(1000)  // 分块大小（字符数）
+  chunkOverlap     Int     @default(200)   // 分块重叠
+
+  // 向量存储配置
+  vectorStoreType   VectorStoreType @default(PGVECTOR)
+  vectorStoreConfig Json            @default("{}")  // 向量数据库连接配置
+
+  // 统计信息
+  documentCount Int @default(0)
+  chunkCount    Int @default(0)
+  totalSize     Int @default(0)  // 总文件大小（字节）
+
+  // 状态
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // 关联
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  creatorId String?  // 创建者
+
+  documents KnowledgeDocument[]
+
+  @@index([organizationId])
+  @@index([isActive])
+  @@map("knowledge_bases")
+}
+
+enum VectorStoreType {
+  PGVECTOR    // PostgreSQL pgvector 扩展
+  PINECONE    // Pinecone 向量数据库
+  QDRANT      // Qdrant 向量数据库
+  MILVUS      // Milvus 向量数据库
+  MEMORY      // 内存存储（仅开发测试）
+}
+
+model KnowledgeDocument {
+  id              String   @id @default(cuid())
+
+  // 文件信息
+  fileName        String
+  fileType        String          // pdf, docx, md, txt 等
+  fileSize        Int             // 文件大小（字节）
+  fileUrl         String?         // 原始文件存储 URL
+  fileKey         String?         // 存储路径/键
+
+  // 处理状态
+  status          DocProcessStatus @default(PENDING)
+  errorMessage    String?          @db.Text
+
+  // 处理结果
+  chunkCount      Int       @default(0)
+  processedAt     DateTime?
+
+  // 元数据
+  metadata        Json      @default("{}")  // 额外信息如页数、字数等
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // 关联
+  knowledgeBaseId String
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+
+  uploadedById    String?  // 上传者
+
+  chunks          DocumentChunk[]
+
+  @@index([knowledgeBaseId])
+  @@index([status])
+  @@map("knowledge_documents")
+}
+
+enum DocProcessStatus {
+  PENDING     // 待处理
+  PROCESSING  // 处理中
+  COMPLETED   // 已完成
+  FAILED      // 失败
+}
+
+model DocumentChunk {
+  id          String @id @default(cuid())
+
+  // 内容
+  content     String @db.Text        // 分块文本内容
+
+  // 向量（存储为 JSON 数组，实际向量检索使用 pgvector）
+  embedding   Json?                  // 向量数据 [0.1, 0.2, ...]
+
+  // 位置信息
+  chunkIndex  Int                    // 分块序号
+  startOffset Int?                   // 在原文中的起始位置
+  endOffset   Int?                   // 在原文中的结束位置
+
+  // 元数据
+  metadata    Json   @default("{}")  // 页码、章节等信息
+
+  createdAt   DateTime @default(now())
+
+  // 关联
+  documentId  String
+  document    KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@index([chunkIndex])
+  @@map("document_chunks")
 }

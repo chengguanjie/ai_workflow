@@ -15,9 +15,9 @@ import type {
   ConditionNodeConfig,
   Condition,
   ConditionOperator,
-  NodeOutput,
-  ExecutionContext,
+  NodeConfig,
 } from '@/types/workflow'
+import type { NodeProcessor, ExecutionContext, NodeOutput } from '../types'
 
 /**
  * Resolve variable value from execution context
@@ -179,7 +179,7 @@ function evaluateConditions(
 
 /**
  * Process CONDITION node
- * 
+ *
  * @param node - CONDITION node configuration
  * @param context - Execution context with node outputs
  * @returns Node output with evaluation result
@@ -188,26 +188,59 @@ export async function processConditionNode(
   node: ConditionNodeConfig,
   context: ExecutionContext
 ): Promise<NodeOutput> {
+  const startedAt = new Date()
   const { conditions, evaluationMode = 'all' } = node.config
-  
-  // Validate configuration
-  if (!conditions || conditions.length === 0) {
-    throw new Error('CONDITION node must have at least one condition')
+
+  try {
+    // Validate configuration
+    if (!conditions || conditions.length === 0) {
+      throw new Error('CONDITION node must have at least one condition')
+    }
+
+    // Evaluate all conditions
+    const result = evaluateConditions(conditions, evaluationMode, context)
+
+    // Return evaluation result
+    return {
+      nodeId: node.id,
+      nodeName: node.name,
+      nodeType: node.type,
+      status: 'success',
+      data: {
+        result,
+        conditionsMet: result,
+        evaluatedConditions: conditions.map(cond => ({
+          variable: cond.variable,
+          operator: cond.operator,
+          value: cond.value,
+          resolved: resolveVariable(cond.variable, context),
+          passed: evaluateCondition(cond, context),
+        })),
+      },
+      startedAt,
+      completedAt: new Date(),
+      duration: Date.now() - startedAt.getTime(),
+    }
+  } catch (error) {
+    return {
+      nodeId: node.id,
+      nodeName: node.name,
+      nodeType: node.type,
+      status: 'error',
+      data: {},
+      error: error instanceof Error ? error.message : '条件节点处理失败',
+      startedAt,
+      completedAt: new Date(),
+      duration: Date.now() - startedAt.getTime(),
+    }
   }
-  
-  // Evaluate all conditions
-  const result = evaluateConditions(conditions, evaluationMode, context)
-  
-  // Return evaluation result
-  return {
-    result,
-    conditionsMet: result,
-    evaluatedConditions: conditions.map(cond => ({
-      variable: cond.variable,
-      operator: cond.operator,
-      value: cond.value,
-      resolved: resolveVariable(cond.variable, context),
-      passed: evaluateCondition(cond, context),
-    })),
-  }
+}
+
+/**
+ * CONDITION 节点处理器
+ */
+export const conditionNodeProcessor: NodeProcessor = {
+  nodeType: 'CONDITION',
+  process: (node: NodeConfig, context: ExecutionContext) =>
+    processConditionNode(node as ConditionNodeConfig, context),
 }

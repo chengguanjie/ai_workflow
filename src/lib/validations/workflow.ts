@@ -16,7 +16,7 @@ export const workflowCreateSchema = z.object({
   config: z.object({
     nodes: z.array(z.any()),
     edges: z.array(z.any()),
-    globalVariables: z.record(z.string()).optional(),
+    globalVariables: z.record(z.string(), z.string()).optional(),
   }),
 })
 
@@ -41,7 +41,7 @@ export const workflowUpdateSchema = z.object({
   config: z.object({
     nodes: z.array(z.any()),
     edges: z.array(z.any()),
-    globalVariables: z.record(z.string()).optional(),
+    globalVariables: z.record(z.string(), z.string()).optional(),
   }).optional(),
   isActive: z.boolean().optional(),
   category: z.string().max(50).optional(),
@@ -53,7 +53,7 @@ export const workflowUpdateSchema = z.object({
  * Validates optional input data, timeout configuration, and async mode
  */
 export const workflowExecuteSchema = z.object({
-  input: z.record(z.unknown()).optional(),
+  input: z.record(z.string(), z.unknown()).optional(),
   timeout: z.number().int().min(1).max(3600).optional(),
   async: z.boolean().optional(),
 })

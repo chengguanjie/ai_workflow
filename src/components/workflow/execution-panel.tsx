@@ -51,10 +51,11 @@ interface ExecutionPanelProps {
 export function ExecutionPanel({ workflowId, isOpen, onClose }: ExecutionPanelProps) {
   const [isExecuting, setIsExecuting] = useState(false)
   const [result, setResult] = useState<ExecutionResult | null>(null)
+  const [executionError, setExecutionError] = useState<string | null>(null)
   const [inputValues, setInputValues] = useState<Record<string, string>>({})
   const [showInputs, setShowInputs] = useState(true)
   const [showOutput, setShowOutput] = useState(true)
-  const [asyncMode, setAsyncMode] = useState(false)
+  const [asyncMode, setAsyncMode] = useState(true)
   const [taskId, setTaskId] = useState<string | null>(null)
   const pollingRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -90,6 +91,7 @@ export function ExecutionPanel({ workflowId, isOpen, onClose }: ExecutionPanelPr
       setInputValues(initial)
       setResult(null)
       setTaskId(null)
+      setExecutionError(null)
     }
   }, [isOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -113,10 +115,12 @@ export function ExecutionPanel({ workflowId, isOpen, onClose }: ExecutionPanelPr
           clearInterval(pollingRef.current)
           pollingRef.current = null
         }
+        const errorMsg = '任务不存在或已过期，请重新执行'
         setResult({
           status: 'FAILED',
-          error: '任务不存在或已过期，请重新执行',
+          error: errorMsg,
         })
+        setExecutionError(errorMsg)
         setIsExecuting(false)
         toast.error('任务不存在或已过期')
         return
@@ -135,22 +139,35 @@ export function ExecutionPanel({ workflowId, isOpen, onClose }: ExecutionPanelPr
           pollingRef.current = null
         }
 
+        // 从 execution 对象获取错误信息（API 返回 execution 而非 result）
+        const executionData = data.execution || data.result
+        // 优先级：execution.error > data.error > 默认错误信息
+        const errorMsg = executionData?.error || data.error || (data.status === 'failed' ? '执行失败，请查看执行历史获取详细信息' : undefined)
+
+        // 使用执行结果的状态，而不是任务状态（因为 BullMQ 的 completed 可能包含 FAILED）
+        const executionStatus = executionData?.status || (data.status === 'completed' ? 'COMPLETED' : 'FAILED')
+        const isFailed = executionStatus === 'FAILED' || data.status === 'failed'
+
         setResult({
-          status: data.status === 'completed' ? 'COMPLETED' : 'FAILED',
-          output: data.result?.output,
-          error: data.error || data.result?.error,
-          duration: data.result?.duration,
-          totalTokens: data.result?.totalTokens,
-          promptTokens: data.result?.promptTokens,
-          completionTokens: data.result?.completionTokens,
-          outputFiles: data.result?.outputFiles,
+          status: isFailed ? 'FAILED' : 'COMPLETED',
+          output: executionData?.output,
+          error: errorMsg,
+          duration: executionData?.duration,
+          totalTokens: executionData?.totalTokens,
+          promptTokens: executionData?.promptTokens,
+          completionTokens: executionData?.completionTokens,
+          outputFiles: executionData?.outputFiles,
         })
+
+        if (isFailed && errorMsg) {
+          setExecutionError(errorMsg)
+        }
         setIsExecuting(false)
 
-        if (data.status === 'completed') {
+        if (!isFailed) {
           toast.success('工作流执行完成')
         } else {
-          toast.error(data.error || '工作流执行失败')
+          toast.error(errorMsg || '工作流执行失败')
         }
       }
     } catch (error) {
@@ -163,6 +180,7 @@ export function ExecutionPanel({ workflowId, isOpen, onClose }: ExecutionPanelPr
     setIsExecuting(true)
     setResult(null)
     setTaskId(null)
+    setExecutionError(null)
 
     try {
       const response = await fetch(`/api/workflows/${workflowId}/execute`, {
@@ -177,7 +195,11 @@ export function ExecutionPanel({ workflowId, isOpen, onClose }: ExecutionPanelPr
       const data = await response.json()
 
       if (!response.ok) {
-        throw new Error(data.error || '执行失败')
+        const errorMsg = data.error || data.message || '执行失败'
+        setExecutionError(errorMsg)
+        setIsExecuting(false)
+        toast.error(errorMsg)
+        return
       }
 
       if (asyncMode && data.taskId) {
@@ -197,12 +219,16 @@ export function ExecutionPanel({ workflowId, isOpen, onClose }: ExecutionPanelPr
         if (data.status === 'COMPLETED') {
           toast.success('工作流执行完成')
         } else {
-          toast.error(data.error || '工作流执行失败')
+          const errorMsg = data.error || '工作流执行失败'
+          setExecutionError(errorMsg)
+          toast.error(errorMsg)
         }
       }
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : '执行失败'
+      setExecutionError(errorMsg)
       setIsExecuting(false)
-      toast.error(error instanceof Error ? error.message : '执行失败')
+      toast.error(errorMsg)
     }
   }, [workflowId, inputValues, asyncMode, pollTaskStatus])
 
@@ -299,6 +325,17 @@ export function ExecutionPanel({ workflowId, isOpen, onClose }: ExecutionPanelPr
             </div>
           )}
 
+          {/* 执行错误（未获得结果时显示） */}
+          {executionError && !result && !isExecuting && (
+            <div className="mb-6 flex items-center gap-3 rounded-lg bg-red-50 p-4 text-red-700">
+              <XCircle className="h-5 w-5 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="font-medium">执行失败</p>
+                <p className="text-sm opacity-90 break-words">{executionError}</p>
+              </div>
+            </div>
+          )}
+
           {/* 执行结果 */}
           {result && (
             <div className="space-y-4">
@@ -319,7 +356,11 @@ export function ExecutionPanel({ workflowId, isOpen, onClose }: ExecutionPanelPr
                   <p className="font-medium">
                     {result.status === 'COMPLETED' ? '执行成功' : '执行失败'}
                   </p>
-                  {result.error && <p className="text-sm opacity-75">{result.error}</p>}
+                  {result.status !== 'COMPLETED' && (
+                    <p className="text-sm opacity-75">
+                      {result.error || '未知错误，请查看执行历史获取详细信息'}
+                    </p>
+                  )}
                 </div>
               </div>
 

@@ -89,7 +89,8 @@ describe('Property 14: Component Refactoring Behavioral Equivalence', () => {
     url: fc.webUrl(),
     size: fc.integer({ min: 0, max: 100000000 }),
     type: fc.constantFrom('image/png', 'image/jpeg', 'video/mp4', 'audio/mp3', 'application/pdf'),
-    uploadedAt: fc.date().map(d => d.toISOString()),
+    // Use integer timestamp to avoid invalid date issues
+    uploadedAt: fc.integer({ min: 946684800000, max: 1924905600000 }).map(ts => new Date(ts).toISOString()),
   })
 
   // Arbitrary for generating media node configurations
@@ -420,6 +421,307 @@ describe('Property 14: Component Refactoring Behavioral Equivalence', () => {
             
             // Verify prompt is updated
             expect(updatedConfig.prompt).toBe(newPrompt)
+          }
+        ),
+        { numRuns: 100 }
+      )
+    })
+  })
+
+  // Arbitrary for generating image generation node configurations
+  const imageGenConfigArb = fc.record({
+    aiConfigId: fc.option(fc.uuid(), { nil: undefined }),
+    provider: fc.option(fc.constantFrom('OPENAI', 'STABILITYAI', 'ALIYUN_TONGYI', 'SHENSUAN'), { nil: undefined }),
+    prompt: fc.option(fc.string({ minLength: 0, maxLength: 500 }), { nil: undefined }),
+    negativePrompt: fc.option(fc.string({ minLength: 0, maxLength: 200 }), { nil: undefined }),
+    imageModel: fc.option(fc.constantFrom('dall-e-3', 'dall-e-2', 'stable-diffusion-xl-1024-v1-0'), { nil: undefined }),
+    size: fc.constantFrom('256x256', '512x512', '1024x1024', '1024x1792', '1792x1024'),
+    quality: fc.constantFrom('standard', 'hd'),
+    n: fc.integer({ min: 1, max: 4 }),
+    style: fc.option(fc.constantFrom('vivid', 'natural'), { nil: undefined }),
+    outputFileName: fc.option(fc.string({ minLength: 1, maxLength: 50 }), { nil: undefined }),
+    referenceImageUrl: fc.option(fc.webUrl(), { nil: undefined }),
+  })
+
+  // Arbitrary for generating notification node configurations
+  const notificationConfigArb = fc.record({
+    platform: fc.constantFrom('feishu', 'dingtalk', 'wecom'),
+    webhookUrl: fc.webUrl(),
+    messageType: fc.constantFrom('text', 'markdown', 'card'),
+    content: fc.string({ minLength: 1, maxLength: 1000 }),
+    title: fc.option(fc.string({ minLength: 1, maxLength: 100 }), { nil: undefined }),
+    atMobiles: fc.array(fc.string({ minLength: 11, maxLength: 11 }).map(s => s.replace(/\D/g, '1')), { minLength: 0, maxLength: 3 }),
+    atAll: fc.boolean(),
+  })
+
+  describe('Image Generation Node Configuration', () => {
+    /**
+     * Test that prompt changes preserve other properties
+     */
+    it('changing prompt should preserve other properties', () => {
+      fc.assert(
+        fc.property(
+          imageGenConfigArb,
+          fc.string({ minLength: 1, maxLength: 500 }),
+          (config, newPrompt) => {
+            // Simulate handleChange for prompt
+            const updatedConfig = { ...config, prompt: newPrompt }
+
+            // Verify other properties are preserved
+            expect(updatedConfig.aiConfigId).toEqual(config.aiConfigId)
+            expect(updatedConfig.provider).toEqual(config.provider)
+            expect(updatedConfig.size).toEqual(config.size)
+            expect(updatedConfig.quality).toEqual(config.quality)
+            expect(updatedConfig.n).toEqual(config.n)
+            expect(updatedConfig.style).toEqual(config.style)
+
+            // Verify prompt is updated
+            expect(updatedConfig.prompt).toBe(newPrompt)
+          }
+        ),
+        { numRuns: 100 }
+      )
+    })
+
+    /**
+     * Test that size changes preserve prompt and other configs
+     */
+    it('changing size should preserve other properties', () => {
+      fc.assert(
+        fc.property(
+          imageGenConfigArb,
+          fc.constantFrom('256x256', '512x512', '1024x1024', '1024x1792', '1792x1024'),
+          (config, newSize) => {
+            // Simulate handleChange for size
+            const updatedConfig = { ...config, size: newSize }
+
+            // Verify prompt and other properties are preserved
+            expect(updatedConfig.prompt).toEqual(config.prompt)
+            expect(updatedConfig.quality).toEqual(config.quality)
+            expect(updatedConfig.n).toEqual(config.n)
+            expect(updatedConfig.negativePrompt).toEqual(config.negativePrompt)
+
+            // Verify size is updated
+            expect(updatedConfig.size).toBe(newSize)
+          }
+        ),
+        { numRuns: 100 }
+      )
+    })
+
+    /**
+     * Test that quality changes preserve other properties
+     */
+    it('changing quality should preserve other properties', () => {
+      fc.assert(
+        fc.property(
+          imageGenConfigArb,
+          fc.constantFrom('standard', 'hd'),
+          (config, newQuality) => {
+            // Simulate handleChange for quality
+            const updatedConfig = { ...config, quality: newQuality }
+
+            // Verify other properties are preserved
+            expect(updatedConfig.prompt).toEqual(config.prompt)
+            expect(updatedConfig.size).toEqual(config.size)
+            expect(updatedConfig.n).toEqual(config.n)
+
+            // Verify quality is updated
+            expect(updatedConfig.quality).toBe(newQuality)
+          }
+        ),
+        { numRuns: 100 }
+      )
+    })
+
+    /**
+     * Test that n (count) changes are within valid range
+     */
+    it('changing n should be within valid range 1-4', () => {
+      fc.assert(
+        fc.property(
+          imageGenConfigArb,
+          fc.integer({ min: 1, max: 4 }),
+          (config, newN) => {
+            // Simulate handleChange for n
+            const updatedConfig = { ...config, n: newN }
+
+            // Verify n is within valid range
+            expect(updatedConfig.n).toBeGreaterThanOrEqual(1)
+            expect(updatedConfig.n).toBeLessThanOrEqual(4)
+
+            // Verify other properties are preserved
+            expect(updatedConfig.prompt).toEqual(config.prompt)
+            expect(updatedConfig.size).toEqual(config.size)
+          }
+        ),
+        { numRuns: 100 }
+      )
+    })
+  })
+
+  describe('Notification Node Configuration', () => {
+    /**
+     * Test that platform changes preserve other properties
+     */
+    it('changing platform should preserve other properties', () => {
+      fc.assert(
+        fc.property(
+          notificationConfigArb,
+          fc.constantFrom('feishu', 'dingtalk', 'wecom'),
+          (config, newPlatform) => {
+            // Simulate handleChange for platform
+            const updatedConfig = { ...config, platform: newPlatform }
+
+            // Verify other properties are preserved
+            expect(updatedConfig.webhookUrl).toEqual(config.webhookUrl)
+            expect(updatedConfig.messageType).toEqual(config.messageType)
+            expect(updatedConfig.content).toEqual(config.content)
+            expect(updatedConfig.title).toEqual(config.title)
+            expect(updatedConfig.atMobiles).toEqual(config.atMobiles)
+            expect(updatedConfig.atAll).toEqual(config.atAll)
+
+            // Verify platform is updated
+            expect(updatedConfig.platform).toBe(newPlatform)
+          }
+        ),
+        { numRuns: 100 }
+      )
+    })
+
+    /**
+     * Test that message type changes preserve content
+     */
+    it('changing messageType should preserve content', () => {
+      fc.assert(
+        fc.property(
+          notificationConfigArb,
+          fc.constantFrom('text', 'markdown', 'card'),
+          (config, newMessageType) => {
+            // Simulate handleChange for messageType
+            const updatedConfig = { ...config, messageType: newMessageType }
+
+            // Verify content is preserved
+            expect(updatedConfig.content).toEqual(config.content)
+            expect(updatedConfig.webhookUrl).toEqual(config.webhookUrl)
+            expect(updatedConfig.platform).toEqual(config.platform)
+
+            // Verify messageType is updated
+            expect(updatedConfig.messageType).toBe(newMessageType)
+          }
+        ),
+        { numRuns: 100 }
+      )
+    })
+
+    /**
+     * Test that content changes preserve other properties
+     */
+    it('changing content should preserve other properties', () => {
+      fc.assert(
+        fc.property(
+          notificationConfigArb,
+          fc.string({ minLength: 1, maxLength: 1000 }),
+          (config, newContent) => {
+            // Simulate handleChange for content
+            const updatedConfig = { ...config, content: newContent }
+
+            // Verify other properties are preserved
+            expect(updatedConfig.platform).toEqual(config.platform)
+            expect(updatedConfig.webhookUrl).toEqual(config.webhookUrl)
+            expect(updatedConfig.messageType).toEqual(config.messageType)
+            expect(updatedConfig.title).toEqual(config.title)
+
+            // Verify content is updated
+            expect(updatedConfig.content).toBe(newContent)
+          }
+        ),
+        { numRuns: 100 }
+      )
+    })
+
+    /**
+     * Test that adding atMobiles preserves existing mobiles
+     */
+    it('adding atMobiles should preserve existing mobiles', () => {
+      fc.assert(
+        fc.property(
+          fc.array(fc.string({ minLength: 11, maxLength: 11 }), { minLength: 0, maxLength: 3 }),
+          fc.string({ minLength: 11, maxLength: 11 }),
+          (existingMobiles, newMobile) => {
+            const config = { atMobiles: existingMobiles }
+
+            // Simulate adding a mobile (if not duplicate)
+            const updatedMobiles = existingMobiles.includes(newMobile)
+              ? existingMobiles
+              : [...existingMobiles, newMobile]
+            const updatedConfig = { ...config, atMobiles: updatedMobiles }
+
+            // Verify existing mobiles are preserved
+            for (const mobile of existingMobiles) {
+              expect(updatedConfig.atMobiles).toContain(mobile)
+            }
+
+            // Verify new mobile is added (if not duplicate)
+            if (!existingMobiles.includes(newMobile)) {
+              expect(updatedConfig.atMobiles).toContain(newMobile)
+              expect(updatedConfig.atMobiles.length).toBe(existingMobiles.length + 1)
+            }
+          }
+        ),
+        { numRuns: 100 }
+      )
+    })
+
+    /**
+     * Test that removing atMobiles preserves other mobiles
+     */
+    it('removing atMobiles should preserve other mobiles', () => {
+      fc.assert(
+        fc.property(
+          fc.array(fc.string({ minLength: 11, maxLength: 11 }), { minLength: 1, maxLength: 5 }),
+          (mobiles) => {
+            const mobileToRemove = mobiles[Math.floor(Math.random() * mobiles.length)]
+            const config = { atMobiles: [...mobiles] }
+
+            // Simulate removing a mobile
+            const updatedMobiles = config.atMobiles.filter(m => m !== mobileToRemove)
+            const updatedConfig = { ...config, atMobiles: updatedMobiles }
+
+            // Verify removed mobile is not present
+            expect(updatedConfig.atMobiles).not.toContain(mobileToRemove)
+
+            // Verify other mobiles are preserved
+            for (const mobile of mobiles) {
+              if (mobile !== mobileToRemove) {
+                expect(updatedConfig.atMobiles).toContain(mobile)
+              }
+            }
+          }
+        ),
+        { numRuns: 100 }
+      )
+    })
+
+    /**
+     * Test that atAll toggle preserves other properties
+     */
+    it('toggling atAll should preserve other properties', () => {
+      fc.assert(
+        fc.property(
+          notificationConfigArb,
+          (config) => {
+            // Simulate toggling atAll
+            const updatedConfig = { ...config, atAll: !config.atAll }
+
+            // Verify other properties are preserved
+            expect(updatedConfig.platform).toEqual(config.platform)
+            expect(updatedConfig.webhookUrl).toEqual(config.webhookUrl)
+            expect(updatedConfig.content).toEqual(config.content)
+            expect(updatedConfig.atMobiles).toEqual(config.atMobiles)
+
+            // Verify atAll is toggled
+            expect(updatedConfig.atAll).toBe(!config.atAll)
           }
         ),
         { numRuns: 100 }

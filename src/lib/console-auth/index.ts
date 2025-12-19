@@ -146,10 +146,11 @@ export interface ConsoleSession {
   expires: string
 }
 
-// 类型扩展
+// 类型扩展 - 添加平台管理员特有的属性
+// 注意: role 属性已在 @/lib/auth/index.ts 中声明为 string 类型
+// 这里只添加 isAdmin 属性，role 在使用时转换为 PlatformRole
 declare module 'next-auth' {
   interface User {
-    role?: PlatformRole
     isAdmin?: boolean
   }
 }

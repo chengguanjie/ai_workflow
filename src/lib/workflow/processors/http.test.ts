@@ -75,18 +75,18 @@ describe('processHttpNode', () => {
     it('should make a simple GET request', async () => {
       const mockData = { id: 1, name: 'Test' }
       vi.mocked(fetch).mockResolvedValueOnce(createMockResponse(mockData))
-      
+
       const node = createHttpNode({
         method: 'GET',
         url: 'https://api.example.com/users/1',
       })
-      
+
       const context = createContext()
       const result = await processHttpNode(node, context)
-      
+
       expect(result.status).toBe('success')
-      expect(result.statusCode).toBe(200)
-      expect(result.data).toEqual(mockData)
+      expect(result.data.statusCode).toBe(200)
+      expect(result.data.body).toEqual(mockData)
       expect(fetch).toHaveBeenCalledWith(
         'https://api.example.com/users/1',
         expect.objectContaining({
@@ -325,9 +325,9 @@ describe('processHttpNode', () => {
       
       const context = createContext()
       const result = await processHttpNode(node, context)
-      
+
       expect(result.status).toBe('error')
-      expect(result.statusCode).toBe(404)
+      expect(result.data.statusCode).toBe(404)
       expect(result.error).toContain('404')
     })
     
@@ -347,15 +347,17 @@ describe('processHttpNode', () => {
       expect(result.error).toContain('Network error')
     })
     
-    it('should throw error when URL is missing', async () => {
+    it('should return error when URL is missing', async () => {
       const node = createHttpNode({
         method: 'GET',
         url: '',
       })
-      
+
       const context = createContext()
-      
-      await expect(processHttpNode(node, context)).rejects.toThrow('requires a URL')
+      const result = await processHttpNode(node, context)
+
+      expect(result.status).toBe('error')
+      expect(result.error).toContain('requires a URL')
     })
   })
   
@@ -385,17 +387,17 @@ describe('processHttpNode', () => {
     it('should handle JSON response', async () => {
       const mockData = { users: [{ id: 1 }, { id: 2 }] }
       vi.mocked(fetch).mockResolvedValueOnce(createMockResponse(mockData))
-      
+
       const node = createHttpNode({
         method: 'GET',
         url: 'https://api.example.com/users',
         responseType: 'json',
       })
-      
+
       const context = createContext()
       const result = await processHttpNode(node, context)
-      
-      expect(result.data).toEqual(mockData)
+
+      expect(result.data.body).toEqual(mockData)
     })
     
     it('should handle text response', async () => {
@@ -405,24 +407,24 @@ describe('processHttpNode', () => {
           headers: { 'content-type': 'text/plain' },
         })
       )
-      
+
       const node = createHttpNode({
         method: 'GET',
         url: 'https://api.example.com/text',
         responseType: 'text',
       })
-      
+
       const context = createContext()
       const result = await processHttpNode(node, context)
-      
-      expect(result.data).toBe('Plain text response')
+
+      expect(result.data.body).toBe('Plain text response')
     })
   })
   
   describe('Headers sanitization', () => {
     it('should sanitize sensitive headers in logs', async () => {
       vi.mocked(fetch).mockResolvedValueOnce(createMockResponse({}))
-      
+
       const node = createHttpNode({
         method: 'GET',
         url: 'https://api.example.com/test',
@@ -431,11 +433,11 @@ describe('processHttpNode', () => {
           token: 'secret-token',
         },
       })
-      
+
       const context = createContext()
       const result = await processHttpNode(node, context)
-      
-      expect(result.request?.headers?.Authorization).toBe('[REDACTED]')
+
+      expect(result.data.request?.headers?.Authorization).toBe('[REDACTED]')
     })
   })
   

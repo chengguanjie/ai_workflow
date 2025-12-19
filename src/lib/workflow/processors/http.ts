@@ -13,13 +13,13 @@
 
 import type {
   HttpNodeConfig,
-  NodeOutput,
-  ExecutionContext,
   HttpMethod,
   HttpBodyConfig,
   HttpAuthConfig,
   HttpRetryConfig,
+  NodeConfig,
 } from '@/types/workflow'
+import type { NodeProcessor, ExecutionContext, NodeOutput } from '../types'
 
 const DEFAULT_TIMEOUT = 30000
 const DEFAULT_MAX_RETRIES = 3
@@ -229,7 +229,7 @@ export async function processHttpNode(
   node: HttpNodeConfig,
   context: ExecutionContext
 ): Promise<NodeOutput> {
-  const startTime = Date.now()
+  const startedAt = new Date()
   const {
     method,
     url,
@@ -241,49 +241,59 @@ export async function processHttpNode(
     retry,
     responseType = 'json',
   } = node.config
-  
+
   if (!url) {
-    throw new Error('HTTP node requires a URL')
+    return {
+      nodeId: node.id,
+      nodeName: node.name,
+      nodeType: node.type,
+      status: 'error',
+      data: {},
+      error: 'HTTP node requires a URL',
+      startedAt,
+      completedAt: new Date(),
+      duration: Date.now() - startedAt.getTime(),
+    }
   }
-  
+
   try {
     const fullUrl = buildUrl(url, queryParams, context)
-    
+
     if (auth?.apiKey?.addTo === 'query') {
       const urlObj = new URL(fullUrl)
       const value = replaceVariables(auth.apiKey.value, context)
       urlObj.searchParams.append(auth.apiKey.key, value)
     }
-    
+
     const requestHeaders = buildHeaders(headers, auth, context)
     const { body: requestBody, contentType } = buildBody(body, context)
-    
+
     if (contentType && !requestHeaders['Content-Type']) {
       requestHeaders['Content-Type'] = contentType
     }
-    
+
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), timeout)
-    
+
     const fetchOptions: RequestInit = {
       method,
       headers: requestHeaders,
       body: requestBody,
       signal: controller.signal,
     }
-    
+
     const retryConfig: HttpRetryConfig = {
       maxRetries: retry?.maxRetries ?? DEFAULT_MAX_RETRIES,
       retryDelay: retry?.retryDelay ?? DEFAULT_RETRY_DELAY,
       retryOnStatus: retry?.retryOnStatus ?? DEFAULT_RETRY_STATUS_CODES,
     }
-    
+
     const response = await fetchWithRetry(fullUrl, fetchOptions, retryConfig)
     clearTimeout(timeoutId)
-    
+
     let responseData: unknown
     const contentTypeHeader = response.headers.get('content-type') || ''
-    
+
     if (responseType === 'json' || contentTypeHeader.includes('application/json')) {
       try {
         responseData = await response.json()
@@ -295,42 +305,61 @@ export async function processHttpNode(
     } else {
       responseData = await response.text()
     }
-    
-    const duration = Date.now() - startTime
-    
-    const result: NodeOutput = {
-      status: response.ok ? 'success' : 'error',
-      statusCode: response.status,
-      statusText: response.statusText,
-      headers: Object.fromEntries(response.headers.entries()),
-      data: responseData,
-      duration,
-      request: {
-        method,
-        url: fullUrl,
-        headers: sanitizeHeadersForLog(requestHeaders),
-      },
-    }
-    
-    if (!response.ok) {
-      result.error = `HTTP ${response.status}: ${response.statusText}`
-    }
-    
-    return result
-  } catch (error) {
-    const duration = Date.now() - startTime
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    
-    const isTimeout = error instanceof Error && error.name === 'AbortError'
-    
+
+    const completedAt = new Date()
+    const duration = completedAt.getTime() - startedAt.getTime()
+
     return {
-      status: 'error',
-      error: isTimeout ? `Request timeout after ${timeout}ms` : errorMessage,
-      duration,
-      request: {
-        method,
-        url: replaceVariables(url, context),
+      nodeId: node.id,
+      nodeName: node.name,
+      nodeType: node.type,
+      status: response.ok ? 'success' : 'error',
+      data: {
+        statusCode: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries()),
+        body: responseData,
+        request: {
+          method,
+          url: fullUrl,
+          headers: sanitizeHeadersForLog(requestHeaders),
+        },
       },
+      error: response.ok ? undefined : `HTTP ${response.status}: ${response.statusText}`,
+      startedAt,
+      completedAt,
+      duration,
+    }
+  } catch (error) {
+    const completedAt = new Date()
+    const duration = completedAt.getTime() - startedAt.getTime()
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    const isTimeout = error instanceof Error && error.name === 'AbortError'
+
+    return {
+      nodeId: node.id,
+      nodeName: node.name,
+      nodeType: node.type,
+      status: 'error',
+      data: {
+        request: {
+          method,
+          url: replaceVariables(url, context),
+        },
+      },
+      error: isTimeout ? `Request timeout after ${timeout}ms` : errorMessage,
+      startedAt,
+      completedAt,
+      duration,
     }
   }
+}
+
+/**
+ * HTTP 节点处理器
+ */
+export const httpNodeProcessor: NodeProcessor = {
+  nodeType: 'HTTP',
+  process: (node: NodeConfig, context: ExecutionContext) =>
+    processHttpNode(node as HttpNodeConfig, context),
 }

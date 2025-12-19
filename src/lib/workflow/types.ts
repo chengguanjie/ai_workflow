@@ -28,7 +28,7 @@ export interface ExecutionContext {
  */
 export interface AIConfigCache {
   id: string
-  provider: 'SHENSUAN' | 'OPENROUTER'
+  provider: 'SHENSUAN' | 'OPENROUTER' | 'OPENAI' | 'ANTHROPIC' | 'BAIDU_WENXIN' | 'ALIYUN_TONGYI' | 'XUNFEI_SPARK' | 'STABILITYAI'
   baseUrl: string
   apiKey: string // 已解密
   defaultModel: string
@@ -38,6 +38,7 @@ export interface AIConfigCache {
  * 节点输出
  */
 export interface NodeOutput {
+  [key: string]: unknown  // 添加索引签名以兼容 @/types/workflow 中的定义
   nodeId: string
   nodeName: string
   nodeType: string
@@ -92,6 +93,7 @@ export type ExecutionStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | '
  * 执行结果
  */
 export interface ExecutionResult {
+  executionId: string
   status: ExecutionStatus
   output?: Record<string, unknown>
   error?: string

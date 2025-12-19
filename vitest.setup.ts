@@ -1,5 +1,13 @@
-import { vi } from 'vitest'
+import { vi, afterEach } from 'vitest'
 import '@testing-library/dom'
+
+// Mock xlsx module
+vi.mock('xlsx', () => ({
+  read: vi.fn(() => ({ SheetNames: [], Sheets: {} })),
+  utils: {
+    sheet_to_json: vi.fn(() => []),
+  },
+}))
 
 // Mock Next.js router
 vi.mock('next/navigation', () => ({

@@ -8,6 +8,7 @@ import { replaceVariables } from '../utils'
 import { aiService } from '@/lib/ai'
 import { prisma } from '@/lib/db'
 import { decryptApiKey } from '@/lib/crypto'
+import { getRelevantContext } from '@/lib/knowledge/search'
 
 export class ProcessNodeProcessor implements NodeProcessor {
   nodeType = 'PROCESS'
@@ -33,7 +34,7 @@ export class ProcessNodeProcessor implements NodeProcessor {
       // 构建系统提示词
       let systemPrompt = processNode.config?.systemPrompt || ''
 
-      // 添加知识库内容
+      // 添加静态知识库内容
       const knowledgeItems = processNode.config?.knowledgeItems || []
       if (knowledgeItems.length > 0) {
         const knowledgeText = knowledgeItems
@@ -50,6 +51,20 @@ export class ProcessNodeProcessor implements NodeProcessor {
 
       if (!userPrompt.trim()) {
         throw new Error('用户提示词不能为空')
+      }
+
+      // 从知识库检索相关内容 (RAG)
+      const knowledgeBaseId = processNode.config?.knowledgeBaseId
+      if (knowledgeBaseId) {
+        const ragContext = await this.retrieveKnowledgeContext(
+          knowledgeBaseId,
+          userPrompt,
+          processNode.config?.ragConfig,
+          aiConfig ? { apiKey: aiConfig.apiKey, baseUrl: aiConfig.baseUrl } : undefined
+        )
+        if (ragContext) {
+          systemPrompt = `${systemPrompt}\n\n## 知识库检索结果\n${ragContext}`
+        }
       }
 
       // 构建消息
@@ -104,6 +119,46 @@ export class ProcessNodeProcessor implements NodeProcessor {
         completedAt: new Date(),
         duration: Date.now() - startedAt.getTime(),
       }
+    }
+  }
+
+  /**
+   * 从知识库检索相关上下文
+   */
+  private async retrieveKnowledgeContext(
+    knowledgeBaseId: string,
+    query: string,
+    ragConfig?: { topK?: number; threshold?: number; maxContextTokens?: number },
+    apiConfig?: { apiKey?: string; baseUrl?: string }
+  ): Promise<string | null> {
+    try {
+      // 获取知识库配置
+      const knowledgeBase = await prisma.knowledgeBase.findUnique({
+        where: { id: knowledgeBaseId, isActive: true },
+      })
+
+      if (!knowledgeBase) {
+        console.warn(`知识库不存在或已禁用: ${knowledgeBaseId}`)
+        return null
+      }
+
+      // 检索相关内容
+      const context = await getRelevantContext({
+        knowledgeBaseId,
+        query,
+        topK: ragConfig?.topK ?? 5,
+        threshold: ragConfig?.threshold ?? 0.7,
+        embeddingModel: knowledgeBase.embeddingModel,
+        embeddingProvider: knowledgeBase.embeddingProvider,
+        maxTokens: ragConfig?.maxContextTokens ?? 4000,
+        apiKey: apiConfig?.apiKey,
+        baseUrl: apiConfig?.baseUrl,
+      })
+
+      return context || null
+    } catch (error) {
+      console.error('知识库检索失败:', error)
+      return null
     }
   }
 

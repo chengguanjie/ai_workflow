@@ -6,6 +6,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Loader2, AlertCircle } from 'lucide-react'
 import type { AIProviderConfig } from './shared/types'
+import { OutputTabContent } from './shared/output-tab-content'
+
+type CodeTabType = 'code' | 'generate' | 'output'
 
 // 图标组件
 function PlayIcon({ className }: { className?: string }) {
@@ -47,17 +50,19 @@ function SparklesIcon({ className }: { className?: string }) {
 }
 
 interface CodeNodeConfigPanelProps {
+  nodeId: string
   config?: Record<string, unknown>
   onUpdate: (config: Record<string, unknown>) => void
 }
 
 export function CodeNodeConfigPanel({
+  nodeId,
   config,
   onUpdate,
 }: CodeNodeConfigPanelProps) {
   const [isExecuting, setIsExecuting] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
-  const [activeTab, setActiveTab] = useState<'code' | 'generate'>('code')
+  const [activeTab, setActiveTab] = useState<CodeTabType>('code')
   const [providers, setProviders] = useState<AIProviderConfig[]>([])
 
   const codeConfig = config as {
@@ -81,8 +86,14 @@ export function CodeNodeConfigPanel({
         const res = await fetch('/api/ai/providers')
         if (res.ok) {
           const data = await res.json()
-          setProviders(data.providers || [])
-          if (!codeConfig.aiConfigId && data.defaultProvider) {
+          const providerList = data.providers || []
+          setProviders(providerList)
+
+          // 如果节点没有选择配置，或者当前配置已不存在，使用默认配置
+          const currentConfigExists = codeConfig.aiConfigId &&
+            providerList.some((p: AIProviderConfig) => p.id === codeConfig.aiConfigId)
+
+          if (!currentConfigExists && data.defaultProvider) {
             onUpdate({
               ...codeConfig,
               aiConfigId: data.defaultProvider.id,
@@ -94,6 +105,7 @@ export function CodeNodeConfigPanel({
       }
     }
     loadProviders()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleChange = (key: string, value: unknown) => {
@@ -181,7 +193,7 @@ console.log('结果:', result);
       {/* Tab 切换 */}
       <div className="flex border-b">
         <button
-          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+          className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
             activeTab === 'code'
               ? 'border-primary text-primary'
               : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -191,7 +203,7 @@ console.log('结果:', result);
           代码编辑
         </button>
         <button
-          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+          className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
             activeTab === 'generate'
               ? 'border-primary text-primary'
               : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -200,9 +212,19 @@ console.log('结果:', result);
         >
           AI 生成
         </button>
+        <button
+          className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            activeTab === 'output'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+          onClick={() => setActiveTab('output')}
+        >
+          输出
+        </button>
       </div>
 
-      {activeTab === 'code' ? (
+      {activeTab === 'code' && (
         <>
           {/* 编程语言选择 */}
           <div className="space-y-2">
@@ -287,7 +309,9 @@ return { success: true };`}
             </div>
           )}
         </>
-      ) : (
+      )}
+
+      {activeTab === 'generate' && (
         <>
           {/* AI 生成配置 */}
           {providers.length === 0 ? (
@@ -358,6 +382,11 @@ return { success: true };`}
             </p>
           )}
         </>
+      )}
+
+      {/* 输出 Tab */}
+      {activeTab === 'output' && (
+        <OutputTabContent nodeId={nodeId} />
       )}
     </div>
   )

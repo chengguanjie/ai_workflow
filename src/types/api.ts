@@ -115,9 +115,7 @@ export interface ExecutionListQueryParams extends ListQueryParams {
 /**
  * Created resource response (201)
  */
-export interface CreatedResponse<T> extends ApiSuccessResponse<T> {
-  // Inherits success: true and data: T
-}
+export type CreatedResponse<T> = ApiSuccessResponse<T>
 
 /**
  * Deleted resource response
