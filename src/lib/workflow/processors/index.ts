@@ -11,6 +11,7 @@ import { dataNodeProcessor } from './data'
 import { imageNodeProcessor } from './image'
 import { videoNodeProcessor } from './video'
 import { audioNodeProcessor } from './audio'
+import { processConditionNode } from './condition'
 
 // 注册所有处理器
 const processors: Map<string, NodeProcessor> = new Map()
@@ -20,6 +21,9 @@ processors.set('INPUT', inputNodeProcessor)
 processors.set('PROCESS', processNodeProcessor)
 processors.set('CODE', codeNodeProcessor)
 processors.set('OUTPUT', outputNodeProcessor)
+
+// 控制流节点
+processors.set('CONDITION', processConditionNode)
 
 // 媒体节点
 processors.set('DATA', dataNodeProcessor)
@@ -50,4 +54,5 @@ export {
   imageNodeProcessor,
   videoNodeProcessor,
   audioNodeProcessor,
+  processConditionNode,
 }

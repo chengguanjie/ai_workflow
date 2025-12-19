@@ -11,6 +11,40 @@ import { prisma } from '@/lib/db'
 import { storageService, FORMAT_MIME_TYPES, FORMAT_EXTENSIONS } from '@/lib/storage'
 import type { OutputFormat } from '@/lib/storage'
 
+const MAX_FILE_SIZE = 100 * 1024 * 1024 // 100MB
+
+const ALLOWED_MIME_TYPES = new Set([
+  'text/plain',
+  'text/csv',
+  'text/html',
+  'text/markdown',
+  'application/json',
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'image/svg+xml',
+  'audio/mpeg',
+  'audio/wav',
+  'audio/ogg',
+  'video/mp4',
+  'video/webm',
+  'video/ogg',
+])
+
+const ALLOWED_EXTENSIONS = new Set([
+  'txt', 'csv', 'html', 'md', 'json',
+  'pdf', 'doc', 'docx', 'xls', 'xlsx',
+  'jpg', 'jpeg', 'png', 'gif', 'webp', 'svg',
+  'mp3', 'wav', 'ogg',
+  'mp4', 'webm',
+])
+
 /**
  * GET /api/files
  * 获取文件列表
@@ -105,6 +139,28 @@ export async function POST(request: NextRequest) {
 
     if (!file) {
       return NextResponse.json({ error: '缺少文件' }, { status: 400 })
+    }
+
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        { error: `文件大小超过限制 (最大 ${MAX_FILE_SIZE / 1024 / 1024}MB)` },
+        { status: 400 }
+      )
+    }
+
+    const fileExt = file.name.toLowerCase().split('.').pop() || ''
+    if (!ALLOWED_EXTENSIONS.has(fileExt)) {
+      return NextResponse.json(
+        { error: '不支持的文件类型' },
+        { status: 400 }
+      )
+    }
+
+    if (file.type && !ALLOWED_MIME_TYPES.has(file.type)) {
+      return NextResponse.json(
+        { error: '不支持的文件格式' },
+        { status: 400 }
+      )
     }
 
     if (!executionId || !nodeId) {

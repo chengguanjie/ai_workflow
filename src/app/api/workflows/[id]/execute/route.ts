@@ -5,13 +5,79 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@/lib/auth'
-import { executeWorkflow } from '@/lib/workflow/engine'
+import { withAuth, AuthContext } from '@/lib/api/with-auth'
+import { validateRequestBody } from '@/lib/api/with-validation'
+import { ApiResponse, ApiSuccessResponse } from '@/lib/api/api-response'
+import { NotFoundError, TimeoutError } from '@/lib/errors'
+import { workflowExecuteSchema, WorkflowExecuteInput } from '@/lib/validations/workflow'
+import { executeWorkflow, ExecutionResult } from '@/lib/workflow/engine'
 import { executionQueue } from '@/lib/workflow/queue'
+import { prisma } from '@/lib/db'
 
-interface RouteParams {
-  params: Promise<{ id: string }>
+/**
+ * Async execution response type
+ */
+interface AsyncExecutionResponse {
+  taskId: string
+  status: 'pending'
+  message: string
+  pollUrl: string
 }
+
+/**
+ * Sync execution response type
+ */
+interface SyncExecutionResponse {
+  status: ExecutionResult['status']
+  output?: Record<string, unknown>
+  error?: string
+  duration?: number
+  totalTokens?: number
+  promptTokens?: number
+  completionTokens?: number
+  outputFiles?: Array<{
+    id: string
+    fileName: string
+    format: string
+    url: string
+    size: number
+  }>
+}
+
+/**
+ * Combined execution response type
+ */
+type ExecutionResponse = AsyncExecutionResponse | SyncExecutionResponse
+
+/**
+ * Default execution timeout in milliseconds (5 minutes)
+ */
+const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000
+
+/**
+ * Execute workflow with timeout control
+ */
+async function executeWithTimeout(
+  workflowId: string,
+  organizationId: string,
+  userId: string,
+  input?: Record<string, unknown>,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS
+) {
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => {
+      reject(new TimeoutError(`工作流执行超时 (${timeoutMs / 1000}秒)`))
+    }, timeoutMs)
+  })
+
+  const result = await Promise.race([
+    executeWorkflow(workflowId, organizationId, userId, input),
+    timeoutPromise,
+  ])
+
+  return result
+}
+
 
 /**
  * POST /api/workflows/[id]/execute
@@ -21,82 +87,94 @@ interface RouteParams {
  * {
  *   input?: Record<string, unknown>  // 初始输入（覆盖输入节点的值）
  *   async?: boolean                   // 是否异步执行（默认 false）
+ *   timeout?: number                  // 执行超时（秒，1-3600）
  * }
  *
  * Response (同步执行):
  * {
- *   status: 'COMPLETED' | 'FAILED'
- *   output?: Record<string, unknown>
- *   error?: string
- *   duration?: number
- *   totalTokens?: number
- *   outputFiles?: Array<{...}>
+ *   success: true,
+ *   data: {
+ *     status: 'COMPLETED' | 'FAILED'
+ *     output?: Record<string, unknown>
+ *     error?: string
+ *     duration?: number
+ *     totalTokens?: number
+ *     outputFiles?: Array<{...}>
+ *   }
  * }
  *
  * Response (异步执行):
  * {
- *   taskId: string
- *   status: 'pending'
- *   message: string
+ *   success: true,
+ *   data: {
+ *     taskId: string
+ *     status: 'pending'
+ *     message: string
+ *     pollUrl: string
+ *   }
  * }
  */
-export async function POST(request: NextRequest, { params }: RouteParams) {
-  try {
-    const session = await auth()
-    if (!session?.user) {
-      return NextResponse.json({ error: '未登录' }, { status: 401 })
-    }
+export const POST = withAuth<ApiSuccessResponse<ExecutionResponse>>(async (request: NextRequest, { user, params }: AuthContext): Promise<NextResponse<ApiSuccessResponse<ExecutionResponse>>> => {
+  const workflowId = params?.id
+  
+  if (!workflowId) {
+    throw new NotFoundError('工作流ID不能为空')
+  }
 
-    const { id: workflowId } = await params
-    const body = await request.json().catch(() => ({}))
-    const { input, async: asyncExecution } = body as {
-      input?: Record<string, unknown>
-      async?: boolean
-    }
+  // Validate request body
+  const body = await validateRequestBody(request, workflowExecuteSchema)
+  const { input, async: asyncExecution, timeout } = body as WorkflowExecuteInput
 
-    // 异步执行模式
-    if (asyncExecution) {
-      const taskId = await executionQueue.enqueue(
-        workflowId,
-        session.user.organizationId,
-        session.user.id,
-        input
-      )
+  // Verify workflow exists and user has access
+  const workflow = await prisma.workflow.findFirst({
+    where: {
+      id: workflowId,
+      organizationId: user.organizationId,
+      deletedAt: null,
+    },
+    select: { id: true },
+  })
 
-      return NextResponse.json({
-        taskId,
-        status: 'pending',
-        message: '任务已加入队列，请轮询查询执行状态',
-        pollUrl: `/api/tasks/${taskId}`,
-      })
-    }
+  if (!workflow) {
+    throw new NotFoundError('工作流不存在或无权访问')
+  }
 
-    // 同步执行
-    const result = await executeWorkflow(
+  // Async execution mode
+  if (asyncExecution) {
+    const taskId = await executionQueue.enqueue(
       workflowId,
-      session.user.organizationId,
-      session.user.id,
+      user.organizationId,
+      user.id,
       input
     )
 
-    return NextResponse.json({
-      status: result.status,
-      output: result.output,
-      error: result.error,
-      duration: result.duration,
-      totalTokens: result.totalTokens,
-      promptTokens: result.promptTokens,
-      completionTokens: result.completionTokens,
-      outputFiles: result.outputFiles,
+    return ApiResponse.success({
+      taskId,
+      status: 'pending',
+      message: '任务已加入队列，请轮询查询执行状态',
+      pollUrl: `/api/tasks/${taskId}`,
     })
-  } catch (error) {
-    console.error('Execute workflow error:', error)
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : '执行工作流失败',
-        status: 'FAILED',
-      },
-      { status: 500 }
-    )
   }
-}
+
+  // Sync execution with timeout control
+  const timeoutMs = timeout ? timeout * 1000 : DEFAULT_TIMEOUT_MS
+  
+  const result = await executeWithTimeout(
+    workflowId,
+    user.organizationId,
+    user.id,
+    input,
+    timeoutMs
+  )
+
+  return ApiResponse.success({
+    status: result.status,
+    output: result.output,
+    error: result.error,
+    duration: result.duration,
+    totalTokens: result.totalTokens,
+    promptTokens: result.promptTokens,
+    completionTokens: result.completionTokens,
+    outputFiles: result.outputFiles,
+  })
+})

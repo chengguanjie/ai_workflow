@@ -1,76 +1,76 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@/lib/auth'
-import { prisma } from '@/lib/db'
+/**
+ * Workflow API Routes
+ * 
+ * Provides endpoints for listing and creating workflows.
+ * Uses withAuth for authentication and withValidation for request validation.
+ * Delegates business logic to WorkflowService.
+ * 
+ * Requirements: 1.1, 1.3, 2.1, 3.1
+ */
 
-// 获取工作流列表
-export async function GET() {
-  try {
-    const session = await auth()
-    if (!session?.user) {
-      return NextResponse.json({ error: '未登录' }, { status: 401 })
-    }
+import { NextRequest } from 'next/server'
+import { withAuth, AuthContext } from '@/lib/api/with-auth'
+import { validateQueryParams, validateRequestBody } from '@/lib/api/with-validation'
+import { ApiResponse } from '@/lib/api/api-response'
+import { workflowService } from '@/server/services/workflow.service'
+import { workflowListSchema, workflowCreateSchema } from '@/lib/validations/workflow'
 
-    const workflows = await prisma.workflow.findMany({
-      where: {
-        organizationId: session.user.organizationId,
-        deletedAt: null,
-      },
-      orderBy: { updatedAt: 'desc' },
-      select: {
-        id: true,
-        name: true,
-        description: true,
-        category: true,
-        tags: true,
-        isActive: true,
-        version: true,
-        createdAt: true,
-        updatedAt: true,
-        creator: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-      },
-    })
+/**
+ * GET /api/workflows
+ * 
+ * List workflows with pagination and optional filtering.
+ * Supports search by name/description and category filtering.
+ * 
+ * Query Parameters:
+ * - page: Page number (default: 1)
+ * - pageSize: Items per page (default: 20, max: 100)
+ * - search: Search term for name/description
+ * - category: Filter by category
+ * 
+ * Requirements: 1.1, 1.3, 3.1, 4.1, 4.2
+ */
+export const GET = withAuth(async (request: NextRequest, { user }: AuthContext) => {
+  // Validate query parameters
+  const params = validateQueryParams(request, workflowListSchema)
 
-    return NextResponse.json(workflows)
-  } catch (error) {
-    console.error('获取工作流列表失败:', error)
-    return NextResponse.json({ error: '获取工作流列表失败' }, { status: 500 })
-  }
-}
+  // Delegate to service layer
+  const result = await workflowService.list({
+    organizationId: user.organizationId,
+    page: params.page,
+    pageSize: params.pageSize,
+    search: params.search,
+    category: params.category,
+  })
 
-// 创建工作流
-export async function POST(request: NextRequest) {
-  try {
-    const session = await auth()
-    if (!session?.user) {
-      return NextResponse.json({ error: '未登录' }, { status: 401 })
-    }
+  // Return paginated response
+  return ApiResponse.paginated(result.data, result.pagination)
+})
 
-    const body = await request.json()
-    const { name, description, config } = body
+/**
+ * POST /api/workflows
+ * 
+ * Create a new workflow.
+ * 
+ * Request Body:
+ * - name: Workflow name (required, 1-100 chars)
+ * - description: Workflow description (optional, max 500 chars)
+ * - config: Workflow configuration with nodes and edges (required)
+ * 
+ * Requirements: 1.1, 1.3, 2.1, 3.1
+ */
+export const POST = withAuth(async (request: NextRequest, { user }: AuthContext) => {
+  // Validate request body
+  const data = await validateRequestBody(request, workflowCreateSchema)
 
-    if (!name || !config) {
-      return NextResponse.json({ error: '名称和配置不能为空' }, { status: 400 })
-    }
+  // Delegate to service layer
+  const workflow = await workflowService.create({
+    name: data.name,
+    description: data.description,
+    config: data.config,
+    organizationId: user.organizationId,
+    creatorId: user.id,
+  })
 
-    const workflow = await prisma.workflow.create({
-      data: {
-        name,
-        description: description || '',
-        config,
-        organizationId: session.user.organizationId,
-        creatorId: session.user.id,
-      },
-    })
-
-    return NextResponse.json(workflow, { status: 201 })
-  } catch (error) {
-    console.error('创建工作流失败:', error)
-    return NextResponse.json({ error: '创建工作流失败' }, { status: 500 })
-  }
-}
+  // Return created response
+  return ApiResponse.created(workflow)
+})

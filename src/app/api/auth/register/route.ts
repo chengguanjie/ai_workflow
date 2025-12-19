@@ -4,10 +4,15 @@ import { prisma } from '@/lib/db'
 import { z } from 'zod'
 
 const registerSchema = z.object({
-  email: z.string().email('邮箱格式不正确'),
-  password: z.string().min(6, '密码至少6位'),
-  name: z.string().min(1, '姓名不能为空'),
-  organizationName: z.string().min(1, '企业名称不能为空'),
+  email: z.string().email('邮箱格式不正确').toLowerCase().trim(),
+  password: z.string()
+    .min(12, '密码至少12位')
+    .regex(/[A-Z]/, '密码必须包含大写字母')
+    .regex(/[a-z]/, '密码必须包含小写字母')
+    .regex(/[0-9]/, '密码必须包含数字')
+    .regex(/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/, '密码必须包含特殊字符'),
+  name: z.string().min(2, '姓名至少2个字符').max(50, '姓名最多50个字符').trim(),
+  organizationName: z.string().min(2, '企业名称至少2个字符').max(100, '企业名称最多100个字符').trim(),
 })
 
 export async function POST(request: Request) {

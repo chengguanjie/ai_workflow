@@ -25,6 +25,25 @@ export class LocalStorageProvider implements StorageProvider {
     this.baseUrl = baseUrl || BASE_URL
   }
 
+  private validateFileKey(fileKey: string): void {
+    if (fileKey.includes('..') || fileKey.startsWith('/') || fileKey.startsWith('\\')) {
+      throw new Error('Invalid file key: path traversal detected')
+    }
+    if (!/^[a-zA-Z0-9/_\-\.]+$/.test(fileKey)) {
+      throw new Error('Invalid file key: contains invalid characters')
+    }
+  }
+
+  private getSafePath(fileKey: string): string {
+    this.validateFileKey(fileKey)
+    const filePath = path.join(this.uploadDir, fileKey)
+    const resolvedPath = path.resolve(filePath)
+    if (!resolvedPath.startsWith(path.resolve(this.uploadDir))) {
+      throw new Error('Invalid file key: path traversal detected')
+    }
+    return resolvedPath
+  }
+
   /**
    * 确保目录存在
    */
@@ -97,11 +116,10 @@ export class LocalStorageProvider implements StorageProvider {
   }
 
   async delete(fileKey: string): Promise<void> {
-    const filePath = path.join(this.uploadDir, fileKey)
+    const filePath = this.getSafePath(fileKey)
     try {
       await fs.unlink(filePath)
     } catch (error) {
-      // 文件不存在时忽略错误
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         throw error
       }
@@ -109,7 +127,7 @@ export class LocalStorageProvider implements StorageProvider {
   }
 
   async exists(fileKey: string): Promise<boolean> {
-    const filePath = path.join(this.uploadDir, fileKey)
+    const filePath = this.getSafePath(fileKey)
     try {
       await fs.access(filePath)
       return true
@@ -118,18 +136,12 @@ export class LocalStorageProvider implements StorageProvider {
     }
   }
 
-  /**
-   * 获取文件的本地路径（用于下载）
-   */
   getLocalPath(fileKey: string): string {
-    return path.join(this.uploadDir, fileKey)
+    return this.getSafePath(fileKey)
   }
 
-  /**
-   * 读取文件内容
-   */
   async readFile(fileKey: string): Promise<Buffer> {
-    const filePath = path.join(this.uploadDir, fileKey)
+    const filePath = this.getSafePath(fileKey)
     return fs.readFile(filePath)
   }
 }

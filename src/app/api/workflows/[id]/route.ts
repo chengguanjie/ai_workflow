@@ -1,130 +1,99 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@/lib/auth'
-import { prisma } from '@/lib/db'
+/**
+ * Workflow Detail API Routes
+ * 
+ * Provides endpoints for getting, updating, and deleting a single workflow.
+ * Uses withAuth for authentication and validates request bodies.
+ * Delegates business logic to WorkflowService.
+ * 
+ * Requirements: 1.1, 1.3, 2.1, 3.1
+ */
 
-// 获取单个工作流
-export async function GET(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await auth()
-    if (!session?.user) {
-      return NextResponse.json({ error: '未登录' }, { status: 401 })
-    }
+import { NextRequest } from 'next/server'
+import { withAuth, AuthContext } from '@/lib/api/with-auth'
+import { validateRequestBody } from '@/lib/api/with-validation'
+import { ApiResponse } from '@/lib/api/api-response'
+import { NotFoundError } from '@/lib/errors'
+import { workflowService } from '@/server/services/workflow.service'
+import { workflowUpdateSchema } from '@/lib/validations/workflow'
 
-    const { id } = await params
-
-    const workflow = await prisma.workflow.findFirst({
-      where: {
-        id,
-        organizationId: session.user.organizationId,
-        deletedAt: null,
-      },
-      include: {
-        creator: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-      },
-    })
-
-    if (!workflow) {
-      return NextResponse.json({ error: '工作流不存在' }, { status: 404 })
-    }
-
-    return NextResponse.json(workflow)
-  } catch (error) {
-    console.error('获取工作流失败:', error)
-    return NextResponse.json({ error: '获取工作流失败' }, { status: 500 })
+/**
+ * GET /api/workflows/[id]
+ * 
+ * Get a single workflow by ID.
+ * Returns the full workflow including configuration and creator info.
+ * 
+ * Requirements: 1.1, 1.3, 3.1
+ */
+export const GET = withAuth(async (_request: NextRequest, { user, params }: AuthContext) => {
+  const id = params?.id
+  if (!id) {
+    throw new NotFoundError('工作流不存在')
   }
-}
 
-// 更新工作流
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await auth()
-    if (!session?.user) {
-      return NextResponse.json({ error: '未登录' }, { status: 401 })
-    }
+  // Delegate to service layer
+  const workflow = await workflowService.getById(id, user.organizationId)
 
-    const { id } = await params
-    const body = await request.json()
-    const { name, description, config, isActive, category, tags } = body
-
-    // 验证工作流存在
-    const existing = await prisma.workflow.findFirst({
-      where: {
-        id,
-        organizationId: session.user.organizationId,
-        deletedAt: null,
-      },
-    })
-
-    if (!existing) {
-      return NextResponse.json({ error: '工作流不存在' }, { status: 404 })
-    }
-
-    const workflow = await prisma.workflow.update({
-      where: { id },
-      data: {
-        ...(name !== undefined && { name }),
-        ...(description !== undefined && { description }),
-        ...(config !== undefined && { config }),
-        ...(isActive !== undefined && { isActive }),
-        ...(category !== undefined && { category }),
-        ...(tags !== undefined && { tags }),
-        version: { increment: 1 },
-      },
-    })
-
-    return NextResponse.json(workflow)
-  } catch (error) {
-    console.error('更新工作流失败:', error)
-    return NextResponse.json({ error: '更新工作流失败' }, { status: 500 })
+  if (!workflow) {
+    throw new NotFoundError('工作流不存在')
   }
-}
 
-// 删除工作流（软删除）
-export async function DELETE(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await auth()
-    if (!session?.user) {
-      return NextResponse.json({ error: '未登录' }, { status: 401 })
-    }
+  return ApiResponse.success(workflow)
+})
 
-    const { id } = await params
-
-    // 验证工作流存在
-    const existing = await prisma.workflow.findFirst({
-      where: {
-        id,
-        organizationId: session.user.organizationId,
-        deletedAt: null,
-      },
-    })
-
-    if (!existing) {
-      return NextResponse.json({ error: '工作流不存在' }, { status: 404 })
-    }
-
-    await prisma.workflow.update({
-      where: { id },
-      data: { deletedAt: new Date() },
-    })
-
-    return NextResponse.json({ success: true })
-  } catch (error) {
-    console.error('删除工作流失败:', error)
-    return NextResponse.json({ error: '删除工作流失败' }, { status: 500 })
+/**
+ * PUT /api/workflows/[id]
+ * 
+ * Update an existing workflow.
+ * Supports partial updates - only provided fields will be updated.
+ * 
+ * Request Body (all optional):
+ * - name: Workflow name (1-100 chars)
+ * - description: Workflow description (max 500 chars)
+ * - config: Workflow configuration with nodes and edges
+ * - isActive: Whether the workflow is active
+ * - category: Workflow category (max 50 chars)
+ * - tags: Array of tag strings
+ * 
+ * Requirements: 1.1, 1.3, 2.1, 3.1
+ */
+export const PUT = withAuth(async (request: NextRequest, { user, params }: AuthContext) => {
+  const id = params?.id
+  if (!id) {
+    throw new NotFoundError('工作流不存在')
   }
-}
+
+  // Validate request body
+  const data = await validateRequestBody(request, workflowUpdateSchema)
+
+  // Delegate to service layer
+  const workflow = await workflowService.update(id, user.organizationId, {
+    name: data.name,
+    description: data.description,
+    config: data.config,
+    isActive: data.isActive,
+    category: data.category,
+    tags: data.tags,
+  })
+
+  return ApiResponse.success(workflow)
+})
+
+/**
+ * DELETE /api/workflows/[id]
+ * 
+ * Soft delete a workflow.
+ * The workflow is marked as deleted but not physically removed.
+ * 
+ * Requirements: 1.1, 1.3, 3.1
+ */
+export const DELETE = withAuth(async (_request: NextRequest, { user, params }: AuthContext) => {
+  const id = params?.id
+  if (!id) {
+    throw new NotFoundError('工作流不存在')
+  }
+
+  // Delegate to service layer
+  await workflowService.delete(id, user.organizationId)
+
+  return ApiResponse.noContent()
+})

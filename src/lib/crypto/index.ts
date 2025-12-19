@@ -1,14 +1,27 @@
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'crypto'
+import { createCipheriv, createDecipheriv, randomBytes, scryptSync, createHash } from 'crypto'
 
 const ALGORITHM = 'aes-256-gcm'
 const KEY_LENGTH = 32
 const IV_LENGTH = 16
 const AUTH_TAG_LENGTH = 16
 
-// 从环境变量获取加密密钥，如果没有则使用默认值（仅开发环境）
+let cachedKey: Buffer | null = null
+
 function getEncryptionKey(): Buffer {
-  const secret = process.env.ENCRYPTION_KEY || process.env.ENCRYPTION_SECRET || 'default-dev-secret-change-in-production'
-  return scryptSync(secret, 'salt', KEY_LENGTH)
+  if (cachedKey) return cachedKey
+  
+  const secret = process.env.ENCRYPTION_KEY
+  if (!secret) {
+    throw new Error('ENCRYPTION_KEY environment variable is required. Please set a secure 32+ character random string.')
+  }
+  
+  if (secret.length < 32) {
+    throw new Error('ENCRYPTION_KEY must be at least 32 characters long.')
+  }
+  
+  const salt = createHash('sha256').update(process.env.ENCRYPTION_SALT || 'ai-workflow-salt-v1').digest()
+  cachedKey = scryptSync(secret, salt, KEY_LENGTH)
+  return cachedKey
 }
 
 /**

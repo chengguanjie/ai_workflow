@@ -74,8 +74,8 @@ export default function WorkflowsPage() {
       if (!response.ok) {
         throw new Error('获取工作流列表失败')
       }
-      const data = await response.json()
-      setWorkflows(data)
+      const result = await response.json()
+      setWorkflows(result.data || [])
     } catch (err) {
       setError(err instanceof Error ? err.message : '获取工作流列表失败')
     } finally {
