@@ -1054,6 +1054,7 @@ model EmbeddingUsage {
   provider        String   // 提供商名称
   model           String   // 模型名称
   tokenCount      Int      // Token 数量
+  requestCount    Int      @default(1) // 请求次数
   knowledgeBaseId String?  // 关联的知识库 ID
   documentId      String?  // 关联的文档 ID
   organizationId  String   // 组织 ID
