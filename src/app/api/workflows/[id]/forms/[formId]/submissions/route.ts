@@ -62,7 +62,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         take: pageSize,
         select: {
           id: true,
-          input: true,
+          inputData: true,
           executionId: true,
           submitterIp: true,
           createdAt: true,
