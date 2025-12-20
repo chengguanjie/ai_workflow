@@ -54,18 +54,10 @@ function ensureUploadDir() {
 }
 
 function startNextApp() {
-    log('Starting Next.js application (standalone mode)...');
+    log('Starting Next.js application...');
 
-    // standalone 模式使用 node .next/standalone/server.js
-    const serverPath = existsSync('.next/standalone/server.js')
-        ? '.next/standalone/server.js'
-        : existsSync('server.js')
-            ? 'server.js'
-            : '.next/standalone/server.js';
-
-    log(`Using server path: ${serverPath}`);
-
-    const nextProcess = spawn('node', [serverPath], {
+    // 使用 npx next start 启动应用
+    const nextProcess = spawn('npx', ['next', 'start', '-p', process.env.PORT || '3000', '-H', '0.0.0.0'], {
         stdio: 'inherit',
         env: {
             ...process.env,
