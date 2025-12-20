@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'standalone',
+  
   // 构建时忽略 ESLint 警告
   eslint: {
     ignoreDuringBuilds: true,
