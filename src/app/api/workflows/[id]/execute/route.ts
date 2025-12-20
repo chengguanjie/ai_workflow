@@ -28,6 +28,7 @@ interface AsyncExecutionResponse {
  * Sync execution response type
  */
 interface SyncExecutionResponse {
+  executionId: string
   status: ExecutionResult['status']
   output?: Record<string, unknown>
   error?: string
@@ -94,6 +95,7 @@ async function executeWithTimeout(
  * {
  *   success: true,
  *   data: {
+ *     executionId: string
  *     status: 'COMPLETED' | 'FAILED'
  *     output?: Record<string, unknown>
  *     error?: string
@@ -168,6 +170,7 @@ export const POST = withAuth<ApiSuccessResponse<ExecutionResponse>>(async (reque
   )
 
   return ApiResponse.success({
+    executionId: result.executionId,
     status: result.status,
     output: result.output,
     error: result.error,

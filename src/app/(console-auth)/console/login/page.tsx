@@ -1,7 +1,6 @@
 'use client'
 
 import { Suspense, useState } from 'react'
-import { signIn } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Shield, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -24,23 +23,47 @@ function LoginForm() {
     setLoading(true)
 
     try {
-      const result = await signIn('platform-admin', {
-        email,
-        password,
-        redirect: false,
-        callbackUrl,
+      // 使用 console 专用的认证 API
+      const csrfRes = await fetch('/api/console/auth/csrf')
+      const { csrfToken } = await csrfRes.json()
+
+      const res = await fetch('/api/console/auth/callback/platform-admin', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          csrfToken,
+          email,
+          password,
+          callbackUrl,
+        }),
+        redirect: 'manual',
       })
 
-      if (result?.error) {
-        if (result.error === 'ACCOUNT_LOCKED') {
-          setError('账户已被锁定，请30分钟后重试')
-        } else if (result.error === 'ACCOUNT_DISABLED') {
-          setError('账户已被禁用，请联系超级管理员')
-        } else {
-          setError('邮箱或密码错误')
+      // 检查响应
+      if (res.type === 'opaqueredirect' || res.status === 302 || res.status === 200) {
+        // 验证登录是否成功
+        const sessionRes = await fetch('/api/console/auth/session')
+        const session = await sessionRes.json()
+
+        if (session?.user) {
+          router.push(callbackUrl)
+          router.refresh()
+          return
         }
+      }
+
+      // 登录失败，尝试获取错误信息
+      const url = new URL(res.url || window.location.href)
+      const errorParam = url.searchParams.get('error')
+
+      if (errorParam === 'ACCOUNT_LOCKED') {
+        setError('账户已被锁定，请30分钟后重试')
+      } else if (errorParam === 'ACCOUNT_DISABLED') {
+        setError('账户已被禁用，请联系超级管理员')
       } else {
-        router.push(callbackUrl)
+        setError('邮箱或密码错误')
       }
     } catch {
       setError('登录失败，请稍后重试')

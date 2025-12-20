@@ -2,16 +2,18 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { useSession } from 'next-auth/react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Search, MoreVertical, Play, Edit, Trash2, Loader2, Link2, Check } from 'lucide-react'
+import { Plus, Search, MoreVertical, Play, Edit, Trash2, Loader2, Link2, Copy, Shield } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import {
@@ -25,6 +27,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { useRouter } from 'next/navigation'
+import { WorkflowPermissionsDialog } from '@/components/workflow/workflow-permissions-dialog'
 
 interface Workflow {
   id: string
@@ -57,6 +60,7 @@ function formatTimeAgo(dateString: string): string {
 
 export default function WorkflowsPage() {
   const router = useRouter()
+  const { data: session } = useSession()
   const [search, setSearch] = useState('')
   const [workflows, setWorkflows] = useState<Workflow[]>([])
   const [loading, setLoading] = useState(true)
@@ -64,6 +68,16 @@ export default function WorkflowsPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [workflowToDelete, setWorkflowToDelete] = useState<Workflow | null>(null)
   const [deleting, setDeleting] = useState(false)
+
+  // 权限设置弹窗
+  const [permissionsDialogOpen, setPermissionsDialogOpen] = useState(false)
+  const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null)
+
+  const isAdmin = session?.user?.role === 'OWNER' || session?.user?.role === 'ADMIN'
+
+  const canManagePermissions = (workflow: Workflow) => {
+    return isAdmin || workflow.creator.id === session?.user?.id
+  }
 
   // 获取工作流列表
   const fetchWorkflows = async () => {
@@ -119,6 +133,23 @@ export default function WorkflowsPage() {
     const apiUrl = `${window.location.origin}/api/v1/workflows/${workflowId}/execute`
     await navigator.clipboard.writeText(apiUrl)
     toast.success(`已复制「${workflowName}」的 API 链接`)
+  }
+
+  // 复制工作流
+  const duplicateWorkflow = async (workflowId: string, workflowName: string) => {
+    try {
+      const response = await fetch(`/api/workflows/${workflowId}/duplicate`, {
+        method: 'POST',
+      })
+      if (!response.ok) {
+        throw new Error('复制工作流失败')
+      }
+      toast.success(`已复制「${workflowName}」`)
+      // 重新获取列表
+      await fetchWorkflows()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '复制工作流失败')
+    }
   }
 
   return (
@@ -212,6 +243,25 @@ export default function WorkflowsPage() {
                             <Link2 className="mr-2 h-4 w-4" />
                             复制 API 链接
                           </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => duplicateWorkflow(workflow.id, workflow.name)}>
+                            <Copy className="mr-2 h-4 w-4" />
+                            复制
+                          </DropdownMenuItem>
+                          {canManagePermissions(workflow) && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setSelectedWorkflow(workflow)
+                                  setPermissionsDialogOpen(true)
+                                }}
+                              >
+                                <Shield className="mr-2 h-4 w-4" />
+                                权限设置
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                          <DropdownMenuSeparator />
                           <DropdownMenuItem
                             className="text-destructive"
                             onClick={() => {
@@ -267,6 +317,16 @@ export default function WorkflowsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 权限设置弹窗 */}
+      {selectedWorkflow && (
+        <WorkflowPermissionsDialog
+          workflowId={selectedWorkflow.id}
+          workflowName={selectedWorkflow.name}
+          open={permissionsDialogOpen}
+          onOpenChange={setPermissionsDialogOpen}
+        />
+      )}
     </div>
   )
 }

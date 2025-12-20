@@ -15,7 +15,9 @@ import { Switch } from '@/components/ui/switch'
 import { X, Plus, GripVertical } from 'lucide-react'
 import { OutputTabContent } from './shared/output-tab-content'
 import type { SwitchCase, SwitchMatchType } from '@/types/workflow'
-import { nanoid } from 'nanoid'
+
+// 生成短随机 ID
+const generateId = () => Math.random().toString(36).slice(2, 8)
 
 type SwitchTabType = 'config' | 'output'
 
@@ -55,7 +57,7 @@ export function SwitchNodeConfigPanel({
 
   const addCase = () => {
     const newCase: SwitchCase = {
-      id: `case-${nanoid(6)}`,
+      id: `case-${generateId()}`,
       label: `Case ${cases.filter(c => !c.isDefault).length + 1}`,
       value: '',
     }

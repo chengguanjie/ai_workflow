@@ -47,11 +47,16 @@ import {
   Users,
   Crown,
   UserCog,
-  Edit3,
-  Eye,
 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
+
+interface Department {
+  id: string
+  name: string
+  level: number
+  parentId: string | null
+}
 
 interface Member {
   id: string
@@ -62,6 +67,8 @@ interface Member {
   isActive: boolean
   lastLoginAt: string | null
   createdAt: string
+  departmentId: string | null
+  department: Department | null
 }
 
 interface Invitation {
@@ -79,41 +86,38 @@ interface Invitation {
   inviteUrl: string
 }
 
+// 仅用于修改角色时使用（OWNER/ADMIN可以修改其他成员的角色）
 const ROLES = [
   { value: 'ADMIN', label: '管理员', icon: Shield, description: '可管理成员和设置' },
-  { value: 'EDITOR', label: '编辑者', icon: Edit3, description: '可创建和编辑工作流' },
-  { value: 'MEMBER', label: '成员', icon: Users, description: '可使用工作流' },
-  { value: 'VIEWER', label: '观察者', icon: Eye, description: '只能查看' },
+  { value: 'MEMBER', label: '成员', icon: Users, description: '可使用工作流和知识库' },
 ]
 
 const ROLE_COLORS: Record<string, string> = {
   OWNER: 'bg-amber-500',
   ADMIN: 'bg-blue-500',
-  EDITOR: 'bg-green-500',
   MEMBER: 'bg-gray-500',
-  VIEWER: 'bg-gray-400',
 }
 
 const ROLE_LABELS: Record<string, string> = {
   OWNER: '所有者',
   ADMIN: '管理员',
-  EDITOR: '编辑者',
   MEMBER: '成员',
-  VIEWER: '观察者',
 }
 
 export default function MembersPage() {
   const { data: session } = useSession()
   const [members, setMembers] = useState<Member[]>([])
   const [invitations, setInvitations] = useState<Invitation[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
 
-  // 邀请表单状态
+  // 邀请/创建表单状态
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false)
-  const [inviteType, setInviteType] = useState<'EMAIL' | 'LINK'>('EMAIL')
+  const [inviteType, setInviteType] = useState<'CREATE' | 'EMAIL' | 'LINK'>('CREATE')
   const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteRole, setInviteRole] = useState('MEMBER')
+  const [inviteName, setInviteName] = useState('')
+  const [inviteDepartmentId, setInviteDepartmentId] = useState('')
   const [inviteExpireDays, setInviteExpireDays] = useState('7')
   const [inviteMaxUses, setInviteMaxUses] = useState('10')
   const [createdInviteUrl, setCreatedInviteUrl] = useState('')
@@ -122,6 +126,7 @@ export default function MembersPage() {
 
   useEffect(() => {
     loadData()
+    loadDepartments()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -146,6 +151,41 @@ export default function MembersPage() {
       toast.error('加载数据失败')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadDepartments = async () => {
+    try {
+      const res = await fetch('/api/settings/departments')
+      if (res.ok) {
+        const data = await res.json()
+        setDepartments(data.departments || [])
+      }
+    } catch (error) {
+      console.error('Failed to load departments:', error)
+    }
+  }
+
+  const handleChangeDepartment = async (memberId: string, departmentId: string | null) => {
+    setSaving(memberId)
+    try {
+      const res = await fetch(`/api/settings/members/${memberId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ departmentId }),
+      })
+
+      if (!res.ok) {
+        const error = await res.json()
+        throw new Error(error.error || '修改失败')
+      }
+
+      toast.success('部门已更新')
+      loadData()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '修改部门失败')
+    } finally {
+      setSaving(null)
     }
   }
 
@@ -196,6 +236,47 @@ export default function MembersPage() {
   }
 
   const handleCreateInvitation = async () => {
+    // 直接创建成员
+    if (inviteType === 'CREATE') {
+      if (!inviteEmail.trim()) {
+        toast.error('请输入邮箱或手机号')
+        return
+      }
+      if (!inviteName.trim()) {
+        toast.error('请输入姓名')
+        return
+      }
+
+      setSaving('invite')
+      try {
+        const res = await fetch('/api/settings/members', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: inviteEmail,
+            name: inviteName,
+            departmentId: inviteDepartmentId || undefined,
+          }),
+        })
+
+        if (!res.ok) {
+          const error = await res.json()
+          throw new Error(error.error || '创建成员失败')
+        }
+
+        toast.success('成员创建成功，初始密码为 123456')
+        setInviteDialogOpen(false)
+        resetInviteForm()
+        loadData()
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : '创建成员失败')
+      } finally {
+        setSaving(null)
+      }
+      return
+    }
+
+    // 邮件邀请
     if (inviteType === 'EMAIL' && !inviteEmail.trim()) {
       toast.error('请输入邮箱地址')
       return
@@ -209,7 +290,8 @@ export default function MembersPage() {
         body: JSON.stringify({
           type: inviteType,
           email: inviteType === 'EMAIL' ? inviteEmail : undefined,
-          role: inviteRole,
+          role: 'MEMBER', // 新成员默认为MEMBER
+          departmentId: inviteDepartmentId || undefined,
           expiresInDays: parseInt(inviteExpireDays),
           maxUses: inviteType === 'LINK' ? parseInt(inviteMaxUses) : 1,
         }),
@@ -268,7 +350,8 @@ export default function MembersPage() {
 
   const resetInviteForm = () => {
     setInviteEmail('')
-    setInviteRole('MEMBER')
+    setInviteName('')
+    setInviteDepartmentId('')
     setInviteExpireDays('7')
     setInviteMaxUses('10')
     setCreatedInviteUrl('')
@@ -280,15 +363,44 @@ export default function MembersPage() {
         return <Crown className="h-3 w-3" />
       case 'ADMIN':
         return <Shield className="h-3 w-3" />
-      case 'EDITOR':
-        return <Edit3 className="h-3 w-3" />
       case 'MEMBER':
         return <Users className="h-3 w-3" />
-      case 'VIEWER':
-        return <Eye className="h-3 w-3" />
       default:
-        return null
+        return <Users className="h-3 w-3" />
     }
+  }
+
+  // 渲染带层级缩进的部门选项
+  const renderDepartmentOptions = () => {
+    // 按层级排序后的部门列表
+    const sortedDepts = [...departments].sort((a, b) => {
+      // 先按层级排序
+      if (a.level !== b.level) return a.level - b.level
+      // 同级按名称排序
+      return a.name.localeCompare(b.name)
+    })
+
+    // 构建树形结构并扁平化
+    const buildFlatTree = (parentId: string | null, level: number): Department[] => {
+      const children = sortedDepts.filter(d => d.parentId === parentId)
+      const result: Department[] = []
+      for (const child of children) {
+        result.push({ ...child, level })
+        result.push(...buildFlatTree(child.id, level + 1))
+      }
+      return result
+    }
+
+    const flatTree = buildFlatTree(null, 0)
+
+    return flatTree.map((dept) => (
+      <SelectItem key={dept.id} value={dept.id}>
+        <span style={{ paddingLeft: `${dept.level * 16}px` }}>
+          {dept.level > 0 && <span className="text-muted-foreground mr-1">└</span>}
+          {dept.name}
+        </span>
+      </SelectItem>
+    ))
   }
 
   if (loading) {
@@ -316,22 +428,26 @@ export default function MembersPage() {
             <DialogTrigger asChild>
               <Button>
                 <Plus className="mr-2 h-4 w-4" />
-                邀请成员
+                添加成员
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
-                <DialogTitle>邀请新成员</DialogTitle>
+                <DialogTitle>添加新成员</DialogTitle>
                 <DialogDescription>
-                  选择邀请方式并设置成员角色
+                  直接创建账号或通过邀请方式添加成员
                 </DialogDescription>
               </DialogHeader>
 
               <Tabs value={inviteType} onValueChange={(v) => {
-                setInviteType(v as 'EMAIL' | 'LINK')
+                setInviteType(v as 'CREATE' | 'EMAIL' | 'LINK')
                 setCreatedInviteUrl('')
               }}>
-                <TabsList className="grid w-full grid-cols-2">
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="CREATE">
+                    <Plus className="mr-2 h-4 w-4" />
+                    直接创建
+                  </TabsTrigger>
                   <TabsTrigger value="EMAIL">
                     <Mail className="mr-2 h-4 w-4" />
                     邮件邀请
@@ -342,6 +458,44 @@ export default function MembersPage() {
                   </TabsTrigger>
                 </TabsList>
 
+                <TabsContent value="CREATE" className="space-y-4 mt-4">
+                  <div className="space-y-2">
+                    <Label>邮箱/手机号</Label>
+                    <Input
+                      type="text"
+                      placeholder="邮箱或手机号"
+                      value={inviteEmail}
+                      onChange={(e) => setInviteEmail(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>姓名</Label>
+                    <Input
+                      placeholder="请输入姓名"
+                      value={inviteName}
+                      onChange={(e) => setInviteName(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>所属部门</Label>
+                    <Select
+                      value={inviteDepartmentId || '_none'}
+                      onValueChange={(value) => setInviteDepartmentId(value === '_none' ? '' : value)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="选择部门（可选）" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_none">暂不分配</SelectItem>
+                        {renderDepartmentOptions()}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    初始密码为 123456，成员首次登录后需要修改密码
+                  </p>
+                </TabsContent>
+
                 <TabsContent value="EMAIL" className="space-y-4 mt-4">
                   <div className="space-y-2">
                     <Label>邮箱地址</Label>
@@ -351,6 +505,36 @@ export default function MembersPage() {
                       value={inviteEmail}
                       onChange={(e) => setInviteEmail(e.target.value)}
                     />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>所属部门</Label>
+                    <Select
+                      value={inviteDepartmentId || '_none'}
+                      onValueChange={(value) => setInviteDepartmentId(value === '_none' ? '' : value)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="选择部门（可选）" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_none">暂不分配</SelectItem>
+                        {renderDepartmentOptions()}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>有效期</Label>
+                    <Select value={inviteExpireDays} onValueChange={setInviteExpireDays}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1">1 天</SelectItem>
+                        <SelectItem value="3">3 天</SelectItem>
+                        <SelectItem value="7">7 天</SelectItem>
+                        <SelectItem value="14">14 天</SelectItem>
+                        <SelectItem value="30">30 天</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 </TabsContent>
 
@@ -377,71 +561,57 @@ export default function MembersPage() {
                       </p>
                     </div>
                   ) : (
-                    <div className="space-y-2">
-                      <Label>最大使用次数</Label>
-                      <Select value={inviteMaxUses} onValueChange={setInviteMaxUses}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="1">1 次</SelectItem>
-                          <SelectItem value="5">5 次</SelectItem>
-                          <SelectItem value="10">10 次</SelectItem>
-                          <SelectItem value="25">25 次</SelectItem>
-                          <SelectItem value="50">50 次</SelectItem>
-                          <SelectItem value="100">100 次</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    <>
+                      <div className="space-y-2">
+                        <Label>最大使用次数</Label>
+                        <Select value={inviteMaxUses} onValueChange={setInviteMaxUses}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="1">1 次</SelectItem>
+                            <SelectItem value="5">5 次</SelectItem>
+                            <SelectItem value="10">10 次</SelectItem>
+                            <SelectItem value="25">25 次</SelectItem>
+                            <SelectItem value="50">50 次</SelectItem>
+                            <SelectItem value="100">100 次</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>所属部门</Label>
+                        <Select
+                          value={inviteDepartmentId || '_none'}
+                          onValueChange={(value) => setInviteDepartmentId(value === '_none' ? '' : value)}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="选择部门（可选）" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="_none">暂不分配</SelectItem>
+                            {renderDepartmentOptions()}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>有效期</Label>
+                        <Select value={inviteExpireDays} onValueChange={setInviteExpireDays}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="1">1 天</SelectItem>
+                            <SelectItem value="3">3 天</SelectItem>
+                            <SelectItem value="7">7 天</SelectItem>
+                            <SelectItem value="14">14 天</SelectItem>
+                            <SelectItem value="30">30 天</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </>
                   )}
                 </TabsContent>
               </Tabs>
-
-              {!createdInviteUrl && (
-                <>
-                  <div className="space-y-2">
-                    <Label>成员角色</Label>
-                    <Select value={inviteRole} onValueChange={setInviteRole}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {ROLES.map((role) => (
-                          <SelectItem
-                            key={role.value}
-                            value={role.value}
-                            disabled={session?.user?.role === 'ADMIN' && role.value === 'ADMIN'}
-                          >
-                            <div className="flex items-center gap-2">
-                              <role.icon className="h-4 w-4" />
-                              <span>{role.label}</span>
-                              <span className="text-xs text-muted-foreground">
-                                - {role.description}
-                              </span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>有效期</Label>
-                    <Select value={inviteExpireDays} onValueChange={setInviteExpireDays}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="1">1 天</SelectItem>
-                        <SelectItem value="3">3 天</SelectItem>
-                        <SelectItem value="7">7 天</SelectItem>
-                        <SelectItem value="14">14 天</SelectItem>
-                        <SelectItem value="30">30 天</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </>
-              )}
 
               <DialogFooter>
                 {createdInviteUrl ? (
@@ -454,7 +624,7 @@ export default function MembersPage() {
                 ) : (
                   <Button onClick={handleCreateInvitation} disabled={saving === 'invite'}>
                     {saving === 'invite' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    {inviteType === 'EMAIL' ? '发送邀请' : '生成链接'}
+                    {inviteType === 'CREATE' ? '创建成员' : inviteType === 'EMAIL' ? '发送邀请' : '生成链接'}
                   </Button>
                 )}
               </DialogFooter>
@@ -502,16 +672,43 @@ export default function MembersPage() {
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground">{member.email}</p>
-                    {member.lastLoginAt && (
-                      <p className="text-xs text-muted-foreground">
-                        上次登录：{formatDistanceToNow(new Date(member.lastLoginAt), {
-                          addSuffix: true,
-                          locale: zhCN,
-                        })}
-                      </p>
-                    )}
+                    <div className="flex items-center gap-2 mt-1">
+                      {member.department ? (
+                        <Badge variant="outline" className="text-xs">
+                          {member.department.name}
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">未分配部门</span>
+                      )}
+                      {member.lastLoginAt && (
+                        <span className="text-xs text-muted-foreground">
+                          · 上次登录：{formatDistanceToNow(new Date(member.lastLoginAt), {
+                            addSuffix: true,
+                            locale: zhCN,
+                          })}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
+
+                <div className="flex items-center gap-2">
+                  {/* 部门选择 */}
+                  {isAdmin && member.role !== 'OWNER' && (
+                    <Select
+                      value={member.departmentId || '_none'}
+                      onValueChange={(value) => handleChangeDepartment(member.id, value === '_none' ? null : value)}
+                      disabled={saving === member.id}
+                    >
+                      <SelectTrigger className="w-[160px] h-8 text-xs">
+                        <SelectValue placeholder="选择部门" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_none">无部门</SelectItem>
+                        {renderDepartmentOptions()}
+                      </SelectContent>
+                    </Select>
+                  )}
 
                 {isAdmin && member.role !== 'OWNER' && member.id !== session?.user?.id && (
                   <DropdownMenu>
@@ -558,6 +755,7 @@ export default function MembersPage() {
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )}
+                </div>
               </div>
             ))}
           </div>

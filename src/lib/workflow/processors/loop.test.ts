@@ -14,19 +14,32 @@ import {
   aggregateLoopResults,
   type LoopState,
 } from './loop'
-import type { LoopNodeConfig, ExecutionContext } from '@/types/workflow'
+import type { LoopNodeConfig } from '@/types/workflow'
+import type { ExecutionContext, NodeOutput } from '../types'
 
 function createContext(nodeOutputs: Record<string, unknown> = {}): ExecutionContext {
   const context: ExecutionContext = {
-    input: {},
+    executionId: 'test-exec-1',
+    workflowId: 'test-wf-1',
+    organizationId: 'test-org-1',
+    userId: 'test-user-1',
     nodeOutputs: new Map(),
-    globalVariables: new Map(),
+    globalVariables: {},
+    aiConfigs: new Map(),
   }
-  
+
   for (const [key, value] of Object.entries(nodeOutputs)) {
-    context.nodeOutputs.set(key, value as Record<string, unknown>)
+    context.nodeOutputs.set(key, {
+      nodeId: key,
+      nodeName: key,
+      nodeType: 'INPUT',
+      status: 'success',
+      data: value as Record<string, unknown>,
+      startedAt: new Date(),
+      ...(value as Record<string, unknown>),
+    } as NodeOutput)
   }
-  
+
   return context
 }
 

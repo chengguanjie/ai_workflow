@@ -16,7 +16,7 @@ function createTestNode(
     name: 'Test Node',
     position: { x: 0, y: 0 },
     config,
-  }
+  } as NodeConfig
 }
 
 function createTestConfig(): WorkflowConfig {
@@ -76,7 +76,7 @@ describe('debugNode', () => {
   })
 
   it('should return error for unknown node type', async () => {
-    const node = createTestNode('UNKNOWN_TYPE', {})
+    const node = createTestNode('UNKNOWN_TYPE' as NodeType, {})
 
     const request: DebugRequest = {
       workflowId: 'wf-1',

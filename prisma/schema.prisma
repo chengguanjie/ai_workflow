@@ -61,6 +61,8 @@ model Organization {
   apiTokens   ApiToken[]
   invitations Invitation[]
   knowledgeBases KnowledgeBase[]
+  departments Department[]
+  platformFeedbacks PlatformFeedback[]
 
   @@map("organizations")
 }
@@ -87,6 +89,7 @@ model User {
   passwordHash String
   role         Role      @default(MEMBER)
   isActive     Boolean   @default(true)
+  mustChangePassword Boolean @default(false) // 是否需要首次登录修改密码
   lastLoginAt  DateTime?
 
   createdAt DateTime @default(now())
@@ -95,12 +98,57 @@ model User {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
   workflows  Workflow[]
   executions Execution[]
+  platformFeedbacks PlatformFeedback[]
 
   @@index([organizationId])
+  @@index([departmentId])
   @@index([email])
   @@map("users")
+}
+
+// ============================================
+// 部门管理
+// ============================================
+
+model Department {
+  id          String   @id @default(cuid())
+  name        String
+  description String?  @db.Text
+  sortOrder   Int      @default(0)  // 排序顺序
+  level       Int      @default(0)  // 部门层级（0=顶级，1=一级，以此类推）
+  path        String   @default("") // 部门路径（如 /root/dept1/dept2）
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // 上级部门（支持多级部门）
+  parentId String?
+  parent   Department?  @relation("DepartmentHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children Department[] @relation("DepartmentHierarchy")
+
+  // 所属企业
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // 部门负责人
+  managerId String?
+
+  // 关联
+  users               User[]
+  workflowPermissions WorkflowPermission[]
+  knowledgeBasePermissions KnowledgeBasePermission[]
+  invitations         Invitation[]
+
+  @@index([organizationId])
+  @@index([parentId])
+  @@index([path])
+  @@index([managerId])
+  @@map("departments")
 }
 
 enum Role {
@@ -127,10 +175,13 @@ model Invitation {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  invitedById String?  // 邀请人 ID
+  invitedById  String?  // 邀请人 ID
+  departmentId String?  // 预设部门 ID
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
 
   @@index([token])
   @@index([organizationId])
+  @@index([departmentId])
   @@map("invitations")
 }
 
@@ -240,11 +291,73 @@ model Workflow {
 
   executions Execution[]
   triggers   WorkflowTrigger[]
+  permissions WorkflowPermission[]
+
+  // 版本管理
+  versions          WorkflowVersion[]
+  currentVersionId  String?           // 当前活跃版本ID
+
+  // 统计分析开关
+  analyticsEnabled  Boolean @default(true)
 
   @@index([organizationId])
   @@index([creatorId])
   @@index([deletedAt])
   @@map("workflows")
+}
+
+// ============================================
+// 工作流权限
+// ============================================
+
+model WorkflowPermission {
+  id String @id @default(cuid())
+
+  // 权限级别
+  permission PermissionLevel
+
+  // 权限目标类型和ID
+  targetType PermissionTargetType
+  targetId   String?  // 当 targetType 为 ALL 时为 null
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // 关联工作流
+  workflowId String
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  // 关联部门（当 targetType 为 DEPARTMENT 时）
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  // 创建者
+  createdById String
+
+  @@unique([workflowId, targetType, targetId])
+  @@index([workflowId])
+  @@index([targetType, targetId])
+  @@index([departmentId])
+  @@map("workflow_permissions")
+}
+
+enum PermissionLevel {
+  VIEW  // 只能查看（兼容旧数据）
+  USE   // 可以使用（执行）（兼容旧数据）
+  EDIT  // 可以编辑（兼容旧数据）
+}
+
+// 新的资源权限级别（四级权限体系）
+enum ResourcePermission {
+  VIEWER   // 使用者：查看、执行
+  EDITOR   // 编辑者：编辑内容、隐藏
+  MANAGER  // 管理者：编辑 + 设置权限 + 删除
+}
+
+enum PermissionTargetType {
+  USER        // 特定用户
+  DEPARTMENT  // 特定部门
+  ALL         // 企业所有人
 }
 
 // ============================================
@@ -353,6 +466,9 @@ model WorkflowTemplate {
   // 工作流配置（节点+边）
   config        Json
 
+  // 模板类型
+  templateType  TemplateType @default(INTERNAL)
+
   // 可见性控制
   visibility    TemplateVisibility @default(PRIVATE)
   organizationId String? // 企业模板归属（null 表示官方模板）
@@ -360,14 +476,18 @@ model WorkflowTemplate {
   // 创建者信息
   creatorId     String?  // null 表示官方模板
   creatorName   String?  // 创建者名称（用于显示）
+  creatorDepartmentId String? // 创建者所属部门（用于层级权限判断）
 
   // 统计信息
   usageCount    Int      @default(0)
   rating        Float    @default(0)
   ratingCount   Int      @default(0)
 
-  // 是否为官方模板
+  // 是否为官方模板（公域模板库）
   isOfficial    Boolean  @default(false)
+
+  // 是否隐藏（软隐藏，不删除）
+  isHidden      Boolean  @default(false)
 
   // 版本信息
   version       String   @default("1.0.0")
@@ -375,16 +495,84 @@ model WorkflowTemplate {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  // 关联评分和权限
+  ratings       TemplateRating[]
+  permissions   TemplatePermission[]
+
   @@index([category])
   @@index([visibility, organizationId])
   @@index([isOfficial])
+  @@index([templateType])
+  @@index([creatorId])
+  @@index([creatorDepartmentId])
   @@map("workflow_templates")
+}
+
+// 模板类型
+enum TemplateType {
+  PUBLIC    // 公域模板（平台推送）
+  INTERNAL  // 内部模板（企业员工创建）
 }
 
 enum TemplateVisibility {
   PRIVATE      // 仅自己可见
   ORGANIZATION // 企业内可见
   PUBLIC       // 公开
+}
+
+// ============================================
+// 模板评分
+// ============================================
+
+model TemplateRating {
+  id          String   @id @default(cuid())
+  score       Int      // 1-5 分
+  comment     String?  @db.Text  // 评论内容
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  templateId  String
+  template    WorkflowTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  userId      String   // 评分用户
+  userName    String?  // 用户名（冗余存储）
+
+  @@unique([templateId, userId])  // 每用户对每模板只能评分一次
+  @@index([templateId])
+  @@index([userId])
+  @@index([score])
+  @@map("template_ratings")
+}
+
+// ============================================
+// 模板权限
+// ============================================
+
+model TemplatePermission {
+  id String @id @default(cuid())
+
+  // 权限级别
+  permission ResourcePermission
+
+  // 权限目标类型和ID
+  targetType PermissionTargetType
+  targetId   String?  // 当 targetType 为 ALL 时为 null
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // 关联模板
+  templateId String
+  template   WorkflowTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  // 创建者
+  createdById String
+
+  @@unique([templateId, targetType, targetId])
+  @@index([templateId])
+  @@index([targetType, targetId])
+  @@map("template_permissions")
 }
 
 // ============================================
@@ -416,6 +604,9 @@ model Execution {
   resumedFromId   String?   // 如果是恢复执行，关联原执行ID
   canResume       Boolean   @default(false) // 是否可以恢复执行
 
+  // 版本关联
+  workflowVersionId String?  // 执行时的工作流版本
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -427,11 +618,13 @@ model Execution {
 
   logs        ExecutionLog[]
   outputFiles OutputFile[]
+  feedbacks   ExecutionFeedback[]
 
   @@index([workflowId])
   @@index([userId])
   @@index([status])
   @@index([createdAt])
+  @@index([workflowVersionId])
   @@map("executions")
 }
 
@@ -638,6 +831,105 @@ model PlatformAuditLog {
   @@map("platform_audit_logs")
 }
 
+// 平台反馈（企业/员工向平台管理员提交的反馈）
+model PlatformFeedback {
+  id String @id @default(cuid())
+
+  // 反馈类型
+  type PlatformFeedbackType
+
+  // 反馈内容
+  title       String   // 反馈标题
+  content     String   @db.Text // 反馈详情
+  screenshots Json?    // 截图URL数组
+
+  // 反馈来源
+  source PlatformFeedbackSource // ENTERPRISE（企业端）或 EMPLOYEE（员工端）
+
+  // 关联信息（可选）
+  workflowId   String? // 相关工作流ID
+  executionId  String? // 相关执行ID
+
+  // 处理状态
+  status      PlatformFeedbackStatus @default(PENDING)
+  priority    PlatformFeedbackPriority @default(NORMAL)
+
+  // 处理信息
+  assignedTo  String?  // 分配给哪个管理员
+  reply       String?  @db.Text // 管理员回复
+  repliedAt   DateTime? // 回复时间
+  resolvedAt  DateTime? // 解决时间
+
+  // 提交者信息
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+  @@map("platform_feedbacks")
+}
+
+enum PlatformFeedbackType {
+  BUG           // 问题报告
+  FEATURE       // 功能建议
+  IMPROVEMENT   // 改进建议
+  ACCURACY      // 准确率问题
+  OTHER         // 其他
+}
+
+enum PlatformFeedbackSource {
+  ENTERPRISE    // 企业端（管理员）
+  EMPLOYEE      // 员工端
+}
+
+enum PlatformFeedbackStatus {
+  PENDING       // 待处理
+  PROCESSING    // 处理中
+  REPLIED       // 已回复
+  RESOLVED      // 已解决
+  CLOSED        // 已关闭
+}
+
+enum PlatformFeedbackPriority {
+  LOW           // 低优先级
+  NORMAL        // 普通
+  HIGH          // 高优先级
+  URGENT        // 紧急
+}
+
+// 系统日志（用于记录系统级别的事件）
+model SystemLog {
+  id        String   @id @default(cuid())
+  level     LogLevel @default(INFO)
+  category  String   // scheduler, queue, workflow, system, error
+  message   String   @db.Text
+  detail    Json?    // 详细信息
+  source    String?  // 来源模块
+  traceId   String?  // 追踪ID
+  createdAt DateTime @default(now())
+
+  @@index([level])
+  @@index([category])
+  @@index([createdAt])
+  @@map("system_logs")
+}
+
+enum LogLevel {
+  DEBUG
+  INFO
+  WARN
+  ERROR
+  FATAL
+}
+
 // ============================================
 // 企业申请（自助注册审批）
 // ============================================
@@ -720,11 +1012,48 @@ model KnowledgeBase {
 
   creatorId String?  // 创建者
 
-  documents KnowledgeDocument[]
+  documents   KnowledgeDocument[]
+  permissions KnowledgeBasePermission[]
 
   @@index([organizationId])
   @@index([isActive])
+  @@index([creatorId])
   @@map("knowledge_bases")
+}
+
+// ============================================
+// 知识库权限
+// ============================================
+
+model KnowledgeBasePermission {
+  id String @id @default(cuid())
+
+  // 权限级别
+  permission ResourcePermission
+
+  // 权限目标类型和ID
+  targetType PermissionTargetType
+  targetId   String?  // 当 targetType 为 ALL 时为 null
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // 关联知识库
+  knowledgeBaseId String
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+
+  // 关联部门（当 targetType 为 DEPARTMENT 时）
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  // 创建者
+  createdById String
+
+  @@unique([knowledgeBaseId, targetType, targetId])
+  @@index([knowledgeBaseId])
+  @@index([targetType, targetId])
+  @@index([departmentId])
+  @@map("knowledge_base_permissions")
 }
 
 enum VectorStoreType {
@@ -805,4 +1134,251 @@ model DocumentChunk {
   @@index([documentId])
   @@index([chunkIndex])
   @@map("document_chunks")
+}
+
+// ============================================
+// 工作流版本管理
+// ============================================
+
+model WorkflowVersion {
+  id          String   @id @default(cuid())
+
+  // 版本信息
+  versionNumber    Int              // 版本号（递增）
+  versionTag       String?          // 版本标签 (如 "v1.0.0")
+  commitMessage    String  @db.Text // 提交说明
+
+  // 完整配置快照
+  config           Json             // 工作流配置快照
+
+  // 版本类型
+  versionType      VersionType      @default(MANUAL)
+
+  // 版本状态
+  isPublished      Boolean          @default(false)  // 是否发布
+  isActive         Boolean          @default(false)  // 是否为当前活跃版本
+
+  // 变更摘要
+  changesSummary   Json?            // { nodesAdded: [], nodesRemoved: [], nodesModified: [] }
+
+  // 统计信息（该版本的执行统计）
+  executionCount   Int              @default(0)
+  successRate      Float?           // 成功率
+  avgRating        Float?           // 平均评分
+
+  // 来源追踪
+  sourceVersionId  String?          // 从哪个版本分叉
+  optimizationIds  Json?            // 关联的优化建议IDs
+
+  createdAt        DateTime         @default(now())
+
+  // 关联
+  workflowId       String
+  workflow         Workflow         @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  createdById      String           // 创建者
+
+  @@unique([workflowId, versionNumber])
+  @@index([workflowId])
+  @@index([isActive])
+  @@index([createdAt])
+  @@map("workflow_versions")
+}
+
+enum VersionType {
+  MANUAL           // 手动提交
+  AUTO_SAVE        // 自动保存
+  OPTIMIZATION     // AI 优化生成
+  ROLLBACK         // 回滚生成
+}
+
+// ============================================
+// 执行反馈
+// ============================================
+
+model ExecutionFeedback {
+  id          String   @id @default(cuid())
+
+  // 准确度评分 (1-5星)
+  rating      Int      // 1-5 星评分
+  isAccurate  Boolean  // 结果是否准确
+
+  // 反馈详情
+  expectedOutput   String?  @db.Text  // 期望的正确答案
+  actualOutput     String?  @db.Text  // 实际输出（快照）
+  feedbackComment  String?  @db.Text  // 用户反馈说明
+
+  // 问题分类（用户选择或AI识别）
+  issueCategories  Json     @default("[]")  // ["KNOWLEDGE_BASE", "PROMPT", "MODEL", ...]
+
+  // AI 诊断结果
+  aiDiagnosis      Json?    // AI 分析的诊断结果
+  diagnosedAt      DateTime?
+
+  // 优化状态
+  optimizationStatus OptimizationStatus @default(PENDING)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // 关联
+  executionId String
+  execution   Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  userId      String   // 反馈提交者
+
+  suggestions OptimizationSuggestion[]
+
+  @@index([executionId])
+  @@index([userId])
+  @@index([rating])
+  @@index([isAccurate])
+  @@index([createdAt])
+  @@index([optimizationStatus])
+  @@map("execution_feedbacks")
+}
+
+enum OptimizationStatus {
+  PENDING      // 待处理
+  ANALYZING    // AI 分析中
+  SUGGESTED    // 已生成建议
+  APPLIED      // 已应用优化
+  REJECTED     // 已拒绝
+  INEFFECTIVE  // 优化无效
+}
+
+// ============================================
+// AI 优化建议
+// ============================================
+
+model OptimizationSuggestion {
+  id          String   @id @default(cuid())
+
+  // 问题诊断
+  issueType        IssueCategory
+  issueDescription String   @db.Text  // 问题描述
+  rootCause        String   @db.Text  // 根因分析
+
+  // 优化建议
+  suggestionType   SuggestionType
+  suggestionTitle  String            // 建议标题
+  suggestionDetail String   @db.Text // 详细说明
+
+  // 具体修改内容（JSON格式）
+  suggestedChanges Json     // { nodeId, field, oldValue, newValue, explanation }
+
+  // 置信度和优先级
+  confidence      Float    @default(0.5)  // 0-1 置信度
+  priority        Int      @default(0)    // 优先级排序
+
+  // 应用状态
+  status          SuggestionStatus @default(PENDING)
+  appliedAt       DateTime?
+  appliedById     String?
+
+  // 效果追踪
+  effectivenessScore Float?  // 应用后的效果评分
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // 关联到反馈
+  feedbackId      String
+  feedback        ExecutionFeedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+
+  // 关联到工作流
+  workflowId      String
+
+  @@index([feedbackId])
+  @@index([workflowId])
+  @@index([status])
+  @@index([suggestionType])
+  @@index([priority])
+  @@map("optimization_suggestions")
+}
+
+enum IssueCategory {
+  KNOWLEDGE_BASE    // 知识库内容不足或不准确
+  PROMPT_UNCLEAR    // 提示词不够具体/清晰
+  PROMPT_WRONG      // 提示词逻辑错误
+  MODEL_CAPABILITY  // 模型能力不足
+  MODEL_CONFIG      // 模型配置不当（temperature等）
+  INPUT_QUALITY     // 输入数据质量问题
+  CONTEXT_MISSING   // 上下文信息缺失
+  LOGIC_ERROR       // 工作流逻辑错误
+  OTHER             // 其他原因
+}
+
+enum SuggestionType {
+  PROMPT_OPTIMIZATION     // 提示词优化
+  KNOWLEDGE_UPDATE        // 知识库更新
+  MODEL_CHANGE            // 更换模型
+  MODEL_CONFIG_ADJUST     // 调整模型参数
+  ADD_NODE                // 添加节点
+  REMOVE_NODE             // 移除节点
+  MODIFY_FLOW             // 修改流程
+  INPUT_VALIDATION        // 增加输入校验
+  OTHER                   // 其他
+}
+
+enum SuggestionStatus {
+  PENDING   // 待处理
+  APPROVED  // 已批准
+  APPLIED   // 已应用
+  REJECTED  // 已拒绝
+  REVERTED  // 已撤销
+}
+
+// ============================================
+// 工作流统计分析
+// ============================================
+
+model WorkflowAnalytics {
+  id          String   @id @default(cuid())
+
+  // 时间周期
+  periodType       AnalyticsPeriod  // DAILY, WEEKLY, MONTHLY
+  periodStart      DateTime
+  periodEnd        DateTime
+
+  // 执行统计
+  totalExecutions  Int      @default(0)
+  successCount     Int      @default(0)
+  failureCount     Int      @default(0)
+  cancelledCount   Int      @default(0)
+
+  // 反馈统计
+  feedbackCount    Int      @default(0)
+  accurateCount    Int      @default(0)  // isAccurate = true
+  inaccurateCount  Int      @default(0)  // isAccurate = false
+  avgRating        Float?               // 平均评分
+
+  // 问题分类统计
+  issueBreakdown   Json?    // { "KNOWLEDGE_BASE": 10, "PROMPT": 5, ... }
+
+  // 性能统计
+  avgDuration      Int?     // 平均执行时长(ms)
+  avgTokens        Int?     // 平均 Token 消耗
+
+  // 优化统计
+  suggestionsCount Int      @default(0)
+  appliedCount     Int      @default(0)
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // 关联
+  workflowId       String
+
+  @@unique([workflowId, periodType, periodStart])
+  @@index([workflowId])
+  @@index([periodType])
+  @@index([periodStart])
+  @@map("workflow_analytics")
+}
+
+enum AnalyticsPeriod {
+  DAILY
+  WEEKLY
+  MONTHLY
 }

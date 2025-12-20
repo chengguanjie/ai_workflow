@@ -142,6 +142,8 @@ export interface BaseNodeConfig {
   name: string
   /** Position on canvas */
   position: NodePosition
+  /** Node comment/annotation - describes what this node does */
+  comment?: string
   /** Index signature for compatibility */
   [key: string]: unknown
 }
@@ -899,6 +901,8 @@ export interface WorkflowConfig {
   globalVariables?: WorkflowGlobalVariables
   /** Workflow execution settings */
   settings?: WorkflowSettings
+  /** Workflow manual/documentation - operation guide for the workflow */
+  manual?: string
 }
 
 // ============================================

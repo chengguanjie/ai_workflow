@@ -76,8 +76,8 @@ describe('MERGE Node Processor', () => {
       expect(result.data.Branch1).toEqual({ result: 'value1' })
       expect(result.data.Branch2).toEqual({ result: 'value2' })
       expect(result.data._merge).toBeDefined()
-      expect(result.data._merge.totalBranches).toBe(2)
-      expect(result.data._merge.successfulBranches).toBe(2)
+      expect((result.data._merge as Record<string, number>).totalBranches).toBe(2)
+      expect((result.data._merge as Record<string, number>).successfulBranches).toBe(2)
     })
 
     it('should output as array when outputMode is array', async () => {
@@ -120,7 +120,7 @@ describe('MERGE Node Processor', () => {
       const result = await processMergeNode(node, context)
 
       expect(result.status).toBe('success')
-      expect(result.data._merge.successfulBranches).toBe(3)
+      expect((result.data._merge as Record<string, number>).successfulBranches).toBe(3)
     })
 
     it('should succeed with any successful branch using any strategy', async () => {
@@ -136,7 +136,7 @@ describe('MERGE Node Processor', () => {
       const result = await processMergeNode(node, context)
 
       expect(result.status).toBe('success')
-      expect(result.data._merge.successfulBranches).toBe(1)
+      expect((result.data._merge as Record<string, number>).successfulBranches).toBe(1)
     })
 
     it('should use first completed branch with race strategy', async () => {
@@ -179,7 +179,7 @@ describe('MERGE Node Processor', () => {
 
       expect(result.status).toBe('success')
       expect(result.data.Branch1).toEqual({ value: 'success' })
-      expect(result.data._merge.failedBranches).toBe(1)
+      expect((result.data._merge as Record<string, number>).failedBranches).toBe(1)
     })
 
     it('should collect all errors with collect strategy', async () => {
@@ -194,8 +194,8 @@ describe('MERGE Node Processor', () => {
 
       expect(result.status).toBe('success')
       expect(result.data._errors).toHaveLength(2)
-      expect(result.data._merge.failedBranches).toBe(2)
-      expect(result.data._merge.successfulBranches).toBe(1)
+      expect((result.data._merge as Record<string, number>).failedBranches).toBe(2)
+      expect((result.data._merge as Record<string, number>).successfulBranches).toBe(1)
     })
   })
 
@@ -206,7 +206,7 @@ describe('MERGE Node Processor', () => {
       const result = await processMergeNode(node, context)
 
       expect(result.status).toBe('success')
-      expect(result.data._merge.totalBranches).toBe(0)
+      expect((result.data._merge as Record<string, number>).totalBranches).toBe(0)
     })
 
     it('should include metadata in output', async () => {

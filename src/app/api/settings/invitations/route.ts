@@ -77,6 +77,7 @@ export async function POST(request: NextRequest) {
       type = 'EMAIL',
       email,
       role = 'MEMBER',
+      departmentId,
       expiresInDays = 7,
       maxUses = 1,
     } = body
@@ -141,6 +142,19 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 验证部门（如果提供）
+    if (departmentId) {
+      const department = await prisma.department.findFirst({
+        where: {
+          id: departmentId,
+          organizationId: session.user.organizationId,
+        },
+      })
+      if (!department) {
+        return NextResponse.json({ error: '部门不存在' }, { status: 400 })
+      }
+    }
+
     // 计算过期时间
     const expiresAt = new Date()
     expiresAt.setDate(expiresAt.getDate() + Math.min(expiresInDays, 30)) // 最多30天
@@ -156,6 +170,7 @@ export async function POST(request: NextRequest) {
         maxUses: type === 'LINK' ? Math.min(maxUses, 100) : 1, // 链接最多100次
         organizationId: session.user.organizationId,
         invitedById: session.user.id,
+        departmentId: departmentId || null,
       },
     })
 

@@ -9,6 +9,8 @@ import {
   Shield,
   FileText,
   ClipboardList,
+  MessageSquare,
+  Target,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -29,13 +31,23 @@ const navItems = [
     icon: Building2,
   },
   {
+    title: '用户反馈',
+    href: '/console/feedback',
+    icon: MessageSquare,
+  },
+  {
+    title: '执行准确率',
+    href: '/console/accuracy',
+    icon: Target,
+  },
+  {
     title: '审计日志',
     href: '/console/audit-logs',
     icon: FileText,
   },
   {
     title: '管理员',
-    href: '/console/settings/admins',
+    href: '/console/admins',
     icon: Shield,
   },
   {

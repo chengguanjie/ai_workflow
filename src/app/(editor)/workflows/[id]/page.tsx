@@ -17,8 +17,14 @@ import '@xyflow/react/dist/style.css'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { useWorkflowStore } from '@/stores/workflow-store'
-import { Save, Play, ArrowLeft, Loader2, Cloud, CloudOff, History, Link2, Eye, Group, Sparkles, Trash2, LayoutGrid } from 'lucide-react'
+import { Save, Play, ArrowLeft, Loader2, Cloud, CloudOff, History, Link2, Group, Sparkles, Trash2, LayoutGrid, BarChart3, FileJson, MessageSquare, BookOpen } from 'lucide-react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { NodePanel } from '@/components/workflow/node-panel'
@@ -26,8 +32,11 @@ import { NodeConfigPanel } from '@/components/workflow/node-config-panel'
 import { ExecutionPanel } from '@/components/workflow/execution-panel'
 import { ExecutionHistoryPanel } from '@/components/workflow/execution-history-panel'
 import { NodeDebugPanel } from '@/components/workflow/node-debug-panel'
-import { ExecutionVisualizer } from '@/components/workflow/execution-visualizer'
 import { AIAssistantPanel } from '@/components/workflow/ai-assistant-panel'
+import { VersionManagement } from '@/components/workflow/version-management'
+import { WorkflowImportExportDialog } from '@/components/workflow/workflow-import-export-dialog'
+import { NodeCommentDialog } from '@/components/workflow/node-comment-dialog'
+import { WorkflowManualDialog } from '@/components/workflow/workflow-manual-dialog'
 import { nodeTypes } from '@/components/workflow/nodes'
 import { useAIAssistantStore } from '@/stores/ai-assistant-store'
 import { toast } from 'sonner'
@@ -43,7 +52,7 @@ function WorkflowEditor() {
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved')
   const [showExecutionPanel, setShowExecutionPanel] = useState(false)
   const [showHistoryPanel, setShowHistoryPanel] = useState(false)
-  const [showVisualizer, setShowVisualizer] = useState(false)
+  const [showImportExportDialog, setShowImportExportDialog] = useState(false)
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   // 选区右键菜单状态
@@ -53,6 +62,16 @@ function WorkflowEditor() {
   // Edge 右键菜单状态
   const [edgeContextMenu, setEdgeContextMenu] = useState<{ x: number; y: number; edgeId: string } | null>(null)
   const edgeMenuRef = useRef<HTMLDivElement>(null)
+
+  // 节点右键菜单状态
+  const [nodeContextMenu, setNodeContextMenu] = useState<{ x: number; y: number; nodeId: string; nodeName: string; nodeType: string; comment?: string } | null>(null)
+  const nodeMenuRef = useRef<HTMLDivElement>(null)
+
+  // 节点注释弹窗状态
+  const [commentDialogNode, setCommentDialogNode] = useState<{ nodeId: string; nodeName: string; nodeType: string; comment?: string } | null>(null)
+
+  // 说明手册弹窗状态
+  const [showManualDialog, setShowManualDialog] = useState(false)
 
   // AI助手
   const { openPanel: openAIPanel } = useAIAssistantStore()
@@ -253,6 +272,7 @@ function WorkflowEditor() {
     selectNode(null)
     setSelectionContextMenu(null)
     setEdgeContextMenu(null)
+    setNodeContextMenu(null)
   }, [selectNode])
 
   // 点击外部关闭选区右键菜单
@@ -330,6 +350,52 @@ function WorkflowEditor() {
     }
   }, [edgeContextMenu, onEdgesChange])
 
+  // 点击外部关闭节点右键菜单
+  useEffect(() => {
+    if (!nodeContextMenu) return
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (nodeMenuRef.current && !nodeMenuRef.current.contains(e.target as globalThis.Node)) {
+        setNodeContextMenu(null)
+      }
+    }
+
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('mousedown', handleClickOutside, true)
+    }, 0)
+
+    return () => {
+      clearTimeout(timeoutId)
+      document.removeEventListener('mousedown', handleClickOutside, true)
+    }
+  }, [nodeContextMenu])
+
+  // 处理节点右键菜单
+  const onNodeContextMenu = useCallback((e: React.MouseEvent, node: { id: string; data?: { name?: string; type?: string; comment?: string } }) => {
+    e.preventDefault()
+    setNodeContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      nodeId: node.id,
+      nodeName: node.data?.name || '未命名节点',
+      nodeType: node.data?.type || 'UNKNOWN',
+      comment: node.data?.comment,
+    })
+  }, [])
+
+  // 打开节点注释弹窗
+  const handleOpenCommentDialog = useCallback(() => {
+    if (nodeContextMenu) {
+      setCommentDialogNode({
+        nodeId: nodeContextMenu.nodeId,
+        nodeName: nodeContextMenu.nodeName,
+        nodeType: nodeContextMenu.nodeType,
+        comment: nodeContextMenu.comment,
+      })
+      setNodeContextMenu(null)
+    }
+  }, [nodeContextMenu])
+
   // 复制 API 调用链接
   const copyApiUrl = useCallback(async () => {
     const apiUrl = `${window.location.origin}/api/v1/workflows/${workflowId}/execute`
@@ -348,58 +414,104 @@ function WorkflowEditor() {
   return (
     <div className="flex h-screen">
       {/* 左侧工具栏 */}
-      <div className="flex w-14 flex-col items-center border-r bg-background py-4">
-        <Link href="/workflows">
-          <Button variant="ghost" size="icon" className="mb-4">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        </Link>
-        <Button variant="ghost" size="icon" onClick={handleSave} disabled={isSaving} className="mb-2" title="保存">
-          {isSaving ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Save className="h-4 w-4" />
-          )}
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setShowExecutionPanel(true)}
-          disabled={nodes.length === 0}
-          title="执行工作流"
-          className="text-green-600 hover:text-green-700 hover:bg-green-50"
-        >
-          <Play className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setShowVisualizer(true)}
-          disabled={nodes.length === 0}
-          title="可视化执行"
-          className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-        >
-          <Eye className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setShowHistoryPanel(true)}
-          title="执行历史"
-          className="mt-2"
-        >
-          <History className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={copyApiUrl}
-          title="复制 API 链接"
-          className="mt-2"
-        >
-          <Link2 className="h-4 w-4" />
-        </Button>
-      </div>
+      <TooltipProvider delayDuration={100}>
+        <div className="flex w-14 flex-col items-center border-r bg-background py-4">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Link href="/workflows">
+                <Button variant="ghost" size="icon" className="mb-4">
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent side="right">返回工作流列表</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" onClick={handleSave} disabled={isSaving} className="mb-2">
+                {isSaving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">保存工作流</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowExecutionPanel(true)}
+                disabled={nodes.length === 0}
+                className="text-green-600 hover:text-green-700 hover:bg-green-50"
+              >
+                <Play className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">执行工作流</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowHistoryPanel(true)}
+                className="mt-2"
+              >
+                <History className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">执行历史</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={copyApiUrl}
+                className="mt-2"
+              >
+                <Link2 className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">复制 API 链接</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowImportExportDialog(true)}
+                className="mt-2"
+              >
+                <FileJson className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">导入/导出</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowManualDialog(true)}
+                className="mt-2"
+              >
+                <BookOpen className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">说明手册</TooltipContent>
+          </Tooltip>
+        </div>
+      </TooltipProvider>
 
       {/* 编辑器主体 */}
       <div className="flex flex-1 flex-col overflow-hidden">
@@ -411,26 +523,46 @@ function WorkflowEditor() {
             className="w-64 border-none bg-transparent text-lg font-semibold focus-visible:ring-0"
             placeholder="工作流名称"
           />
-          {/* 保存状态指示器 */}
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            {saveStatus === 'saving' && (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>保存中...</span>
-              </>
-            )}
-            {saveStatus === 'saved' && (
-              <>
-                <Cloud className="h-4 w-4 text-green-500" />
-                <span>已保存</span>
-              </>
-            )}
-            {saveStatus === 'unsaved' && (
-              <>
-                <CloudOff className="h-4 w-4 text-orange-500" />
-                <span>未保存</span>
-              </>
-            )}
+          {/* 右侧工具区 */}
+          <div className="flex items-center gap-4">
+            {/* 保存状态指示器 */}
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              {saveStatus === 'saving' && (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>保存中...</span>
+                </>
+              )}
+              {saveStatus === 'saved' && (
+                <>
+                  <Cloud className="h-4 w-4 text-green-500" />
+                  <span>已保存</span>
+                </>
+              )}
+              {saveStatus === 'unsaved' && (
+                <>
+                  <CloudOff className="h-4 w-4 text-orange-500" />
+                  <span>未保存</span>
+                </>
+              )}
+            </div>
+
+            {/* 版本管理 */}
+            <VersionManagement
+              workflowId={workflowId}
+              onVersionChange={() => {
+                // 版本变更后可以刷新页面或重新加载数据
+                window.location.reload()
+              }}
+            />
+
+            {/* 统计分析按钮 */}
+            <Link href={`/workflows/${workflowId}/analytics`}>
+              <Button variant="outline" size="sm" className="gap-2">
+                <BarChart3 className="h-4 w-4" />
+                统计分析
+              </Button>
+            </Link>
           </div>
         </div>
 
@@ -460,6 +592,7 @@ function WorkflowEditor() {
               panOnScroll
               onSelectionContextMenu={onSelectionContextMenu}
               onEdgeContextMenu={onEdgeContextMenu}
+              onNodeContextMenu={onNodeContextMenu}
             >
               <Background gap={15} />
               <Controls>
@@ -496,11 +629,11 @@ function WorkflowEditor() {
         onClose={() => setShowHistoryPanel(false)}
       />
 
-      {/* 执行可视化面板 */}
-      <ExecutionVisualizer
-        workflowId={workflowId}
-        isOpen={showVisualizer}
-        onClose={() => setShowVisualizer(false)}
+      {/* 导入/导出对话框 */}
+      <WorkflowImportExportDialog
+        isOpen={showImportExportDialog}
+        onClose={() => setShowImportExportDialog(false)}
+        workflowName={name}
       />
 
       {/* 节点调试面板 */}
@@ -563,6 +696,48 @@ function WorkflowEditor() {
         </div>,
         document.body
       )}
+
+      {/* 节点右键菜单 - 使用 Portal 渲染到 body */}
+      {nodeContextMenu && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={nodeMenuRef}
+          className="min-w-[120px] rounded-md border bg-popover p-1 shadow-lg"
+          style={{
+            position: 'fixed',
+            left: nodeContextMenu.x,
+            top: nodeContextMenu.y,
+            zIndex: 9999,
+          }}
+        >
+          <button
+            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
+            onClick={handleOpenCommentDialog}
+          >
+            <MessageSquare className="h-4 w-4" />
+            {nodeContextMenu.comment ? '编辑注释' : '添加注释'}
+          </button>
+        </div>,
+        document.body
+      )}
+
+      {/* 节点注释弹窗 */}
+      {commentDialogNode && (
+        <NodeCommentDialog
+          isOpen={!!commentDialogNode}
+          onClose={() => setCommentDialogNode(null)}
+          nodeId={commentDialogNode.nodeId}
+          nodeName={commentDialogNode.nodeName}
+          nodeType={commentDialogNode.nodeType}
+          currentComment={commentDialogNode.comment}
+        />
+      )}
+
+      {/* 工作流说明手册弹窗 */}
+      <WorkflowManualDialog
+        isOpen={showManualDialog}
+        onClose={() => setShowManualDialog(false)}
+        workflowId={workflowId}
+      />
     </div>
   )
 }

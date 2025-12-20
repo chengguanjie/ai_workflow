@@ -20,6 +20,12 @@ export async function GET(request: NextRequest) {
             logo: true,
           },
         },
+        department: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
       },
     })
 
@@ -49,6 +55,7 @@ export async function GET(request: NextRequest) {
         role: invitation.role,
         type: invitation.type,
         organization: invitation.organization,
+        department: invitation.department,
       },
     })
   } catch (error) {

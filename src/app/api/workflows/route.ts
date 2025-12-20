@@ -33,9 +33,10 @@ export const GET = withAuth(async (request: NextRequest, { user }: AuthContext) 
   // Validate query parameters
   const params = validateQueryParams(request, workflowListSchema)
 
-  // Delegate to service layer
+  // Delegate to service layer with permission filtering
   const result = await workflowService.list({
     organizationId: user.organizationId,
+    userId: user.id,  // 用于权限过滤
     page: params.page,
     pageSize: params.pageSize,
     search: params.search,

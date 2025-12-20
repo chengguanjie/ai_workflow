@@ -14,6 +14,7 @@ export const {
   signOut: consoleSignOut,
   auth: consoleAuth,
 } = NextAuth({
+  basePath: '/api/console/auth',
   providers: [
     Credentials({
       id: 'platform-admin',

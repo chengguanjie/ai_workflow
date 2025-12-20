@@ -13,6 +13,7 @@ import {
   Upload,
   ChevronRight,
   RefreshCw,
+  Shield,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -48,6 +49,7 @@ import {
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
+import { KnowledgeBasePermissionsDialog } from '@/components/knowledge-base/knowledge-base-permissions-dialog'
 
 interface KnowledgeBase {
   id: string
@@ -77,6 +79,7 @@ export default function KnowledgeBasesPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [permissionsDialogOpen, setPermissionsDialogOpen] = useState(false)
   const [selectedKB, setSelectedKB] = useState<KnowledgeBase | null>(null)
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -276,6 +279,15 @@ export default function KnowledgeBasesPage() {
                         </Link>
                       </DropdownMenuItem>
                       <DropdownMenuItem
+                        onClick={() => {
+                          setSelectedKB(kb)
+                          setPermissionsDialogOpen(true)
+                        }}
+                      >
+                        <Shield className="h-4 w-4 mr-2" />
+                        权限设置
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
                         className="text-destructive"
                         onClick={() => {
                           setSelectedKB(kb)
@@ -449,6 +461,16 @@ export default function KnowledgeBasesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 权限设置对话框 */}
+      {selectedKB && (
+        <KnowledgeBasePermissionsDialog
+          knowledgeBaseId={selectedKB.id}
+          knowledgeBaseName={selectedKB.name}
+          open={permissionsDialogOpen}
+          onOpenChange={setPermissionsDialogOpen}
+        />
+      )}
     </div>
   )
 }

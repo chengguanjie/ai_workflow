@@ -8,6 +8,7 @@ export interface SessionUser {
   role: string
   organizationId: string
   organizationName: string
+  mustChangePassword: boolean
 }
 
 export interface MockSessionOptions {
@@ -23,6 +24,7 @@ export function createMockSession(options: MockSessionOptions = {}): Session {
     role: 'EDITOR',
     organizationId: 'test-org-id',
     organizationName: 'Test Organization',
+    mustChangePassword: false,
   }
 
   return {

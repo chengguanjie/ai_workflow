@@ -10,6 +10,7 @@ interface WorkflowState {
   id: string | null
   name: string
   description: string
+  manual: string
 
   // React Flow 状态
   nodes: Node[]
@@ -31,6 +32,7 @@ interface WorkflowState {
   setWorkflow: (config: WorkflowConfig & { id?: string; name?: string; description?: string }) => void
   setName: (name: string) => void
   setDescription: (description: string) => void
+  setManual: (manual: string) => void
 
   // React Flow 方法
   onNodesChange: OnNodesChange
@@ -40,6 +42,7 @@ interface WorkflowState {
   // 节点操作
   addNode: (node: NodeConfig) => void
   updateNode: (nodeId: string, data: Partial<NodeConfig>) => void
+  updateNodeComment: (nodeId: string, comment: string) => void
   deleteNode: (nodeId: string) => void
   duplicateNode: (nodeId: string) => void
   selectNode: (nodeId: string | null) => void
@@ -74,6 +77,7 @@ const initialState = {
   id: null as string | null,
   name: '未命名工作流',
   description: '',
+  manual: '',
   nodes: [] as Node[],
   edges: [] as Edge[],
   viewport: { x: 0, y: 0, zoom: 1 } as Viewport,
@@ -228,6 +232,7 @@ export const useWorkflowStore = create<WorkflowState>()(
           id: config.id || null,
           name: config.name || '未命名工作流',
           description: config.description || '',
+          manual: config.manual || '',
           nodes,
           edges,
           isDirty: false,
@@ -237,6 +242,7 @@ export const useWorkflowStore = create<WorkflowState>()(
 
       setName: (name) => set({ name, isDirty: true }),
       setDescription: (description) => set({ description, isDirty: true }),
+      setManual: (manual) => set({ manual, isDirty: true }),
 
       onNodesChange: (changes) => {
         set({
@@ -284,6 +290,17 @@ export const useWorkflowStore = create<WorkflowState>()(
           nodes: get().nodes.map((node) =>
             node.id === nodeId
               ? { ...node, data: { ...node.data, ...data } }
+              : node
+          ),
+          isDirty: true,
+        })
+      },
+
+      updateNodeComment: (nodeId, comment) => {
+        set({
+          nodes: get().nodes.map((node) =>
+            node.id === nodeId
+              ? { ...node, data: { ...node.data, comment } }
               : node
           ),
           isDirty: true,
@@ -452,6 +469,7 @@ export const useWorkflowStore = create<WorkflowState>()(
       // 拆散组节点
       ungroupNodes: (groupId) => {
         const nodes = get().nodes
+        const edges = get().edges
         const groupNode = nodes.find((n) => n.id === groupId)
         if (!groupNode || groupNode.type !== 'group') return
 
@@ -468,6 +486,7 @@ export const useWorkflowStore = create<WorkflowState>()(
                 ...node,
                 parentId: undefined,
                 extent: undefined,
+                hidden: false, // 确保子节点可见
                 position: {
                   x: groupNode.position.x + node.position.x,
                   y: groupNode.position.y + node.position.y,
@@ -477,8 +496,52 @@ export const useWorkflowStore = create<WorkflowState>()(
             return node
           })
 
+        // 处理边：恢复指向组节点的边回原始子节点
+        const updatedEdges = edges
+          .filter((edge) => {
+            // 过滤掉组内部的隐藏边（如果组是折叠状态）
+            // 这些边在展开后会显示
+            return true
+          })
+          .map((edge) => {
+            let newEdge = { ...edge, hidden: false }
+
+            // 如果边的 source 是组节点，恢复到原始子节点
+            if (edge.source === groupId && edge.data?._originalSource) {
+              newEdge = {
+                ...newEdge,
+                source: edge.data._originalSource as string,
+                sourceHandle: edge.data._originalSourceHandle as string | undefined,
+                data: {
+                  ...newEdge.data,
+                  _originalSource: undefined,
+                  _originalSourceHandle: undefined,
+                },
+              }
+            }
+
+            // 如果边的 target 是组节点，恢复到原始子节点
+            if (edge.target === groupId && edge.data?._originalTarget) {
+              newEdge = {
+                ...newEdge,
+                target: edge.data._originalTarget as string,
+                targetHandle: edge.data._originalTargetHandle as string | undefined,
+                data: {
+                  ...newEdge.data,
+                  _originalTarget: undefined,
+                  _originalTargetHandle: undefined,
+                },
+              }
+            }
+
+            return newEdge
+          })
+          // 过滤掉仍然连接到已删除组节点的边
+          .filter((edge) => edge.source !== groupId && edge.target !== groupId)
+
         set({
           nodes: updatedNodes,
+          edges: updatedEdges,
           selectedNodeId: null,
           isDirty: true,
         })
@@ -750,7 +813,7 @@ export const useWorkflowStore = create<WorkflowState>()(
       },
 
       getWorkflowConfig: () => {
-        const { nodes, edges } = get()
+        const { nodes, edges, manual } = get()
 
         return {
           version: 1,
@@ -765,6 +828,7 @@ export const useWorkflowStore = create<WorkflowState>()(
             sourceHandle: edge.sourceHandle,
             targetHandle: edge.targetHandle,
           })),
+          manual,
         }
       },
 
@@ -778,6 +842,7 @@ export const useWorkflowStore = create<WorkflowState>()(
         id: state.id,
         name: state.name,
         description: state.description,
+        manual: state.manual,
         nodes: state.nodes,
         edges: state.edges,
         viewport: state.viewport,

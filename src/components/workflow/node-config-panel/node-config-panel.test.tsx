@@ -145,21 +145,26 @@ describe('Property 14: Component Refactoring Behavioral Equivalence', () => {
           (fields, updates) => {
             const index = Math.floor(Math.random() * fields.length)
             const config = { fields: [...fields] }
-            
+
+            // Filter out undefined values from updates
+            const filteredUpdates = Object.fromEntries(
+              Object.entries(updates).filter(([, v]) => v !== undefined)
+            )
+
             // Simulate updateField operation
             const newFields = [...config.fields]
-            newFields[index] = { ...newFields[index], ...updates }
+            newFields[index] = { ...newFields[index], ...filteredUpdates } as typeof newFields[number]
             const updatedConfig = { ...config, fields: newFields }
-            
+
             // Verify other fields are preserved
             for (let i = 0; i < fields.length; i++) {
               if (i !== index) {
                 expect(updatedConfig.fields[i]).toEqual(fields[i])
               }
             }
-            
+
             // Verify target field is updated
-            const expectedField = { ...fields[index], ...updates }
+            const expectedField = { ...fields[index], ...filteredUpdates }
             expect(updatedConfig.fields[index]).toEqual(expectedField)
             
             // Verify array length is preserved

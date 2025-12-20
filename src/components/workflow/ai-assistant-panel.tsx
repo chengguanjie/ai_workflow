@@ -184,7 +184,7 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
     deleteConversation,
   } = useAIAssistantStore()
 
-  const { nodes, edges, addNode, onConnect } = useWorkflowStore()
+  const { nodes, edges, addNode, updateNode, onConnect } = useWorkflowStore()
 
   // 获取企业AI服务商配置
   useEffect(() => {
@@ -320,7 +320,7 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
 
   // 应用节点操作
   const applyNodeActions = useCallback((actions: NodeAction[]) => {
-    let addedNodes: string[] = []
+    const addedNodes: string[] = []
 
     actions.forEach((action) => {
       if (action.action === 'add' && action.nodeType && action.nodeName) {
@@ -357,9 +357,22 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
             targetHandle: null,
           })
         }
+      } else if (action.action === 'update' && action.nodeId && action.config) {
+        // 更新现有节点的配置
+        const targetNode = nodes.find((n) => n.id === action.nodeId)
+        if (targetNode) {
+          const currentConfig = (targetNode.data as NodeConfig).config || {}
+          // 合并现有配置和新配置
+          const mergedConfig = { ...currentConfig, ...action.config }
+          updateNode(action.nodeId, { config: mergedConfig } as Partial<NodeConfig>)
+          const nodeName = action.nodeName || (targetNode.data as NodeConfig).name || action.nodeId
+          toast.success(`已更新节点: ${nodeName}`)
+        } else {
+          toast.error(`未找到节点: ${action.nodeId}`)
+        }
       }
     })
-  }, [nodes, addNode, onConnect])
+  }, [nodes, addNode, updateNode, onConnect])
 
   // 发送消息
   const handleSend = useCallback(async () => {
@@ -674,19 +687,19 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
                       className="block w-full rounded-lg border bg-muted/50 px-3 py-2 text-left hover:bg-muted"
                       onClick={() => setInputValue('帮我创建一个简单的文本处理工作流')}
                     >
-                      "帮我创建一个简单的文本处理工作流"
+                      帮我创建一个简单的文本处理工作流
                     </button>
                     <button
                       className="block w-full rounded-lg border bg-muted/50 px-3 py-2 text-left hover:bg-muted"
                       onClick={() => setInputValue('如何配置输入节点的字段？')}
                     >
-                      "如何配置输入节点的字段？"
+                      如何配置输入节点的字段？
                     </button>
                     <button
                       className="block w-full rounded-lg border bg-muted/50 px-3 py-2 text-left hover:bg-muted"
                       onClick={() => setInputValue('我想做一个数据处理然后发送通知的流程')}
                     >
-                      "我想做一个数据处理然后发送通知的流程"
+                      我想做一个数据处理然后发送通知的流程
                     </button>
                   </div>
                 </div>

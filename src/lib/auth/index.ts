@@ -48,6 +48,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           role: user.role,
           organizationId: user.organizationId,
           organizationName: user.organization.name,
+          mustChangePassword: user.mustChangePassword,
         }
       },
     }),
@@ -59,6 +60,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.role = user.role
         token.organizationId = user.organizationId
         token.organizationName = user.organizationName
+        token.mustChangePassword = user.mustChangePassword
       }
       return token
     },
@@ -68,6 +70,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         session.user.role = token.role as string
         session.user.organizationId = token.organizationId as string
         session.user.organizationName = token.organizationName as string
+        session.user.mustChangePassword = token.mustChangePassword as boolean
       }
       return session
     },
@@ -88,6 +91,7 @@ declare module 'next-auth' {
     role?: string
     organizationId?: string
     organizationName?: string
+    mustChangePassword?: boolean
   }
 
   interface Session {
@@ -96,6 +100,7 @@ declare module 'next-auth' {
       role: string
       organizationId: string
       organizationName: string
+      mustChangePassword: boolean
     }
   }
 }

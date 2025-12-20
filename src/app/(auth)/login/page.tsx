@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, Suspense } from 'react'
-import { signIn } from 'next-auth/react'
+import { signIn, getSession } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
@@ -35,7 +35,13 @@ function LoginForm() {
       if (result?.error) {
         setError('邮箱或密码错误')
       } else {
-        router.push(callbackUrl)
+        // 检查是否需要修改密码
+        const session = await getSession()
+        if (session?.user?.mustChangePassword) {
+          router.push('/change-password')
+        } else {
+          router.push(callbackUrl)
+        }
       }
     } catch {
       setError('登录失败，请稍后重试')

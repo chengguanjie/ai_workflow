@@ -10,15 +10,17 @@ import { withAuth, AuthContext } from '@/lib/api/with-auth'
 import { ApiResponse, ApiSuccessResponse } from '@/lib/api/api-response'
 import { ValidationError } from '@/lib/errors'
 import { prisma } from '@/lib/db'
-import type { TemplateVisibility, WorkflowTemplate } from '@prisma/client'
+import type { TemplateVisibility, TemplateType, WorkflowTemplate } from '@prisma/client'
 
 interface TemplateListParams {
   category?: string
   visibility?: TemplateVisibility
+  templateType?: TemplateType // 新增：模板类型筛选
   search?: string
   page?: number
   limit?: number
   includeOfficial?: boolean
+  minRating?: number // 新增：最低评分筛选
 }
 
 interface TemplateListResponse {
@@ -53,38 +55,64 @@ export const GET = withAuth<ApiSuccessResponse<TemplateListResponse>>(
     const params: TemplateListParams = {
       category: searchParams.get('category') || undefined,
       visibility: (searchParams.get('visibility') as TemplateVisibility) || undefined,
+      templateType: (searchParams.get('templateType') as TemplateType) || undefined,
       search: searchParams.get('search') || undefined,
       page: parseInt(searchParams.get('page') || '1', 10),
       limit: Math.min(parseInt(searchParams.get('limit') || '20', 10), 100),
       includeOfficial: searchParams.get('includeOfficial') !== 'false',
+      minRating: searchParams.get('minRating') ? parseFloat(searchParams.get('minRating')!) : undefined,
     }
 
-    const { category, visibility, search, page, limit, includeOfficial } = params
+    const { category, visibility, templateType, search, page, limit, includeOfficial, minRating } = params
 
     // 构建查询条件
     const where: Record<string, unknown> = {
-      OR: [
-        // 官方模板（如果包含）
-        ...(includeOfficial ? [{ isOfficial: true, visibility: 'PUBLIC' }] : []),
+      isHidden: false, // 排除隐藏的模板
+    }
+
+    // 根据模板类型构建不同的查询条件
+    if (templateType === 'PUBLIC') {
+      // 只查询公域模板（平台官方推送）
+      where.templateType = 'PUBLIC'
+      where.isOfficial = true
+    } else if (templateType === 'INTERNAL') {
+      // 只查询内部模板
+      where.templateType = 'INTERNAL'
+      where.OR = [
         // 用户自己的私有模板
         { creatorId: user.id, visibility: 'PRIVATE' },
         // 企业内的模板
         { organizationId: user.organizationId, visibility: 'ORGANIZATION' },
-        // 公开模板
-        { visibility: 'PUBLIC', isOfficial: false },
-      ],
+      ]
+    } else {
+      // 默认：显示所有可见的模板
+      where.OR = [
+        // 官方模板（如果包含）
+        ...(includeOfficial ? [{ isOfficial: true, templateType: 'PUBLIC' }] : []),
+        // 用户自己的私有模板
+        { creatorId: user.id, visibility: 'PRIVATE', templateType: 'INTERNAL' },
+        // 企业内的模板
+        { organizationId: user.organizationId, visibility: 'ORGANIZATION', templateType: 'INTERNAL' },
+        // 公开的内部模板
+        { visibility: 'PUBLIC', isOfficial: false, templateType: 'INTERNAL' },
+      ]
     }
 
     if (category) {
       where.category = category
     }
 
-    if (visibility) {
+    if (visibility && !templateType) {
       where.visibility = visibility
+    }
+
+    if (minRating && minRating > 0) {
+      where.rating = { gte: minRating }
     }
 
     if (search) {
       where.AND = [
+        ...(Array.isArray(where.AND) ? where.AND : []),
         {
           OR: [
             { name: { contains: search } },
@@ -149,6 +177,12 @@ export const POST = withAuth<ApiSuccessResponse<WorkflowTemplate>>(
       throw new ValidationError('模板配置必须包含 nodes 和 edges')
     }
 
+    // 获取用户的部门信息
+    const userWithDept = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { departmentId: true },
+    })
+
     const template = await prisma.workflowTemplate.create({
       data: {
         name: name.trim(),
@@ -158,10 +192,13 @@ export const POST = withAuth<ApiSuccessResponse<WorkflowTemplate>>(
         thumbnail,
         config: JSON.parse(JSON.stringify(config)),
         visibility: visibility || 'PRIVATE',
+        templateType: 'INTERNAL', // 用户创建的都是内部模板
         organizationId: user.organizationId,
         creatorId: user.id,
         creatorName: user.name || user.email,
+        creatorDepartmentId: userWithDept?.departmentId || null,
         isOfficial: false,
+        isHidden: false,
       },
     })
 

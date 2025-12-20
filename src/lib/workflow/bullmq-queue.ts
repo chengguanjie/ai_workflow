@@ -225,6 +225,7 @@ class BullMQQueueManager {
     result?: WorkflowJobResult
     error?: string
     failedReason?: string
+    jobData?: WorkflowJobData
   }> {
     if (!this.queue) {
       return { status: 'unknown' }
@@ -250,6 +251,7 @@ class BullMQQueueManager {
       progress: job.progress as number | undefined,
       result: job.returnvalue as WorkflowJobResult | undefined,
       failedReason: job.failedReason,
+      jobData: job.data,
     }
   }
 

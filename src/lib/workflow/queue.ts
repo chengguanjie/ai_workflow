@@ -105,40 +105,37 @@ class InMemoryQueue {
       return { task: null }
     }
 
-    if (task.status === 'completed' || task.status === 'failed') {
-      const execution = await prisma.execution.findFirst({
-        where: {
-          workflowId: task.workflowId,
-          userId: task.userId,
-          createdAt: { gte: task.createdAt },
-        },
-        orderBy: { createdAt: 'desc' },
-        select: {
-          id: true,
-          status: true,
-          output: true,
-          error: true,
-          duration: true,
-          totalTokens: true,
-        },
-      })
+    // 无论任务状态如何，都尝试获取执行记录（用于 SSE 实时监控）
+    const execution = await prisma.execution.findFirst({
+      where: {
+        workflowId: task.workflowId,
+        userId: task.userId,
+        createdAt: { gte: task.createdAt },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        status: true,
+        output: true,
+        error: true,
+        duration: true,
+        totalTokens: true,
+      },
+    })
 
-      return {
-        task,
-        execution: execution
-          ? {
-              id: execution.id,
-              status: execution.status,
-              output: execution.output,
-              error: execution.error || undefined,
-              duration: execution.duration || undefined,
-              totalTokens: execution.totalTokens,
-            }
-          : undefined,
-      }
+    return {
+      task,
+      execution: execution
+        ? {
+            id: execution.id,
+            status: execution.status,
+            output: execution.output,
+            error: execution.error || undefined,
+            duration: execution.duration || undefined,
+            totalTokens: execution.totalTokens,
+          }
+        : undefined,
     }
-
-    return { task }
   }
 
   cancelTask(taskId: string): boolean {
@@ -395,14 +392,15 @@ class ExecutionQueue {
 
       const task: QueueTask = {
         id: taskId,
-        workflowId: '',
-        organizationId: '',
-        userId: '',
+        workflowId: jobStatus.jobData?.workflowId || '',
+        organizationId: jobStatus.jobData?.organizationId || '',
+        userId: jobStatus.jobData?.userId || '',
         status: taskStatus,
         createdAt: new Date(),
         error: taskError,
       }
 
+      // 如果有执行结果，直接返回
       if (jobStatus.result) {
         return {
           task,
@@ -413,6 +411,40 @@ class ExecutionQueue {
             error: jobStatus.result.error || taskError,
             duration: jobStatus.result.duration,
           },
+        }
+      }
+
+      // 任务运行中但没有结果时，尝试从数据库查询执行记录（用于 SSE 实时监控）
+      if (jobStatus.jobData && (taskStatus === 'running' || taskStatus === 'pending')) {
+        const execution = await prisma.execution.findFirst({
+          where: {
+            workflowId: jobStatus.jobData.workflowId,
+            userId: jobStatus.jobData.userId,
+            status: { in: ['PENDING', 'RUNNING'] },
+          },
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            status: true,
+            output: true,
+            error: true,
+            duration: true,
+            totalTokens: true,
+          },
+        })
+
+        if (execution) {
+          return {
+            task,
+            execution: {
+              id: execution.id,
+              status: execution.status,
+              output: execution.output,
+              error: execution.error || undefined,
+              duration: execution.duration || undefined,
+              totalTokens: execution.totalTokens,
+            },
+          }
         }
       }
 

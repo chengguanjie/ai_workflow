@@ -9,8 +9,10 @@
 
 import { prisma } from '@/lib/db'
 import { NotFoundError, ValidationError, BusinessError } from '@/lib/errors'
-import type { Workflow, Prisma, TriggerType } from '@prisma/client'
+import { Prisma } from '@prisma/client'
+import type { Workflow, TriggerType } from '@prisma/client'
 import type { WorkflowConfig, TriggerNodeConfig, TriggerNodeConfigData } from '@/types/workflow'
+import { getAccessibleWorkflowIds } from '@/lib/permissions/workflow'
 import crypto from 'crypto'
 
 /**
@@ -18,6 +20,7 @@ import crypto from 'crypto'
  */
 export interface WorkflowListParams {
   organizationId: string
+  userId?: string  // 用于权限过滤
   page?: number
   pageSize?: number
   search?: string
@@ -93,12 +96,21 @@ export class WorkflowService {
    * Requirements: 3.1, 4.1, 4.2
    */
   async list(params: WorkflowListParams): Promise<PaginatedResult<WorkflowSummary>> {
-    const { organizationId, page = 1, pageSize = 20, search, category } = params
+    const { organizationId, userId, page = 1, pageSize = 20, search, category } = params
 
     // Build where clause
     const where: Prisma.WorkflowWhereInput = {
       organizationId,
       deletedAt: null,
+    }
+
+    // 如果提供了 userId，进行权限过滤
+    if (userId) {
+      const accessibleIds = await getAccessibleWorkflowIds(userId, organizationId, 'VIEW')
+      // 如果不是 'all'，则需要限制可访问的工作流
+      if (accessibleIds !== 'all') {
+        where.id = { in: accessibleIds }
+      }
     }
 
     if (search) {

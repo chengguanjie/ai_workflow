@@ -20,6 +20,10 @@ interface Invitation {
     name: string
     logo: string | null
   }
+  department: {
+    id: string
+    name: string
+  } | null
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -181,9 +185,16 @@ function InviteForm({ token }: { token: string }) {
             </div>
             <div>
               <p className="font-medium">{invitation?.organization.name}</p>
-              <Badge variant="secondary" className="mt-1">
-                {ROLE_LABELS[invitation?.role || 'MEMBER']}
-              </Badge>
+              <div className="flex items-center gap-2 mt-1">
+                <Badge variant="secondary">
+                  {ROLE_LABELS[invitation?.role || 'MEMBER']}
+                </Badge>
+                {invitation?.department && (
+                  <Badge variant="outline">
+                    {invitation.department.name}
+                  </Badge>
+                )}
+              </div>
             </div>
           </div>
         </div>

@@ -30,6 +30,13 @@ export const PERMISSIONS = {
   // 系统设置
   'settings:read': ['SUPER_ADMIN'],
   'settings:update': ['SUPER_ADMIN'],
+
+  // 公域模板管理
+  'template:read': ['SUPER_ADMIN', 'ADMIN', 'OPERATOR'],
+  'template:create': ['SUPER_ADMIN', 'ADMIN'],
+  'template:update': ['SUPER_ADMIN', 'ADMIN'],
+  'template:delete': ['SUPER_ADMIN'],
+  'template:publish': ['SUPER_ADMIN', 'ADMIN'],
 } as const
 
 export type Permission = keyof typeof PERMISSIONS

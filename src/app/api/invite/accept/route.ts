@@ -21,6 +21,7 @@ export async function POST(request: NextRequest) {
       where: { token },
       include: {
         organization: true,
+        department: true,
       },
     })
 
@@ -68,6 +69,7 @@ export async function POST(request: NextRequest) {
         passwordHash,
         role: invitation.role,
         organizationId: invitation.organizationId,
+        departmentId: invitation.departmentId,
       },
     })
 
@@ -92,6 +94,7 @@ export async function POST(request: NextRequest) {
           userEmail: user.email,
           userName: user.name,
           role: invitation.role,
+          departmentId: invitation.departmentId,
         },
         userId: user.id,
         organizationId: invitation.organizationId,
@@ -107,6 +110,8 @@ export async function POST(request: NextRequest) {
         role: user.role,
         organizationId: invitation.organizationId,
         organizationName: invitation.organization.name,
+        departmentId: invitation.departmentId,
+        departmentName: invitation.department?.name,
       },
     })
   } catch (error) {

@@ -4,21 +4,34 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { processHttpNode } from './http'
-import type { HttpNodeConfig, ExecutionContext } from '@/types/workflow'
+import type { HttpNodeConfig } from '@/types/workflow'
+import type { ExecutionContext, NodeOutput } from '../types'
 
 const originalFetch = global.fetch
 
 function createContext(nodeOutputs: Record<string, unknown> = {}): ExecutionContext {
   const context: ExecutionContext = {
-    input: {},
+    executionId: 'test-exec-1',
+    workflowId: 'test-wf-1',
+    organizationId: 'test-org-1',
+    userId: 'test-user-1',
     nodeOutputs: new Map(),
-    globalVariables: new Map(),
+    globalVariables: {},
+    aiConfigs: new Map(),
   }
-  
+
   for (const [key, value] of Object.entries(nodeOutputs)) {
-    context.nodeOutputs.set(key, value as Record<string, unknown>)
+    context.nodeOutputs.set(key, {
+      nodeId: key,
+      nodeName: key,
+      nodeType: 'INPUT',
+      status: 'success',
+      data: value as Record<string, unknown>,
+      startedAt: new Date(),
+      ...(value as Record<string, unknown>),
+    } as NodeOutput)
   }
-  
+
   return context
 }
 
@@ -437,7 +450,7 @@ describe('processHttpNode', () => {
       const context = createContext()
       const result = await processHttpNode(node, context)
 
-      expect(result.data.request?.headers?.Authorization).toBe('[REDACTED]')
+      expect((result.data as Record<string, unknown>).request && ((result.data as Record<string, unknown>).request as Record<string, unknown>).headers && (((result.data as Record<string, unknown>).request as Record<string, unknown>).headers as Record<string, string>).Authorization).toBe('[REDACTED]')
     })
   })
   

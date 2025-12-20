@@ -575,10 +575,15 @@ describe('Property 5: Config Update Propagation', () => {
           (conditions, updates) => {
             const index = Math.floor(Math.random() * conditions.length)
             const config = { conditions: [...conditions], evaluationMode: 'all' as const }
-            
+
+            // Filter out undefined values from updates
+            const filteredUpdates = Object.fromEntries(
+              Object.entries(updates).filter(([, v]) => v !== undefined)
+            )
+
             // Simulate the updateCondition pattern
             const newConditions = [...config.conditions]
-            newConditions[index] = { ...newConditions[index], ...updates }
+            newConditions[index] = { ...newConditions[index], ...filteredUpdates } as typeof newConditions[number]
             const updatedConfig = { ...config, conditions: newConditions }
             
             // Verify other conditions are preserved

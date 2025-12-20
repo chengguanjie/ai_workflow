@@ -17,11 +17,11 @@ import type { NodeConfig, EdgeConfig } from '@/types/workflow'
 function createNode(id: string, type: string = 'PROCESS'): NodeConfig {
   return {
     id,
-    type,
+    type: type as NodeConfig['type'],
     name: `Node ${id}`,
     position: { x: 0, y: 0 },
     config: {},
-  }
+  } as NodeConfig
 }
 
 function createEdge(source: string, target: string, sourceHandle?: string): EdgeConfig {
