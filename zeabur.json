@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.zeabur.app/zeabur.json",
+  "build": {
+    "command": "pnpm install --frozen-lockfile && pnpm build"
+  },
+  "start": {
+    "command": "node scripts/deploy-start.js"
+  },
+  "config": {
+    "containerized": false
+  }
+}
