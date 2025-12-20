@@ -1,8 +1,5 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // 移除 standalone 模式，使用标准部署方式避免 clientModules 错误
-  // output: 'standalone',
-  
   // 构建时忽略 ESLint 警告
   eslint: {
     ignoreDuringBuilds: true,
