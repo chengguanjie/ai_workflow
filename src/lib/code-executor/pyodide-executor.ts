@@ -42,7 +42,8 @@ async function loadPyodideScript(): Promise<void> {
     throw new Error('Pyodide 只能在浏览器环境中运行')
   }
 
-  if (window.loadPyodide) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if ((window as any).loadPyodide) {
     return
   }
 
@@ -70,7 +71,8 @@ export async function initPyodide(): Promise<PyodideInterface> {
   pyodideLoading = (async () => {
     await loadPyodideScript()
     
-    pyodideInstance = await window.loadPyodide({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    pyodideInstance = await (window as any).loadPyodide({
       indexURL: PYODIDE_CDN,
     })
 
