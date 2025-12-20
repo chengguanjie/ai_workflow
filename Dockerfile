@@ -1,11 +1,12 @@
 # 基础镜像
 FROM node:20-slim AS base
 
-# 安装 Python3 和必要的构建工具
+# 安装必要的系统依赖
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     build-essential \
+    openssl \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3 /usr/bin/python
 
@@ -48,12 +49,22 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
+# 创建上传目录
+RUN mkdir -p /app/uploads && chown nextjs:nodejs /app/uploads
+
 # 复制构建产物
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/node_modules/.pnpm/@prisma+client*/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+
+# 复制启动脚本
+COPY --from=builder /app/scripts/docker-entrypoint.sh ./docker-entrypoint.sh
+RUN chmod +x ./docker-entrypoint.sh
 
 # 设置权限
 RUN chown -R nextjs:nodejs /app
@@ -65,4 +76,9 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-CMD ["node", "server.js"]
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:3000/api/health || exit 1
+
+# 使用启动脚本
+ENTRYPOINT ["./docker-entrypoint.sh"]
