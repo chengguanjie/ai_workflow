@@ -56,8 +56,16 @@ function ensureUploadDir() {
 function startNextApp() {
     log('Starting Next.js application (standalone mode)...');
 
-    // standalone 模式使用 node server.js 而不是 next start
-    const nextProcess = spawn('node', ['server.js'], {
+    // standalone 模式使用 node .next/standalone/server.js
+    const serverPath = existsSync('.next/standalone/server.js')
+        ? '.next/standalone/server.js'
+        : existsSync('server.js')
+            ? 'server.js'
+            : '.next/standalone/server.js';
+
+    log(`Using server path: ${serverPath}`);
+
+    const nextProcess = spawn('node', [serverPath], {
         stdio: 'inherit',
         env: {
             ...process.env,
