@@ -1,12 +1,53 @@
 import { create } from 'zustand'
 
+export interface QuestionOption {
+  id: string
+  label: string
+  description?: string
+  allowInput?: boolean
+}
+
+export interface Question {
+  id: string
+  question: string
+  options: QuestionOption[]
+}
+
+export interface QuestionOptions {
+  phase: string
+  questions: Question[]
+}
+
 export interface AIMessage {
   id: string
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'system'
   content: string
   timestamp: number
-  /** 如果是生成节点的响应，包含节点配置 */
   nodeActions?: NodeAction[]
+  testResult?: TestResult
+  optimizationSuggestion?: OptimizationSuggestion
+  aesReport?: AESReport
+  questionOptions?: QuestionOptions
+  messageType?: 'normal' | 'requirement' | 'workflow_generated' | 'test_result' | 'optimization' | 'aes_evaluation'
+}
+
+export interface AESReport {
+  scores: {
+    L: number
+    A: number
+    C: number
+    P: number
+    R: number
+    total: number
+  }
+  report: string
+  diagnosis: Array<{
+    dimension: string
+    issue: string
+    severity: string
+    suggestion: string
+  }>
+  needOptimization: boolean
 }
 
 export interface NodeAction {
@@ -16,9 +57,72 @@ export interface NodeAction {
   nodeName?: string
   position?: { x: number; y: number }
   config?: Record<string, unknown>
-  /** 连接操作的源和目标 */
   source?: string
   target?: string
+  sourceHandle?: string | null
+  targetHandle?: string | null
+}
+
+export interface TestResult {
+  success: boolean
+  executionId?: string
+  duration?: number
+  output?: Record<string, unknown>
+  error?: string
+  nodeResults?: Array<{
+    nodeId: string
+    nodeName: string
+    status: 'success' | 'error' | 'skipped'
+    error?: string
+    output?: unknown
+  }>
+  analysis?: string
+}
+
+export interface OptimizationSuggestion {
+  issues: Array<{
+    nodeId: string
+    nodeName: string
+    issue: string
+    suggestion: string
+    priority: 'high' | 'medium' | 'low'
+  }>
+  proposedActions?: NodeAction[]
+  summary: string
+}
+
+export interface RequirementAnalysis {
+  understood: boolean
+  summary: string
+  clarifications?: string[]
+  suggestedWorkflow?: {
+    name: string
+    description: string
+    nodeTypes: string[]
+    dataFlow: string
+  }
+}
+
+export type ConversationPhase = 
+  | 'requirement_gathering'
+  | 'requirement_clarification'
+  | 'workflow_design'
+  | 'workflow_generation'
+  | 'testing'
+  | 'optimization'
+  | 'completed'
+
+export interface AutoOptimizationState {
+  isRunning: boolean
+  currentIteration: number
+  maxIterations: number
+  targetCriteria: string
+  history: Array<{
+    iteration: number
+    testResult: TestResult
+    optimization?: OptimizationSuggestion
+    applied: boolean
+  }>
 }
 
 export interface Conversation {
@@ -28,49 +132,52 @@ export interface Conversation {
   messages: AIMessage[]
   createdAt: number
   updatedAt: number
+  phase: ConversationPhase
+  requirementAnalysis?: RequirementAnalysis
+  autoOptimization?: AutoOptimizationState
 }
 
 interface AIAssistantState {
-  // 面板状态
   isOpen: boolean
   showHistory: boolean
-
-  // 当前会话
   currentConversationId: string | null
   conversations: Conversation[]
-
-  // 对话状态
   messages: AIMessage[]
   isLoading: boolean
-
-  // 模型选择
   selectedModel: string
   availableModels: { id: string; name: string; provider: string; configId: string }[]
+  currentPhase: ConversationPhase
+  autoOptimization: AutoOptimizationState | null
+  isAutoMode: boolean
+  testInput: Record<string, unknown>
 
-  // 操作方法
   openPanel: () => void
   closePanel: () => void
   togglePanel: () => void
   toggleHistory: () => void
 
-  // 会话操作
   createConversation: (workflowId: string) => string
   selectConversation: (conversationId: string) => void
   deleteConversation: (conversationId: string) => void
   setConversations: (conversations: Conversation[]) => void
   updateConversationTitle: (conversationId: string, title: string) => void
 
-  // 消息操作
   addMessage: (message: Omit<AIMessage, 'id' | 'timestamp'>) => void
   clearMessages: () => void
   setLoading: (loading: boolean) => void
 
-  // 模型操作
   setSelectedModel: (modelId: string) => void
   setAvailableModels: (models: { id: string; name: string; provider: string; configId: string }[]) => void
+
+  setPhase: (phase: ConversationPhase) => void
+  setRequirementAnalysis: (analysis: RequirementAnalysis) => void
+  startAutoOptimization: (targetCriteria: string, maxIterations?: number) => void
+  stopAutoOptimization: () => void
+  addOptimizationIteration: (testResult: TestResult, optimization?: OptimizationSuggestion, applied?: boolean) => void
+  setAutoMode: (enabled: boolean) => void
+  setTestInput: (input: Record<string, unknown>) => void
 }
 
-// 从消息生成对话标题
 function generateTitle(messages: AIMessage[]): string {
   const firstUserMessage = messages.find(m => m.role === 'user')
   if (firstUserMessage) {
@@ -81,7 +188,6 @@ function generateTitle(messages: AIMessage[]): string {
 }
 
 export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
-  // 初始状态
   isOpen: false,
   showHistory: false,
   currentConversationId: null,
@@ -90,14 +196,16 @@ export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
   isLoading: false,
   selectedModel: '',
   availableModels: [],
+  currentPhase: 'requirement_gathering',
+  autoOptimization: null,
+  isAutoMode: false,
+  testInput: {},
 
-  // 面板操作
   openPanel: () => set({ isOpen: true }),
   closePanel: () => set({ isOpen: false }),
   togglePanel: () => set((state) => ({ isOpen: !state.isOpen })),
   toggleHistory: () => set((state) => ({ showHistory: !state.showHistory })),
 
-  // 会话操作
   createConversation: (workflowId: string) => {
     const id = `conv_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
     const newConversation: Conversation = {
@@ -107,6 +215,7 @@ export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
       messages: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      phase: 'requirement_gathering',
     }
 
     set((state) => ({
@@ -114,6 +223,8 @@ export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
       currentConversationId: id,
       messages: [],
       showHistory: false,
+      currentPhase: 'requirement_gathering',
+      autoOptimization: null,
     }))
 
     return id
@@ -126,6 +237,8 @@ export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
         currentConversationId: conversationId,
         messages: conversation.messages,
         showHistory: false,
+        currentPhase: conversation.phase,
+        autoOptimization: conversation.autoOptimization || null,
       })
     }
   },
@@ -139,6 +252,8 @@ export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
         conversations: newConversations,
         currentConversationId: isCurrentDeleted ? null : state.currentConversationId,
         messages: isCurrentDeleted ? [] : state.messages,
+        currentPhase: isCurrentDeleted ? 'requirement_gathering' : state.currentPhase,
+        autoOptimization: isCurrentDeleted ? null : state.autoOptimization,
       }
     })
   },
@@ -153,7 +268,6 @@ export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
     }))
   },
 
-  // 消息操作
   addMessage: (message) => set((state) => {
     const newMessage: AIMessage = {
       ...message,
@@ -163,7 +277,6 @@ export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
 
     const newMessages = [...state.messages, newMessage]
 
-    // 更新当前会话
     let updatedConversations = state.conversations
     if (state.currentConversationId) {
       updatedConversations = state.conversations.map(c => {
@@ -176,6 +289,8 @@ export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
             title,
             messages: newMessages,
             updatedAt: Date.now(),
+            phase: state.currentPhase,
+            autoOptimization: state.autoOptimization || undefined,
           }
         }
         return c
@@ -189,23 +304,122 @@ export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
   }),
 
   clearMessages: () => set((state) => {
-    // 清空当前会话的消息
     if (state.currentConversationId) {
       return {
         messages: [],
+        currentPhase: 'requirement_gathering',
+        autoOptimization: null,
         conversations: state.conversations.map(c =>
           c.id === state.currentConversationId
-            ? { ...c, messages: [], title: '新对话', updatedAt: Date.now() }
+            ? { ...c, messages: [], title: '新对话', updatedAt: Date.now(), phase: 'requirement_gathering' as ConversationPhase, autoOptimization: undefined }
             : c
         ),
       }
     }
-    return { messages: [] }
+    return { messages: [], currentPhase: 'requirement_gathering', autoOptimization: null }
   }),
 
   setLoading: (loading) => set({ isLoading: loading }),
 
-  // 模型操作
   setSelectedModel: (modelId) => set({ selectedModel: modelId }),
   setAvailableModels: (models) => set({ availableModels: models }),
+
+  setPhase: (phase) => set((state) => {
+    const updatedConversations = state.currentConversationId
+      ? state.conversations.map(c =>
+          c.id === state.currentConversationId ? { ...c, phase, updatedAt: Date.now() } : c
+        )
+      : state.conversations
+
+    return { currentPhase: phase, conversations: updatedConversations }
+  }),
+
+  setRequirementAnalysis: (analysis) => set((state) => {
+    if (!state.currentConversationId) return state
+
+    return {
+      conversations: state.conversations.map(c =>
+        c.id === state.currentConversationId
+          ? { ...c, requirementAnalysis: analysis, updatedAt: Date.now() }
+          : c
+      ),
+    }
+  }),
+
+  startAutoOptimization: (targetCriteria, maxIterations = 5) => set((state) => {
+    const autoOptimization: AutoOptimizationState = {
+      isRunning: true,
+      currentIteration: 0,
+      maxIterations,
+      targetCriteria,
+      history: [],
+    }
+
+    const updatedConversations = state.currentConversationId
+      ? state.conversations.map(c =>
+          c.id === state.currentConversationId
+            ? { ...c, autoOptimization, updatedAt: Date.now() }
+            : c
+        )
+      : state.conversations
+
+    return {
+      autoOptimization,
+      currentPhase: 'optimization',
+      conversations: updatedConversations,
+    }
+  }),
+
+  stopAutoOptimization: () => set((state) => {
+    if (!state.autoOptimization) return state
+
+    const stoppedOptimization = { ...state.autoOptimization, isRunning: false }
+
+    const updatedConversations = state.currentConversationId
+      ? state.conversations.map(c =>
+          c.id === state.currentConversationId
+            ? { ...c, autoOptimization: stoppedOptimization, updatedAt: Date.now() }
+            : c
+        )
+      : state.conversations
+
+    return {
+      autoOptimization: stoppedOptimization,
+      conversations: updatedConversations,
+    }
+  }),
+
+  addOptimizationIteration: (testResult, optimization, applied = false) => set((state) => {
+    if (!state.autoOptimization) return state
+
+    const newIteration = {
+      iteration: state.autoOptimization.currentIteration + 1,
+      testResult,
+      optimization,
+      applied,
+    }
+
+    const updatedOptimization: AutoOptimizationState = {
+      ...state.autoOptimization,
+      currentIteration: newIteration.iteration,
+      history: [...state.autoOptimization.history, newIteration],
+    }
+
+    const updatedConversations = state.currentConversationId
+      ? state.conversations.map(c =>
+          c.id === state.currentConversationId
+            ? { ...c, autoOptimization: updatedOptimization, updatedAt: Date.now() }
+            : c
+        )
+      : state.conversations
+
+    return {
+      autoOptimization: updatedOptimization,
+      conversations: updatedConversations,
+    }
+  }),
+
+  setAutoMode: (enabled) => set({ isAutoMode: enabled }),
+
+  setTestInput: (input) => set({ testInput: input }),
 }))
