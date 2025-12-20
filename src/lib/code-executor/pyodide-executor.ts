@@ -68,16 +68,17 @@ export async function initPyodide(): Promise<PyodideInterface> {
     return pyodideLoading
   }
 
-  pyodideLoading = (async () => {
+  pyodideLoading = (async (): Promise<PyodideInterface> => {
     await loadPyodideScript()
-    
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    pyodideInstance = await (window as any).loadPyodide({
+    const instance: PyodideInterface = await (window as any).loadPyodide({
       indexURL: PYODIDE_CDN,
     })
+    pyodideInstance = instance
 
     // 设置 stdout/stderr 捕获
-    await pyodideInstance.runPythonAsync(`
+    await instance.runPythonAsync(`
 import sys
 from io import StringIO
 
@@ -108,7 +109,7 @@ class OutputCapture:
 _output_capture = OutputCapture()
 `)
 
-    return pyodideInstance
+    return instance
   })()
 
   return pyodideLoading
