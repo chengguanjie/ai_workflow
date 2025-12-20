@@ -1046,6 +1046,27 @@ model BM25IndexCache {
 }
 
 // ============================================
+// Embedding 使用量记录
+// ============================================
+
+model EmbeddingUsage {
+  id              String   @id @default(cuid())
+  provider        String   // 提供商名称
+  model           String   // 模型名称
+  tokenCount      Int      // Token 数量
+  knowledgeBaseId String?  // 关联的知识库 ID
+  documentId      String?  // 关联的文档 ID
+  organizationId  String   // 组织 ID
+
+  createdAt       DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([knowledgeBaseId])
+  @@index([createdAt])
+  @@map("embedding_usage")
+}
+
+// ============================================
 // 知识库权限
 // ============================================
 
