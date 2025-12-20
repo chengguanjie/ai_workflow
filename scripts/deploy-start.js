@@ -56,12 +56,14 @@ function ensureUploadDir() {
 function startNextApp() {
     log('Starting Next.js application...');
 
-    // 使用 npx next start 启动应用
-    const nextProcess = spawn('npx', ['next', 'start', '-p', process.env.PORT || '3000', '-H', '0.0.0.0'], {
+    const port = process.env.PORT || '3000';
+
+    // 使用 next start 启动应用（标准模式）
+    const nextProcess = spawn('npx', ['next', 'start', '-p', port, '-H', '0.0.0.0'], {
         stdio: 'inherit',
         env: {
             ...process.env,
-            PORT: process.env.PORT || '3000',
+            PORT: port,
             HOSTNAME: '0.0.0.0'
         }
     });
