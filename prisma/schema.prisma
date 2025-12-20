@@ -1018,11 +1018,31 @@ model KnowledgeBase {
 
   documents   KnowledgeDocument[]
   permissions KnowledgeBasePermission[]
+  bm25IndexCache BM25IndexCache?
 
   @@index([organizationId])
   @@index([isActive])
   @@index([creatorId])
   @@map("knowledge_bases")
+}
+
+// ============================================
+// BM25 索引缓存
+// ============================================
+
+model BM25IndexCache {
+  id              String   @id @default(cuid())
+  knowledgeBaseId String   @unique
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+
+  indexData       String   @db.Text  // JSON 序列化的索引数据
+  documentCount   Int      @default(0)
+  termCount       Int      @default(0)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("bm25_index_cache")
 }
 
 // ============================================
