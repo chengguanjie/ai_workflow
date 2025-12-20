@@ -1,0 +1,5 @@
+{
+  "build_command": "pnpm install --frozen-lockfile && pnpm build",
+  "start_command": "node scripts/deploy-start.js",
+  "serverless": false
+}
