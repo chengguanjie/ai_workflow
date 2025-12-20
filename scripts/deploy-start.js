@@ -54,9 +54,10 @@ function ensureUploadDir() {
 }
 
 function startNextApp() {
-    log('Starting Next.js application...');
+    log('Starting Next.js application (standalone mode)...');
 
-    const nextProcess = spawn('npm', ['run', 'start'], {
+    // standalone 模式使用 node server.js 而不是 next start
+    const nextProcess = spawn('node', ['server.js'], {
         stdio: 'inherit',
         env: {
             ...process.env,
