@@ -1,10 +1,6 @@
-import type { NextConfig } from 'next'
-
-const nextConfig: NextConfig = {
-  // 注意：Zeabur 平台不支持 standalone 模式，已禁用
-  // output: 'standalone',
-
-  // 构建时忽略 ESLint 警告（这些警告不影响功能）
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  // 构建时忽略 ESLint 警告
   eslint: {
     ignoreDuringBuilds: true,
   },
@@ -28,8 +24,10 @@ const nextConfig: NextConfig = {
     ]
   },
 
-  // 外部包配置
-  serverExternalPackages: ['better-sqlite3'],
+  // 外部包配置 (Next.js 14.x 语法)
+  experimental: {
+    serverComponentsExternalPackages: ['better-sqlite3'],
+  },
 }
 
 export default nextConfig
