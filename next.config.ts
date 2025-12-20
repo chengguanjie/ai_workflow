@@ -1,11 +1,10 @@
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-  // 构建时忽略 ESLint 警告
+import type { NextConfig } from 'next'
+
+const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
 
-  // 允许加载 Pyodide CDN 资源
   async headers() {
     return [
       {
@@ -24,10 +23,7 @@ const nextConfig = {
     ]
   },
 
-  // 外部包配置 (Next.js 14.x 语法)
-  experimental: {
-    serverComponentsExternalPackages: ['better-sqlite3'],
-  },
+  serverExternalPackages: ['better-sqlite3'],
 }
 
 export default nextConfig
