@@ -10,9 +10,10 @@ import { withAuth, AuthContext } from '@/lib/api/with-auth'
 import { ApiResponse } from '@/lib/api/api-response'
 import { NotFoundError, AuthorizationError, ValidationError } from '@/lib/errors'
 import { prisma } from '@/lib/db'
+import { deleteFromVectorStore } from '@/lib/knowledge/processor'
+import { storageService } from '@/lib/storage'
 import type { KnowledgeDocument } from '@prisma/client'
 
-// Document interface with chunk count (used for type consistency)
 type _DocumentWithChunks = KnowledgeDocument & {
   _count?: {
     chunks: number
@@ -110,12 +111,33 @@ export const DELETE = withAuth(
       throw new NotFoundError('文档不属于此知识库')
     }
 
-    // 删除文档（级联删除所有分块）
+    // 1. 获取所有分块 ID（用于清理向量存储）
+    const chunks = await prisma.documentChunk.findMany({
+      where: { documentId },
+      select: { id: true },
+    })
+    const chunkIds = chunks.map(c => c.id)
+
+    // 2. 删除向量存储中的数据（异步，不阻塞主流程）
+    if (chunkIds.length > 0) {
+      deleteFromVectorStore(knowledgeBaseId, chunkIds).catch(error => {
+        console.error('[Document Delete] 向量存储清理失败:', error)
+      })
+    }
+
+    // 3. 删除存储的文件（异步，不阻塞主流程）
+    if (document.fileKey) {
+      storageService.getProvider().delete(document.fileKey).catch(error => {
+        console.error('[Document Delete] 文件存储清理失败:', error)
+      })
+    }
+
+    // 4. 删除文档（级联删除所有分块）
     await prisma.knowledgeDocument.delete({
       where: { id: documentId },
     })
 
-    // 更新知识库统计
+    // 5. 更新知识库统计
     await prisma.knowledgeBase.update({
       where: { id: knowledgeBaseId },
       data: {
@@ -125,9 +147,6 @@ export const DELETE = withAuth(
       },
     })
 
-    // TODO: 删除存储的文件
-    // await deleteFile(document.fileKey)
-
-    return ApiResponse.success({ deleted: true })
+    return ApiResponse.success({ deleted: true, chunksCleared: chunkIds.length })
   }
 )

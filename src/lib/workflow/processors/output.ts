@@ -330,9 +330,7 @@ ${prompt}
       case 'image':
       case 'audio':
       case 'video':
-        // 这些格式需要调用外部 AI 服务生成
-        // 暂时返回占位内容
-        return Buffer.from(`[${format.toUpperCase()} GENERATION PLACEHOLDER]\n${content}`, 'utf-8')
+        throw new Error(`${format} 格式需要使用专门的生成节点（如 IMAGE_GEN），OUTPUT 节点暂不支持直接生成此格式`)
 
       default:
         return Buffer.from(content, 'utf-8')
@@ -405,25 +403,28 @@ ${content}
    */
   private async generateExcelDocument(content: string): Promise<Buffer> {
     try {
-      // 尝试动态导入 exceljs 库
-      const ExcelJS = await import('exceljs')
+      const ExcelJSModule = await import('exceljs')
+      const ExcelJS = ExcelJSModule.default || ExcelJSModule
       const workbook = new ExcelJS.Workbook()
       const worksheet = workbook.addWorksheet('Sheet1')
 
-      // 解析内容为表格数据
-      const rows = content.split('\n').map((line) =>
-        line.split('|').map((cell) => cell.trim())
+      const rows = content.split('\n').filter(line => line.trim()).map((line) =>
+        line.split('|').map((cell) => cell.trim()).filter(cell => cell)
       )
 
-      // 添加行
       for (const row of rows) {
-        worksheet.addRow(row)
+        if (row.length > 0) {
+          worksheet.addRow(row)
+        }
       }
 
+      worksheet.columns.forEach(column => {
+        column.width = 15
+      })
+
       return Buffer.from(await workbook.xlsx.writeBuffer())
-    } catch {
-      // exceljs 库未安装，返回 CSV 格式
-      console.warn('exceljs library not installed, returning CSV')
+    } catch (error) {
+      console.warn('exceljs library not installed or error:', error)
       return Buffer.from(content, 'utf-8')
     }
   }
@@ -434,40 +435,65 @@ ${content}
    */
   private async generatePdfDocument(content: string): Promise<Buffer> {
     try {
-      // 尝试动态导入 pdf-lib
-      const { PDFDocument, StandardFonts } = await import('pdf-lib')
+      const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib')
 
       const pdfDoc = await PDFDocument.create()
-      const page = pdfDoc.addPage()
+      let page = pdfDoc.addPage()
       const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
 
-      const { height } = page.getSize()
-      const fontSize = 12
-      const lineHeight = fontSize * 1.5
+      const { width, height } = page.getSize()
+      const fontSize = 11
+      const lineHeight = fontSize * 1.4
+      const margin = 50
+      const maxWidth = width - margin * 2
+      const charsPerLine = Math.floor(maxWidth / (fontSize * 0.5))
 
-      // 简单的文本布局
       const lines = content.split('\n')
-      let y = height - 50
+      let y = height - margin
+
+      const wrapText = (text: string): string[] => {
+        if (text.length <= charsPerLine) return [text]
+        const wrapped: string[] = []
+        let remaining = text
+        while (remaining.length > 0) {
+          if (remaining.length <= charsPerLine) {
+            wrapped.push(remaining)
+            break
+          }
+          let breakPoint = charsPerLine
+          const spaceIndex = remaining.lastIndexOf(' ', charsPerLine)
+          if (spaceIndex > charsPerLine * 0.5) {
+            breakPoint = spaceIndex
+          }
+          wrapped.push(remaining.slice(0, breakPoint))
+          remaining = remaining.slice(breakPoint).trimStart()
+        }
+        return wrapped
+      }
 
       for (const line of lines) {
-        if (y < 50) {
-          // 需要新页面
-          const newPage = pdfDoc.addPage()
-          y = newPage.getSize().height - 50
+        const wrappedLines = wrapText(line)
+        
+        for (const wrappedLine of wrappedLines) {
+          if (y < margin + lineHeight) {
+            page = pdfDoc.addPage()
+            y = page.getSize().height - margin
+          }
+          
+          page.drawText(wrappedLine, {
+            x: margin,
+            y,
+            size: fontSize,
+            font,
+            color: rgb(0, 0, 0),
+          })
+          y -= lineHeight
         }
-        page.drawText(line.slice(0, 80), {
-          x: 50,
-          y,
-          size: fontSize,
-          font,
-        })
-        y -= lineHeight
       }
 
       return Buffer.from(await pdfDoc.save())
-    } catch {
-      // pdf-lib 库未安装，返回纯文本
-      console.warn('pdf-lib library not installed, returning plain text')
+    } catch (error) {
+      console.warn('pdf-lib library not installed or error:', error)
       return Buffer.from(content, 'utf-8')
     }
   }

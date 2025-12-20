@@ -7,42 +7,23 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { cookies } from 'next/headers'
+import { consoleAuth } from '@/lib/console-auth'
 import { hasPermission, Permission } from '@/lib/console-auth/permissions'
-
-// 简单的 console 认证检查
-async function getConsoleAdmin() {
-  const cookieStore = await cookies()
-  const adminId = cookieStore.get('console_admin_id')?.value
-
-  if (!adminId) return null
-
-  const admin = await prisma.platformAdmin.findUnique({
-    where: { id: adminId },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      role: true,
-      isActive: true,
-    },
-  })
-
-  if (!admin || !admin.isActive) return null
-
-  return admin
-}
+import type { PlatformRole } from '@prisma/client'
 
 // 权限检查装饰器
 async function checkPermission(permission: Permission) {
-  const admin = await getConsoleAdmin()
-  if (!admin) {
+  const session = await consoleAuth()
+  if (!session?.user) {
     return { error: '未登录', status: 401, admin: null }
   }
-  if (!hasPermission(admin.role, permission)) {
+
+  const role = session.user.role as PlatformRole
+  if (!hasPermission(role, permission)) {
     return { error: '权限不足', status: 403, admin: null }
   }
-  return { error: null, status: 200, admin }
+
+  return { error: null, status: 200, admin: session.user }
 }
 
 // GET: 获取公域模板列表

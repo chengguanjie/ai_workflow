@@ -87,6 +87,30 @@ export interface NodePosition {
 }
 
 /**
+ * Input field type for INPUT nodes
+ */
+export type InputFieldType =
+  | 'text'        // 文本输入
+  | 'image'       // 上传图片
+  | 'pdf'         // 上传PDF
+  | 'word'        // 上传Word
+  | 'excel'       // 上传Excel
+  | 'audio'       // 上传音频
+  | 'video'       // 上传视频
+  | 'select'      // 单选
+  | 'multiselect' // 多选
+
+/**
+ * Select option for single/multi-select fields
+ */
+export interface SelectOption {
+  /** Option display label */
+  label: string
+  /** Option value */
+  value: string
+}
+
+/**
  * Input field definition for INPUT nodes
  */
 export interface InputField {
@@ -96,8 +120,29 @@ export interface InputField {
   name: string
   /** Field content/value */
   value: string
-  /** Text area height in pixels (default: 80) */
+  /** Field type (default: text) */
+  fieldType?: InputFieldType
+  /** Text area height in pixels (default: 80, only for text type) */
   height?: number
+  /** Uploaded file information (for file types) */
+  file?: {
+    /** File name */
+    name: string
+    /** File URL */
+    url: string
+    /** File size in bytes */
+    size: number
+    /** MIME type */
+    mimeType: string
+  }
+  /** Options for select/multiselect fields */
+  options?: SelectOption[]
+  /** Placeholder text for input fields */
+  placeholder?: string
+  /** Whether the field is required */
+  required?: boolean
+  /** Field description/help text */
+  description?: string
 }
 
 /**
@@ -741,6 +786,8 @@ export interface ImageGenNodeConfigData extends NodeAIConfig {
   style?: string
   /** Reference image URL for image-to-image */
   referenceImageUrl?: string
+  /** Image strength for image-to-image (0-1, lower = more reference) */
+  imageStrength?: number
   /** Output filename template */
   outputFileName?: string
 }

@@ -4,9 +4,14 @@ import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Loader2, AlertCircle } from 'lucide-react'
+import { Loader2, AlertCircle, Download } from 'lucide-react'
 import type { AIProviderConfig } from './shared/types'
 import { OutputTabContent } from './shared/output-tab-content'
+import {
+  executePythonInBrowser,
+  initPyodide,
+  getPyodideStatus,
+} from '@/lib/code-executor'
 
 type CodeTabType = 'code' | 'generate' | 'output'
 
@@ -64,6 +69,8 @@ export function CodeNodeConfigPanel({
   const [isGenerating, setIsGenerating] = useState(false)
   const [activeTab, setActiveTab] = useState<CodeTabType>('code')
   const [providers, setProviders] = useState<AIProviderConfig[]>([])
+  const [pyodideStatus, setPyodideStatus] = useState<'not_loaded' | 'loading' | 'loaded'>('not_loaded')
+  const [isPyodideLoading, setIsPyodideLoading] = useState(false)
 
   const codeConfig = config as {
     aiConfigId?: string
@@ -79,11 +86,11 @@ export function CodeNodeConfigPanel({
     }
   } || {}
 
-  // 加载可用的服务商列表
+  // 加载可用的服务商列表（代码模态）
   useEffect(() => {
     async function loadProviders() {
       try {
-        const res = await fetch('/api/ai/providers')
+        const res = await fetch('/api/ai/providers?modality=code')
         if (res.ok) {
           const data = await res.json()
           const providerList = data.providers || []
@@ -112,9 +119,33 @@ export function CodeNodeConfigPanel({
     onUpdate({ ...codeConfig, [key]: value })
   }
 
+  // 预加载 Pyodide
+  const handlePreloadPyodide = async () => {
+    if (pyodideStatus !== 'not_loaded') return
+
+    setIsPyodideLoading(true)
+    setPyodideStatus('loading')
+    try {
+      await initPyodide()
+      setPyodideStatus('loaded')
+    } catch (error) {
+      console.error('Failed to load Pyodide:', error)
+      setPyodideStatus('not_loaded')
+    } finally {
+      setIsPyodideLoading(false)
+    }
+  }
+
+  // 检查并更新 Pyodide 状态
+  useEffect(() => {
+    setPyodideStatus(getPyodideStatus())
+  }, [])
+
   // 执行代码
   const handleExecute = async () => {
     const code = codeConfig.code
+    const language = codeConfig.language || 'javascript'
+
     if (!code?.trim()) {
       handleChange('executionResult', { success: false, error: '请先输入代码' })
       return
@@ -122,18 +153,53 @@ export function CodeNodeConfigPanel({
 
     setIsExecuting(true)
     try {
-      const response = await fetch('/api/code/execute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code,
-          language: codeConfig.language || 'javascript',
-          inputs: {}, // TODO: 从前面节点获取输入
-        }),
-      })
+      // 对于 Python，优先使用浏览器端 Pyodide 执行
+      if (language === 'python') {
+        // 如果 Pyodide 未加载，先尝试加载
+        if (getPyodideStatus() !== 'loaded') {
+          setPyodideStatus('loading')
+          handleChange('executionResult', { success: true, output: '正在加载 Python 运行环境 (首次加载可能需要几秒钟)...' })
+          try {
+            await initPyodide()
+            setPyodideStatus('loaded')
+          } catch (loadError) {
+            // 如果 Pyodide 加载失败，回退到服务端执行
+            console.warn('Pyodide 加载失败，尝试服务端执行:', loadError)
+            const response = await fetch('/api/code/execute', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ code, language, inputs: {} }),
+            })
+            const result = await response.json()
+            handleChange('executionResult', result)
+            setIsExecuting(false)
+            return
+          }
+        }
 
-      const result = await response.json()
-      handleChange('executionResult', result)
+        // 使用 Pyodide 执行
+        const result = await executePythonInBrowser(code, {})
+        handleChange('executionResult', {
+          success: result.success,
+          output: result.output,
+          error: result.error,
+          executionTime: result.executionTime,
+        })
+      } else {
+        // JavaScript/TypeScript/SQL 使用服务端执行
+        const response = await fetch('/api/code/execute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            code,
+            language,
+            inputs: {}, // TODO: 从前面节点获取输入
+          }),
+        })
+
+        const result = await response.json()
+        handleChange('executionResult', result)
+      }
     } catch (error) {
       handleChange('executionResult', {
         success: false,
@@ -236,10 +302,41 @@ console.log('结果:', result);
             >
               <option value="javascript">JavaScript</option>
               <option value="typescript">TypeScript</option>
-              <option value="python">Python (暂不支持执行)</option>
-              <option value="sql">SQL (暂不支持执行)</option>
+              <option value="python">Python</option>
+              <option value="sql">SQL (SQLite)</option>
             </select>
           </div>
+
+          {/* Python 环境预加载提示 */}
+          {codeConfig.language === 'python' && (
+            <div className="flex items-center gap-2 p-2 rounded-md bg-muted/50 text-xs">
+              {pyodideStatus === 'loaded' ? (
+                <span className="text-green-600 dark:text-green-400">
+                  Python 环境已就绪
+                </span>
+              ) : pyodideStatus === 'loading' || isPyodideLoading ? (
+                <span className="flex items-center text-muted-foreground">
+                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                  正在加载 Python 环境...
+                </span>
+              ) : (
+                <>
+                  <span className="text-muted-foreground">
+                    Python 使用浏览器端 WebAssembly 运行
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-xs"
+                    onClick={handlePreloadPyodide}
+                  >
+                    <Download className="mr-1 h-3 w-3" />
+                    预加载环境
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
 
           {/* 代码编辑器 */}
           <div className="space-y-2">
@@ -266,21 +363,61 @@ console.log('结果:', result);
             </div>
             <textarea
               className="min-h-[200px] w-full rounded-md border border-input bg-muted/50 px-3 py-2 text-sm font-mono"
-              placeholder={`// 在这里编写 JavaScript 代码
+              placeholder={
+                codeConfig.language === 'python'
+                  ? `# 在这里编写 Python 代码
+# 可以通过 inputs 字典访问输入数据
+# 例如: inputs['字段名']
+
+print('Hello World')
+
+# 处理数据
+result = {'processed': True}
+print(result)`
+                  : codeConfig.language === 'sql'
+                  ? `-- 在这里编写 SQL 查询
+-- 使用 SQLite 语法
+-- 可以创建临时表和查询数据
+
+-- 创建示例表
+CREATE TABLE users (id TEXT, name TEXT, age TEXT);
+
+-- 插入数据
+INSERT INTO users VALUES ('1', '张三', '25');
+INSERT INTO users VALUES ('2', '李四', '30');
+
+-- 查询数据
+SELECT * FROM users WHERE age > '20';`
+                  : `// 在这里编写 JavaScript 代码
 // 可以通过 inputs 对象访问输入数据
 // 例如: inputs.字段名
 
 console.log('Hello World');
 
 // 使用 return 返回结果
-return { success: true };`}
+return { success: true };`
+              }
               value={codeConfig.code || ''}
               onChange={(e) => handleChange('code', e.target.value)}
               spellCheck={false}
             />
             <p className="text-xs text-muted-foreground">
-              使用 <code className="bg-muted px-1 rounded">inputs</code> 访问输入数据，
-              使用 <code className="bg-muted px-1 rounded">console.log()</code> 打印日志
+              {codeConfig.language === 'python' ? (
+                <>
+                  使用 <code className="bg-muted px-1 rounded">inputs</code> 字典访问输入数据，
+                  使用 <code className="bg-muted px-1 rounded">print()</code> 打印输出
+                </>
+              ) : codeConfig.language === 'sql' ? (
+                <>
+                  使用 SQLite 语法，支持 CREATE/INSERT/SELECT 等语句，
+                  前置节点的数组数据会自动创建为同名表
+                </>
+              ) : (
+                <>
+                  使用 <code className="bg-muted px-1 rounded">inputs</code> 访问输入数据，
+                  使用 <code className="bg-muted px-1 rounded">console.log()</code> 打印日志
+                </>
+              )}
             </p>
           </div>
 
@@ -339,11 +476,31 @@ return { success: true };`}
 
               <div className="space-y-2">
                 <Label>模型</Label>
-                <Input
-                  value={codeConfig.model || ''}
-                  onChange={(e) => handleChange('model', e.target.value)}
-                  placeholder="deepseek/deepseek-coder"
-                />
+                {(() => {
+                  const selectedProvider = providers.find(p => p.id === codeConfig.aiConfigId)
+                  if (selectedProvider && selectedProvider.models && selectedProvider.models.length > 0) {
+                    return (
+                      <select
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={codeConfig.model || selectedProvider.defaultModel || ''}
+                        onChange={(e) => handleChange('model', e.target.value)}
+                      >
+                        {selectedProvider.models.map((model) => (
+                          <option key={model} value={model}>
+                            {model}{model === selectedProvider.defaultModel ? ' (默认)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    )
+                  }
+                  return (
+                    <Input
+                      value={codeConfig.model || ''}
+                      onChange={(e) => handleChange('model', e.target.value)}
+                      placeholder="选择服务商后显示可用模型"
+                    />
+                  )
+                })()}
               </div>
             </>
           )}

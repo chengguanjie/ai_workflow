@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { ReferenceSelector } from './reference-selector'
 import { HighlightedTextarea, type HighlightedTextareaHandle } from './highlighted-textarea'
 import { ResizablePromptDialog } from './resizable-prompt-dialog'
+import { AIGenerateButton } from './ai-generate-button'
 import type { KnowledgeItem } from '@/types/workflow'
 
 interface PromptTabContentProps {
@@ -44,7 +45,15 @@ export function PromptTabContent({
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <Label>System Prompt</Label>
+        <div className="flex items-center justify-between">
+          <Label>System Prompt</Label>
+          <AIGenerateButton
+            fieldType="systemPrompt"
+            currentContent={processConfig.systemPrompt || ''}
+            onConfirm={onSystemPromptChange}
+            fieldLabel="System Prompt"
+          />
+        </div>
         <textarea
           className="min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-y"
           placeholder="系统提示词（可选）...&#10;&#10;用于设定 AI 的角色和行为方式"
@@ -57,6 +66,12 @@ export function PromptTabContent({
         <div className="flex items-center justify-between">
           <Label>User Prompt</Label>
           <div className="flex items-center gap-1">
+            <AIGenerateButton
+              fieldType="userPrompt"
+              currentContent={processConfig.userPrompt || ''}
+              onConfirm={onUserPromptChange}
+              fieldLabel="User Prompt"
+            />
             <Button
               variant="ghost"
               size="sm"

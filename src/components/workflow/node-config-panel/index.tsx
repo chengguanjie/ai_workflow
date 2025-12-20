@@ -1,12 +1,14 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo, memo } from 'react'
 import { useWorkflowStore } from '@/stores/workflow-store'
+import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
-import { X } from 'lucide-react'
+import { X, Plus } from 'lucide-react'
+import type { InputField } from '@/types/workflow'
 
 // Import split components
 import { TriggerNodeConfigPanel } from './trigger-node-config'
@@ -29,8 +31,15 @@ import {
 } from './data-node-config'
 import { GroupNodeConfigPanel } from './group-node-config'
 
-export function NodeConfigPanel() {
-  const { nodes, selectedNodeId, selectNode, updateNode } = useWorkflowStore()
+function NodeConfigPanelInner() {
+  const { nodes, selectedNodeId, selectNode, updateNode } = useWorkflowStore(
+    useShallow((state) => ({
+      nodes: state.nodes,
+      selectedNodeId: state.selectedNodeId,
+      selectNode: state.selectNode,
+      updateNode: state.updateNode,
+    }))
+  )
   const [panelWidth, setPanelWidth] = useState(576)
 
   // 处理配置面板宽度拖拽
@@ -54,7 +63,11 @@ export function NodeConfigPanel() {
     document.addEventListener('mouseup', handleMouseUp)
   }, [panelWidth])
 
-  const selectedNode = nodes.find((n) => n.id === selectedNodeId)
+  const selectedNode = useMemo(
+    () => nodes.find((n) => n.id === selectedNodeId),
+    [nodes, selectedNodeId]
+  )
+  
   if (!selectedNode) return null
 
   const nodeData = selectedNode.data as {
@@ -223,16 +236,41 @@ export function NodeConfigPanel() {
       />
 
       <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between border-b p-4 sticky top-0 bg-background z-10">
+        {/* 主标题 - 第一层 sticky */}
+        <div className="flex items-center justify-between border-b p-4 sticky top-0 bg-background z-20">
           <h3 className="font-medium">节点配置</h3>
           <Button variant="ghost" size="icon" onClick={() => selectNode(null)}>
             <X className="h-4 w-4" />
           </Button>
         </div>
 
-        <div className="p-4 space-y-6">
+        {/* Input 节点的第二层 sticky 标题 */}
+        {nodeData.type.toLowerCase() === 'input' && (
+          <div className="flex items-center justify-between p-4 py-3 sticky top-[57px] bg-background z-10 border-b">
+            <h4 className="text-sm font-medium">输入字段</h4>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const fields = (nodeData.config?.fields as InputField[]) || []
+                const newField: InputField = {
+                  id: `field_${Date.now()}`,
+                  name: `字段${fields.length + 1}`,
+                  value: '',
+                  height: 80,
+                }
+                handleConfigChange({ ...nodeData.config, fields: [...fields, newField] })
+              }}
+            >
+              <Plus className="mr-1 h-3 w-3" />
+              添加字段
+            </Button>
+          </div>
+        )}
+
+        <div className="space-y-6">
           {/* 基本信息 */}
-          <div className="space-y-4">
+          <div className="p-4 pb-0 space-y-4">
             <div className="space-y-2">
               <Label>节点名称</Label>
               <Input
@@ -245,12 +283,16 @@ export function NodeConfigPanel() {
           <Separator />
 
           {/* 节点特定配置 */}
-          {renderConfigPanel()}
+          <div className="px-4 pb-4">
+            {renderConfigPanel()}
+          </div>
         </div>
       </div>
     </div>
   )
 }
+
+export const NodeConfigPanel = memo(NodeConfigPanelInner)
 
 // Re-export all sub-components for direct access if needed
 export { TriggerNodeConfigPanel } from './trigger-node-config'

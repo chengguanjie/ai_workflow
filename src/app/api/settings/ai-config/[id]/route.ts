@@ -1,6 +1,139 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { encryptApiKey, maskApiKey } from '@/lib/crypto'
+
+// GET: 获取单个配置详情
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await auth()
+
+    if (!session?.user?.organizationId) {
+      return NextResponse.json({ error: '未授权' }, { status: 401 })
+    }
+
+    const { id } = await params
+
+    const config = await prisma.apiKey.findFirst({
+      where: {
+        id,
+        organizationId: session.user.organizationId,
+        isActive: true,
+      },
+      select: {
+        id: true,
+        name: true,
+        provider: true,
+        baseUrl: true,
+        defaultModel: true,
+        defaultModels: true,
+        models: true,
+        keyMasked: true,
+        isDefault: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    })
+
+    if (!config) {
+      return NextResponse.json({ error: '配置不存在' }, { status: 404 })
+    }
+
+    return NextResponse.json({ config })
+  } catch (error) {
+    console.error('Failed to get AI config:', error)
+    return NextResponse.json({ error: '获取配置失败' }, { status: 500 })
+  }
+}
+
+// PATCH: 更新配置
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await auth()
+
+    if (!session?.user?.organizationId) {
+      return NextResponse.json({ error: '未授权' }, { status: 401 })
+    }
+
+    // 检查用户权限
+    if (!['OWNER', 'ADMIN'].includes(session.user.role)) {
+      return NextResponse.json({ error: '权限不足' }, { status: 403 })
+    }
+
+    const { id } = await params
+
+    // 验证配置属于当前企业
+    const existingConfig = await prisma.apiKey.findFirst({
+      where: {
+        id,
+        organizationId: session.user.organizationId,
+        isActive: true,
+      },
+    })
+
+    if (!existingConfig) {
+      return NextResponse.json({ error: '配置不存在' }, { status: 404 })
+    }
+
+    const body = await request.json()
+    const { name, baseUrl, defaultModel, defaultModels, models, apiKey } = body
+
+    // 构建更新数据
+    const updateData: Record<string, unknown> = {}
+
+    if (name !== undefined) {
+      updateData.name = name
+    }
+    if (baseUrl !== undefined) {
+      updateData.baseUrl = baseUrl
+    }
+    if (defaultModel !== undefined) {
+      updateData.defaultModel = defaultModel
+    }
+    if (defaultModels !== undefined) {
+      updateData.defaultModels = defaultModels && typeof defaultModels === 'object'
+        ? JSON.parse(JSON.stringify(defaultModels))
+        : {}
+    }
+    if (models !== undefined) {
+      updateData.models = Array.isArray(models) ? models : []
+    }
+    // 只有提供了新的 API Key 才更新
+    if (apiKey && apiKey.trim()) {
+      updateData.keyEncrypted = encryptApiKey(apiKey)
+      updateData.keyMasked = maskApiKey(apiKey)
+    }
+
+    const config = await prisma.apiKey.update({
+      where: { id },
+      data: updateData,
+      select: {
+        id: true,
+        name: true,
+        provider: true,
+        baseUrl: true,
+        defaultModel: true,
+        defaultModels: true,
+        models: true,
+        keyMasked: true,
+        isDefault: true,
+        isActive: true,
+      },
+    })
+
+    return NextResponse.json({ config })
+  } catch (error) {
+    console.error('Failed to update AI config:', error)
+    return NextResponse.json({ error: '更新配置失败' }, { status: 500 })
+  }
+}
 
 // DELETE: 删除配置
 export async function DELETE(

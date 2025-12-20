@@ -1,9 +1,12 @@
 /**
  * 向量嵌入服务
  * 将文本转换为向量
+ * 支持 OpenAI / 胜算云等多个嵌入提供商
+ * 包含使用量统计功能
  */
 
 import type { AIProvider } from '@prisma/client'
+import { prisma } from '@/lib/db'
 
 export interface EmbeddingResult {
   embedding: number[]
@@ -15,6 +18,110 @@ export interface EmbeddingOptions {
   model: string
   apiKey?: string
   baseUrl?: string
+  organizationId?: string
+  knowledgeBaseId?: string
+  documentId?: string
+}
+
+interface RetryOptions {
+  maxRetries?: number
+  baseDelay?: number
+  maxDelay?: number
+}
+
+async function recordEmbeddingUsage(
+  options: EmbeddingOptions,
+  tokenCount: number
+): Promise<void> {
+  if (!options.organizationId) return
+
+  try {
+    await prisma.embeddingUsage.create({
+      data: {
+        provider: options.provider,
+        model: options.model,
+        tokenCount,
+        knowledgeBaseId: options.knowledgeBaseId,
+        documentId: options.documentId,
+        organizationId: options.organizationId,
+      },
+    })
+  } catch (error) {
+    console.warn('[Embedding] 记录使用量失败:', error)
+  }
+}
+
+/**
+ * 指数退避重试包装函数
+ * 用于处理临时网络错误和 API 限流
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  options: RetryOptions = {}
+): Promise<T> {
+  const { maxRetries = 3, baseDelay = 1000, maxDelay = 10000 } = options
+
+  let lastError: Error | null = null
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn()
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error))
+
+      // 如果是最后一次尝试，直接抛出错误
+      if (attempt === maxRetries) {
+        console.error(`[Embedding] 重试 ${maxRetries} 次后仍然失败:`, lastError.message)
+        throw lastError
+      }
+
+      // 检查是否为可重试的错误（网络错误、限流等）
+      const isRetryable = isRetryableError(lastError)
+      if (!isRetryable) {
+        throw lastError
+      }
+
+      // 计算退避延迟（指数退避 + 随机抖动）
+      const delay = Math.min(
+        baseDelay * Math.pow(2, attempt) + Math.random() * 1000,
+        maxDelay
+      )
+
+      console.warn(
+        `[Embedding] 请求失败，${delay.toFixed(0)}ms 后重试 (${attempt + 1}/${maxRetries}):`,
+        lastError.message
+      )
+
+      await new Promise(resolve => setTimeout(resolve, delay))
+    }
+  }
+
+  throw lastError || new Error('重试失败')
+}
+
+/**
+ * 判断错误是否可以重试
+ */
+function isRetryableError(error: Error): boolean {
+  const message = error.message.toLowerCase()
+
+  // 可重试的错误类型
+  const retryablePatterns = [
+    'timeout',
+    'econnreset',
+    'enotfound',
+    'econnrefused',
+    'socket hang up',
+    'network',
+    'rate limit',
+    '429',
+    '500',
+    '502',
+    '503',
+    '504',
+  ]
+
+  return retryablePatterns.some(pattern => message.includes(pattern))
 }
 
 /**
@@ -37,15 +144,15 @@ export async function generateEmbedding(
 }
 
 /**
- * 批量生成向量嵌入
+ * 批量生成向量嵌入（含使用量统计）
  */
 export async function generateEmbeddings(
   texts: string[],
   options: EmbeddingOptions
 ): Promise<EmbeddingResult[]> {
-  // 并行处理，但限制并发数
   const batchSize = 10
   const results: EmbeddingResult[] = []
+  let totalTokens = 0
 
   for (let i = 0; i < texts.length; i += batchSize) {
     const batch = texts.slice(i, i + batchSize)
@@ -53,6 +160,11 @@ export async function generateEmbeddings(
       batch.map((text) => generateEmbedding(text, options))
     )
     results.push(...batchResults)
+    totalTokens += batchResults.reduce((sum, r) => sum + (r.tokenUsage || 0), 0)
+  }
+
+  if (totalTokens > 0) {
+    recordEmbeddingUsage(options, totalTokens).catch(() => {})
   }
 
   return results
@@ -73,29 +185,44 @@ async function generateOpenAIEmbedding(
     throw new Error('OpenAI API Key 未配置')
   }
 
-  const response = await fetch(`${baseUrl}/embeddings`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
+  return withRetry(
+    async () => {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 30000) // 30s 超时
+
+      try {
+        const response = await fetch(`${baseUrl}/embeddings`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: model || 'text-embedding-ada-002',
+            input: text,
+          }),
+          signal: controller.signal,
+        })
+
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}))
+          throw new Error(
+            `OpenAI 嵌入请求失败 [${response.status}]: ${error.error?.message || response.statusText}`
+          )
+        }
+
+        const data = await response.json()
+
+        return {
+          embedding: data.data[0].embedding,
+          tokenUsage: data.usage?.total_tokens,
+        }
+      } finally {
+        clearTimeout(timeoutId)
+      }
     },
-    body: JSON.stringify({
-      model: model || 'text-embedding-ada-002',
-      input: text,
-    }),
-  })
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}))
-    throw new Error(`OpenAI 嵌入请求失败: ${error.error?.message || response.statusText}`)
-  }
-
-  const data = await response.json()
-
-  return {
-    embedding: data.data[0].embedding,
-    tokenUsage: data.usage?.total_tokens,
-  }
+    { maxRetries: 3, baseDelay: 1000, maxDelay: 10000 }
+  )
 }
 
 /**
@@ -119,29 +246,44 @@ async function generateShensuanEmbedding(
     embeddingModel = `openai/${embeddingModel}`
   }
 
-  const response = await fetch(`${baseUrl}/embeddings`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
+  return withRetry(
+    async () => {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 30000) // 30s 超时
+
+      try {
+        const response = await fetch(`${baseUrl}/embeddings`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: embeddingModel,
+            input: text,
+          }),
+          signal: controller.signal,
+        })
+
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}))
+          throw new Error(
+            `胜算云嵌入请求失败 [${response.status}]: ${error.error?.message || response.statusText}`
+          )
+        }
+
+        const data = await response.json()
+
+        return {
+          embedding: data.data[0].embedding,
+          tokenUsage: data.usage?.total_tokens,
+        }
+      } finally {
+        clearTimeout(timeoutId)
+      }
     },
-    body: JSON.stringify({
-      model: embeddingModel,
-      input: text,
-    }),
-  })
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}))
-    throw new Error(`胜算云嵌入请求失败: ${error.error?.message || response.statusText}`)
-  }
-
-  const data = await response.json()
-
-  return {
-    embedding: data.data[0].embedding,
-    tokenUsage: data.usage?.total_tokens,
-  }
+    { maxRetries: 3, baseDelay: 1000, maxDelay: 10000 }
+  )
 }
 
 /**
@@ -189,4 +331,73 @@ export function getEmbeddingDimension(model: string): number {
   }
 
   return dimensions[modelName] || 1536
+}
+
+/**
+ * 获取组织的 Embedding 使用量统计
+ */
+export async function getEmbeddingUsageStats(
+  organizationId: string,
+  options?: {
+    startDate?: Date
+    endDate?: Date
+    knowledgeBaseId?: string
+  }
+): Promise<{
+  totalTokens: number
+  totalRequests: number
+  byProvider: Record<string, { tokens: number; requests: number }>
+  byModel: Record<string, { tokens: number; requests: number }>
+  daily: Array<{ date: string; tokens: number; requests: number }>
+}> {
+  const where: Record<string, unknown> = { organizationId }
+
+  if (options?.startDate) {
+    where.createdAt = { gte: options.startDate }
+  }
+  if (options?.endDate) {
+    where.createdAt = { ...((where.createdAt as Record<string, Date>) || {}), lte: options.endDate }
+  }
+  if (options?.knowledgeBaseId) {
+    where.knowledgeBaseId = options.knowledgeBaseId
+  }
+
+  const usages = await prisma.embeddingUsage.findMany({ where })
+
+  const byProvider: Record<string, { tokens: number; requests: number }> = {}
+  const byModel: Record<string, { tokens: number; requests: number }> = {}
+  const dailyMap: Record<string, { tokens: number; requests: number }> = {}
+
+  let totalTokens = 0
+  let totalRequests = 0
+
+  for (const usage of usages) {
+    totalTokens += usage.tokenCount
+    totalRequests += usage.requestCount
+
+    if (!byProvider[usage.provider]) {
+      byProvider[usage.provider] = { tokens: 0, requests: 0 }
+    }
+    byProvider[usage.provider].tokens += usage.tokenCount
+    byProvider[usage.provider].requests += usage.requestCount
+
+    if (!byModel[usage.model]) {
+      byModel[usage.model] = { tokens: 0, requests: 0 }
+    }
+    byModel[usage.model].tokens += usage.tokenCount
+    byModel[usage.model].requests += usage.requestCount
+
+    const dateKey = usage.createdAt.toISOString().split('T')[0]
+    if (!dailyMap[dateKey]) {
+      dailyMap[dateKey] = { tokens: 0, requests: 0 }
+    }
+    dailyMap[dateKey].tokens += usage.tokenCount
+    dailyMap[dateKey].requests += usage.requestCount
+  }
+
+  const daily = Object.entries(dailyMap)
+    .map(([date, data]) => ({ date, ...data }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+
+  return { totalTokens, totalRequests, byProvider, byModel, daily }
 }

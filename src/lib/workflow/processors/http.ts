@@ -13,7 +13,6 @@
 
 import type {
   HttpNodeConfig,
-  HttpMethod,
   HttpBodyConfig,
   HttpAuthConfig,
   HttpRetryConfig,
@@ -257,12 +256,13 @@ export async function processHttpNode(
   }
 
   try {
-    const fullUrl = buildUrl(url, queryParams, context)
+    let fullUrl = buildUrl(url, queryParams, context)
 
     if (auth?.apiKey?.addTo === 'query') {
       const urlObj = new URL(fullUrl)
       const value = replaceVariables(auth.apiKey.value, context)
       urlObj.searchParams.append(auth.apiKey.key, value)
+      fullUrl = urlObj.toString()
     }
 
     const requestHeaders = buildHeaders(headers, auth, context)

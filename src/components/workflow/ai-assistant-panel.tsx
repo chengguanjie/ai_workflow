@@ -195,6 +195,7 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
   const [lastAESReport, setLastAESReport] = useState<AESReport | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
   const [isDragging, setIsDragging] = useState(false)
@@ -424,6 +425,15 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
     }
   }, [nodes, addNode, updateNode, onConnect, setPhase])
 
+  const handleAbort = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort(new DOMException('用户取消请求', 'AbortError'))
+      abortControllerRef.current = null
+      setLoading(false)
+      toast.info('已停止生成')
+    }
+  }, [setLoading])
+
   const handleSend = useCallback(async (messageContent?: string) => {
     const trimmedInput = (messageContent || inputValue).trim()
     if (!trimmedInput || isLoading) return
@@ -433,6 +443,9 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
       setInputValue('')
     }
     setLoading(true)
+
+    // 创建新的 AbortController
+    abortControllerRef.current = new AbortController()
 
     try {
       const response = await fetch('/api/ai-assistant/chat', {
@@ -448,6 +461,7 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
             content: m.content,
           })),
         }),
+        signal: abortControllerRef.current.signal,
       })
 
       if (!response.ok) {
@@ -469,6 +483,10 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
         setPhase('workflow_generation')
       }
     } catch (error) {
+      // 如果是用户主动取消，不显示错误消息
+      if (error instanceof Error && error.name === 'AbortError') {
+        return
+      }
       const errorMessage = error instanceof Error ? error.message : 'AI请求失败'
       toast.error(errorMessage)
       addMessage({
@@ -476,6 +494,7 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
         content: `抱歉，请求出错了：${errorMessage}\n\n请检查：\n1. AI服务商配置是否正确\n2. 模型名称是否有效\n3. API Key是否有效`,
       })
     } finally {
+      abortControllerRef.current = null
       setLoading(false)
     }
   }, [inputValue, isLoading, selectedModel, workflowContext, workflowId, messages, addMessage, setLoading, setPhase])
@@ -1209,6 +1228,15 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
                     <div className="flex items-center gap-2 rounded-lg bg-muted px-4 py-3">
                       <Loader2 className="h-4 w-4 animate-spin" />
                       <span className="text-sm">思考中...</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="ml-2 h-6 px-2 text-xs text-muted-foreground hover:text-destructive"
+                        onClick={handleAbort}
+                      >
+                        <Square className="h-3 w-3 mr-1" />
+                        停止
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -1229,12 +1257,13 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
                 disabled={isLoading || availableModels.length === 0}
               />
               <Button
-                onClick={() => handleSend()}
-                disabled={!inputValue.trim() || isLoading || !selectedModel}
+                onClick={isLoading ? handleAbort : () => handleSend()}
+                disabled={!isLoading && (!inputValue.trim() || !selectedModel)}
+                variant={isLoading ? "destructive" : "default"}
                 className="h-auto px-4"
               >
                 {isLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Square className="h-4 w-4" />
                 ) : (
                   <Send className="h-4 w-4" />
                 )}

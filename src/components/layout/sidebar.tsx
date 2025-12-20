@@ -18,6 +18,7 @@ import {
   Database,
   Building2,
   MessageSquarePlus,
+  CreditCard,
 } from 'lucide-react'
 import { useSidebarStore } from '@/stores/sidebar-store'
 import { Button } from '@/components/ui/button'
@@ -42,6 +43,7 @@ const adminSettingsNavigation = [
   { name: 'API 调用', href: '/settings/api', icon: Plug },
   { name: '成员管理', href: '/settings/members', icon: Users },
   { name: '部门管理', href: '/settings/departments', icon: Building2 },
+  { name: '付费管理', href: '/settings/billing', icon: CreditCard },
   { name: '企业设置', href: '/settings/organization', icon: Settings },
 ]
 

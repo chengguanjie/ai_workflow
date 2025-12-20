@@ -11,6 +11,7 @@ import { NotFoundError, AuthorizationError, ValidationError } from '@/lib/errors
 import { prisma } from '@/lib/db'
 import { searchKnowledgeBase } from '@/lib/knowledge/search'
 import { decryptApiKey } from '@/lib/crypto'
+import { checkKnowledgeBasePermission } from '@/lib/permissions/knowledge-base'
 
 interface SearchRequest {
   query: string
@@ -48,7 +49,6 @@ export const POST = withAuth<ApiSuccessResponse<SearchResponse>>(
       throw new ValidationError('知识库ID不能为空')
     }
 
-    // 验证知识库存在且有权限
     const knowledgeBase = await prisma.knowledgeBase.findUnique({
       where: { id: knowledgeBaseId },
     })
@@ -59,6 +59,11 @@ export const POST = withAuth<ApiSuccessResponse<SearchResponse>>(
 
     if (knowledgeBase.organizationId !== user.organizationId) {
       throw new AuthorizationError('无权访问此知识库')
+    }
+
+    const hasPermission = await checkKnowledgeBasePermission(user.id, knowledgeBaseId, 'VIEWER')
+    if (!hasPermission) {
+      throw new AuthorizationError('您没有访问此知识库的权限')
     }
 
     if (!knowledgeBase.isActive) {

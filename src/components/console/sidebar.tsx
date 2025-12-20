@@ -11,6 +11,7 @@ import {
   ClipboardList,
   MessageSquare,
   Target,
+  Blocks,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -29,6 +30,11 @@ const navItems = [
     title: '企业管理',
     href: '/console/organizations',
     icon: Building2,
+  },
+  {
+    title: '模板管理',
+    href: '/console/templates',
+    icon: Blocks,
   },
   {
     title: '用户反馈',

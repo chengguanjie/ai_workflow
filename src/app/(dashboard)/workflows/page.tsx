@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Search, MoreVertical, Play, Edit, Trash2, Loader2, Link2, Copy, Shield, Filter, X } from 'lucide-react'
+import { Plus, Search, MoreVertical, Play, Edit, Trash2, Loader2, Link2, Copy, Shield, Filter, X, Share2 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   DropdownMenu,
@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/select'
 import { useRouter } from 'next/navigation'
 import { WorkflowPermissionsDialog } from '@/components/workflow/workflow-permissions-dialog'
+import { ShareToTemplateDialog } from '@/components/template/share-to-template-dialog'
 
 interface Department {
   id: string
@@ -100,6 +101,10 @@ export default function WorkflowsPage() {
   const [permissionsDialogOpen, setPermissionsDialogOpen] = useState(false)
   const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null)
 
+  // 分享到模板库弹窗
+  const [shareDialogOpen, setShareDialogOpen] = useState(false)
+  const [workflowToShare, setWorkflowToShare] = useState<Workflow | null>(null)
+
   const isAdmin = session?.user?.role === 'OWNER' || session?.user?.role === 'ADMIN'
 
   const canManagePermissions = (workflow: Workflow) => {
@@ -164,9 +169,13 @@ export default function WorkflowsPage() {
 
   useEffect(() => {
     fetchWorkflows()
+  }, [fetchWorkflows])
+
+  useEffect(() => {
     fetchDepartments()
     fetchCreators()
-  }, [fetchWorkflows, fetchDepartments, fetchCreators])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // 清除筛选
   const clearFilters = () => {
@@ -391,6 +400,15 @@ export default function WorkflowsPage() {
                             <Copy className="mr-2 h-4 w-4" />
                             复制
                           </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setWorkflowToShare(workflow)
+                              setShareDialogOpen(true)
+                            }}
+                          >
+                            <Share2 className="mr-2 h-4 w-4" />
+                            分享到内部模板库
+                          </DropdownMenuItem>
                           {canManagePermissions(workflow) && (
                             <>
                               <DropdownMenuSeparator />
@@ -469,6 +487,17 @@ export default function WorkflowsPage() {
           workflowName={selectedWorkflow.name}
           open={permissionsDialogOpen}
           onOpenChange={setPermissionsDialogOpen}
+        />
+      )}
+
+      {/* 分享到模板库弹窗 */}
+      {workflowToShare && (
+        <ShareToTemplateDialog
+          open={shareDialogOpen}
+          onOpenChange={setShareDialogOpen}
+          workflowId={workflowToShare.id}
+          workflowName={workflowToShare.name}
+          workflowDescription={workflowToShare.description}
         />
       )}
     </div>

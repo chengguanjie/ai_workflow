@@ -11,6 +11,7 @@ import { ApiResponse, ApiSuccessResponse } from '@/lib/api/api-response'
 import { ValidationError } from '@/lib/errors'
 import { prisma } from '@/lib/db'
 import type { TemplateVisibility, TemplateType, WorkflowTemplate } from '@prisma/client'
+import type { JsonValue } from '@prisma/client/runtime/library'
 
 interface TemplateListParams {
   category?: string
@@ -23,8 +24,29 @@ interface TemplateListParams {
   minRating?: number // 新增：最低评分筛选
 }
 
+interface TemplateListItem {
+  id: string
+  name: string
+  description: string | null
+  category: string
+  tags: JsonValue
+  thumbnail: string | null
+  templateType: TemplateType
+  visibility: TemplateVisibility
+  organizationId: string | null
+  creatorId: string | null
+  creatorName: string | null
+  usageCount: number
+  rating: number
+  ratingCount: number
+  isOfficial: boolean
+  version: string
+  createdAt: Date
+  updatedAt: Date
+}
+
 interface TemplateListResponse {
-  templates: WorkflowTemplate[]
+  templates: TemplateListItem[]
   total: number
   page: number
   limit: number
@@ -125,6 +147,26 @@ export const GET = withAuth<ApiSuccessResponse<TemplateListResponse>>(
     const [templates, total] = await Promise.all([
       prisma.workflowTemplate.findMany({
         where,
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          category: true,
+          tags: true,
+          thumbnail: true,
+          templateType: true,
+          visibility: true,
+          organizationId: true,
+          creatorId: true,
+          creatorName: true,
+          usageCount: true,
+          rating: true,
+          ratingCount: true,
+          isOfficial: true,
+          version: true,
+          createdAt: true,
+          updatedAt: true,
+        },
         orderBy: [
           { isOfficial: 'desc' },
           { usageCount: 'desc' },

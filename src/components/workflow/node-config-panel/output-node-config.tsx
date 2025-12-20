@@ -7,6 +7,7 @@ import { Loader2, AlertCircle } from 'lucide-react'
 import { ReferenceSelector } from './shared/reference-selector'
 import { HighlightedTextarea, type HighlightedTextareaHandle } from './shared/highlighted-textarea'
 import { OutputTabContent } from './shared/output-tab-content'
+import { AIGenerateButton } from './shared/ai-generate-button'
 import type { AIProviderConfig } from './shared/types'
 
 type OutputTabType = 'ai' | 'output' | 'prompt' | 'result'
@@ -39,11 +40,11 @@ export function OutputNodeConfigPanel({
     fileName?: string // 输出文件名
   } || {}
 
-  // 加载可用的服务商列表
+  // 加载可用的服务商列表（文本模态）
   useEffect(() => {
     async function loadProviders() {
       try {
-        const res = await fetch('/api/ai/providers')
+        const res = await fetch('/api/ai/providers?modality=text')
         if (res.ok) {
           const data = await res.json()
           const providerList = data.providers || []
@@ -359,10 +360,18 @@ export function OutputNodeConfigPanel({
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label>输出提示词</Label>
-              <ReferenceSelector
-                knowledgeItems={[]}
-                onInsert={handleInsertReference}
-              />
+              <div className="flex items-center gap-1">
+                <AIGenerateButton
+                  fieldType="prompt"
+                  currentContent={outputConfig.prompt || ''}
+                  onConfirm={(value) => handleChange('prompt', value)}
+                  fieldLabel="输出提示词"
+                />
+                <ReferenceSelector
+                  knowledgeItems={[]}
+                  onInsert={handleInsertReference}
+                />
+              </div>
             </div>
             <HighlightedTextarea
               ref={promptRef}

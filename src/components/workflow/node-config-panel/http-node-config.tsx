@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select'
 import { Plus, X, Clock } from 'lucide-react'
 import { OutputTabContent } from './shared/output-tab-content'
+import { AIGenerateButton } from './shared/ai-generate-button'
 import type { HttpMethod, HttpBodyType, HttpAuthType } from '@/types/workflow'
 
 type HttpTabType = 'params' | 'headers' | 'body' | 'auth' | 'output'
@@ -269,11 +270,23 @@ export function HttpNodeConfigPanel({
 
           {body.type !== 'none' && (
             <div className="space-y-2">
-              <Label className="text-xs">
-                {body.type === 'json' && 'JSON 内容'}
-                {body.type === 'form' && '表单数据 (JSON 格式)'}
-                {body.type === 'text' && '文本内容'}
-              </Label>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">
+                  {body.type === 'json' && 'JSON 内容'}
+                  {body.type === 'form' && '表单数据 (JSON 格式)'}
+                  {body.type === 'text' && '文本内容'}
+                </Label>
+                <AIGenerateButton
+                  fieldType="httpBody"
+                  currentContent={
+                    typeof body.content === 'string'
+                      ? body.content
+                      : JSON.stringify(body.content || {}, null, 2)
+                  }
+                  onConfirm={(value) => updateBody({ ...body, content: value })}
+                  fieldLabel="请求体"
+                />
+              </div>
               <Textarea
                 value={
                   typeof body.content === 'string'

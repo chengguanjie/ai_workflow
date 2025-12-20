@@ -24,6 +24,7 @@ export async function GET() {
         provider: true,
         baseUrl: true,
         defaultModel: true,
+        defaultModels: true, // 各模态默认模型
         models: true,
         keyMasked: true,
         isDefault: true,
@@ -59,7 +60,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { provider, name, baseUrl, defaultModel, models, apiKey } = body
+    const { provider, name, baseUrl, defaultModel, defaultModels, models, apiKey } = body
 
     if (!provider || !name || !apiKey) {
       return NextResponse.json({ error: '服务商、名称和 API Key 不能为空' }, { status: 400 })
@@ -77,13 +78,20 @@ export async function POST(request: NextRequest) {
       where: { organizationId, isActive: true },
     })
 
+    // 确保 JSON 字段是有效的对象
+    const safeDefaultModels = defaultModels && typeof defaultModels === 'object'
+      ? JSON.parse(JSON.stringify(defaultModels))
+      : {}
+    const safeModels = Array.isArray(models) ? models : []
+
     const config = await prisma.apiKey.create({
       data: {
         name,
         provider,
         baseUrl: baseUrl || '',
         defaultModel: defaultModel || '',
-        models: models || [],
+        defaultModels: safeDefaultModels, // 各模态默认模型
+        models: safeModels,
         keyEncrypted: encryptApiKey(apiKey),
         keyMasked: maskApiKey(apiKey),
         isDefault: existingCount === 0, // 第一个配置设为默认
@@ -98,6 +106,7 @@ export async function POST(request: NextRequest) {
         provider: config.provider,
         baseUrl: config.baseUrl,
         defaultModel: config.defaultModel,
+        defaultModels: config.defaultModels,
         models: config.models,
         keyMasked: config.keyMasked,
         isDefault: config.isDefault,
@@ -105,6 +114,8 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('Failed to create AI config:', error)
-    return NextResponse.json({ error: '创建配置失败' }, { status: 500 })
+    // 返回更详细的错误信息
+    const errorMessage = error instanceof Error ? error.message : '创建配置失败'
+    return NextResponse.json({ error: errorMessage }, { status: 500 })
   }
 }

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { PermissionLevel, PermissionTargetType } from '@prisma/client'
+import { invalidateWorkflowPermissionCache } from '@/lib/permissions/workflow'
 
 // GET: 获取工作流权限列表
 export async function GET(
@@ -49,19 +50,25 @@ export async function GET(
       orderBy: { createdAt: 'asc' },
     })
 
-    // 补充用户信息（当 targetType 为 USER 时）
-    const enrichedPermissions = await Promise.all(
-      permissions.map(async (p) => {
-        if (p.targetType === 'USER' && p.targetId) {
-          const user = await prisma.user.findUnique({
-            where: { id: p.targetId },
+    // 批量获取用户信息（避免 N+1 查询）
+    const userIds = permissions
+      .filter((p) => p.targetType === 'USER' && p.targetId)
+      .map((p) => p.targetId as string)
+
+    const users =
+      userIds.length > 0
+        ? await prisma.user.findMany({
+            where: { id: { in: userIds } },
             select: { id: true, name: true, email: true, avatar: true },
           })
-          return { ...p, user }
-        }
-        return { ...p, user: null }
-      })
-    )
+        : []
+
+    const userMap = new Map(users.map((u) => [u.id, u]))
+
+    const enrichedPermissions = permissions.map((p) => ({
+      ...p,
+      user: p.targetType === 'USER' && p.targetId ? userMap.get(p.targetId) || null : null,
+    }))
 
     return NextResponse.json({ permissions: enrichedPermissions })
   } catch (error) {
@@ -167,6 +174,7 @@ export async function POST(
           },
         },
       })
+      await invalidateWorkflowPermissionCache(workflowId)
       return NextResponse.json({ permission: updatedPermission })
     }
 
@@ -187,6 +195,7 @@ export async function POST(
       },
     })
 
+    await invalidateWorkflowPermissionCache(workflowId)
     return NextResponse.json({ permission: newPermission }, { status: 201 })
   } catch (error) {
     console.error('Failed to create workflow permission:', error)
@@ -253,6 +262,7 @@ export async function DELETE(
       where: { id: permissionId },
     })
 
+    await invalidateWorkflowPermissionCache(workflowId)
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Failed to delete workflow permission:', error)

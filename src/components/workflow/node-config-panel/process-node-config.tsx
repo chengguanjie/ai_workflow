@@ -55,11 +55,11 @@ export function ProcessNodeConfigPanel({
   const knowledgeItems = processConfig.knowledgeItems || []
   const ragConfig = processConfig.ragConfig || { topK: 5, threshold: 0.7 }
 
-  // 加载可用的服务商列表
+  // 加载可用的服务商列表（文本模态）
   useEffect(() => {
     async function loadProviders() {
       try {
-        const res = await fetch('/api/ai/providers')
+        const res = await fetch('/api/ai/providers?modality=text')
         if (res.ok) {
           const data = await res.json()
           const providerList = data.providers || []

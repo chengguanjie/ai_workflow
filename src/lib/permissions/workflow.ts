@@ -1,5 +1,13 @@
 import { prisma } from '@/lib/db'
 import { PermissionLevel, PermissionTargetType } from '@prisma/client'
+import {
+  cacheGet,
+  cacheSet,
+  cacheDelPattern,
+  permissionCacheKey,
+  permissionPatternByWorkflow,
+  CACHE_TTL,
+} from '@/lib/cache'
 
 /**
  * 权限级别优先级（数字越大权限越高）
@@ -10,100 +18,59 @@ const PERMISSION_PRIORITY: Record<PermissionLevel, number> = {
   EDIT: 3,
 }
 
+interface CachedPermissionResult {
+  level: PermissionLevel | null
+}
+
 /**
- * 检查用户对工作流的权限
+ * 清除工作流相关的权限缓存
+ */
+export async function invalidateWorkflowPermissionCache(
+  workflowId: string
+): Promise<void> {
+  await cacheDelPattern(permissionPatternByWorkflow(workflowId))
+}
+
+/**
+ * 检查用户对工作流的权限（利用缓存）
  */
 export async function checkWorkflowPermission(
   userId: string,
   workflowId: string,
   requiredPermission: PermissionLevel
 ): Promise<boolean> {
-  // 获取用户信息
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      id: true,
-      role: true,
-      organizationId: true,
-      departmentId: true,
-    },
-  })
-
-  if (!user) return false
-
-  // 获取工作流信息
-  const workflow = await prisma.workflow.findUnique({
-    where: { id: workflowId },
-    select: {
-      id: true,
-      organizationId: true,
-      creatorId: true,
-    },
-  })
-
-  if (!workflow) return false
-
-  // 工作流必须属于同一组织
-  if (workflow.organizationId !== user.organizationId) return false
-
-  // OWNER 和 ADMIN 拥有所有权限
-  if (user.role === 'OWNER' || user.role === 'ADMIN') return true
-
-  // 创建者拥有所有权限
-  if (workflow.creatorId === userId) return true
-
-  // 获取工作流的所有权限设置
-  const permissions = await prisma.workflowPermission.findMany({
-    where: { workflowId },
-  })
-
-  // 如果没有任何权限设置，默认组织内所有人都可以使用
-  if (permissions.length === 0) {
-    // 没有权限设置时，EDITOR 可以编辑，其他人可以使用
-    if (user.role === 'EDITOR' && requiredPermission === 'EDIT') return true
-    if (requiredPermission === 'VIEW' || requiredPermission === 'USE') return true
-    return false
-  }
-
-  // 收集用户的所有适用权限
-  const applicablePermissions: PermissionLevel[] = []
-
-  for (const perm of permissions) {
-    let applies = false
-
-    switch (perm.targetType) {
-      case PermissionTargetType.ALL:
-        applies = true
-        break
-      case PermissionTargetType.USER:
-        applies = perm.targetId === userId
-        break
-      case PermissionTargetType.DEPARTMENT:
-        applies = perm.targetId === user.departmentId
-        break
-    }
-
-    if (applies) {
-      applicablePermissions.push(perm.permission)
-    }
-  }
-
-  // 如果没有适用的权限，则无权访问
-  if (applicablePermissions.length === 0) return false
-
-  // 获取最高权限级别
-  const maxPermission = applicablePermissions.reduce((max, current) =>
-    PERMISSION_PRIORITY[current] > PERMISSION_PRIORITY[max] ? current : max
-  )
-
-  // 检查是否满足要求的权限级别
-  return PERMISSION_PRIORITY[maxPermission] >= PERMISSION_PRIORITY[requiredPermission]
+  const userLevel = await getWorkflowPermissionLevel(userId, workflowId)
+  
+  if (!userLevel) return false
+  
+  return PERMISSION_PRIORITY[userLevel] >= PERMISSION_PRIORITY[requiredPermission]
 }
 
 /**
- * 获取用户对工作流的最高权限级别
+ * 获取用户对工作流的最高权限级别（带缓存）
  */
 export async function getWorkflowPermissionLevel(
+  userId: string,
+  workflowId: string
+): Promise<PermissionLevel | null> {
+  const cacheKey = permissionCacheKey(userId, workflowId)
+  
+  const cached = await cacheGet<CachedPermissionResult>(cacheKey)
+  if (cached !== null) {
+    return cached.level
+  }
+  
+  const result = await computeWorkflowPermissionLevel(userId, workflowId)
+  
+  await cacheSet(cacheKey, { level: result }, CACHE_TTL.PERMISSION)
+  
+  return result
+}
+
+/**
+ * 计算用户对工作流的最高权限级别（无缓存）
+ */
+async function computeWorkflowPermissionLevel(
   userId: string,
   workflowId: string
 ): Promise<PermissionLevel | null> {

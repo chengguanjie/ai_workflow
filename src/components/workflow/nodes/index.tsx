@@ -718,8 +718,8 @@ function SwitchNodeBase({ data, selected, id }: NodeProps & { data: NodeData }) 
         {/* 分支标签列表 */}
         <div className="border-t border-current/10 px-3 py-2">
           <div className="flex flex-col gap-1 text-xs">
-            {cases.slice(0, 4).map((c) => (
-              <div key={c.id} className="flex items-center gap-1">
+            {cases.slice(0, 4).map((c, idx) => (
+              <div key={c.id || `case-${idx}`} className="flex items-center gap-1">
                 <span
                   className={cn(
                     'w-2 h-2 rounded-full',

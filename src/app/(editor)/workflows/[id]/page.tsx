@@ -24,7 +24,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { useWorkflowStore } from '@/stores/workflow-store'
-import { Save, Play, ArrowLeft, Loader2, Cloud, CloudOff, History, Link2, Group, Sparkles, Trash2, LayoutGrid, BarChart3, FileJson, MessageSquare, BookOpen } from 'lucide-react'
+import { Save, Play, ArrowLeft, Loader2, Cloud, CloudOff, History, Link2, Group, Sparkles, Trash2, LayoutGrid, BarChart3, FileJson, MessageSquare, BookOpen, Share2 } from 'lucide-react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { NodePanel } from '@/components/workflow/node-panel'
@@ -37,6 +37,7 @@ import { VersionManagement } from '@/components/workflow/version-management'
 import { WorkflowImportExportDialog } from '@/components/workflow/workflow-import-export-dialog'
 import { NodeCommentDialog } from '@/components/workflow/node-comment-dialog'
 import { WorkflowManualDialog } from '@/components/workflow/workflow-manual-dialog'
+import { ShareFormDialog } from '@/components/workflow/share-form-dialog'
 import { nodeTypes } from '@/components/workflow/nodes'
 import { useAIAssistantStore } from '@/stores/ai-assistant-store'
 import { toast } from 'sonner'
@@ -72,6 +73,9 @@ function WorkflowEditor() {
 
   // 说明手册弹窗状态
   const [showManualDialog, setShowManualDialog] = useState(false)
+
+  // 分享表单弹窗状态
+  const [showShareFormDialog, setShowShareFormDialog] = useState(false)
 
   // AI助手
   const { openPanel: openAIPanel } = useAIAssistantStore()
@@ -529,6 +533,20 @@ function WorkflowEditor() {
             </TooltipTrigger>
             <TooltipContent side="right">说明手册</TooltipContent>
           </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowShareFormDialog(true)}
+                className="mt-2"
+              >
+                <Share2 className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">分享表单</TooltipContent>
+          </Tooltip>
         </div>
       </TooltipProvider>
 
@@ -756,6 +774,13 @@ function WorkflowEditor() {
         isOpen={showManualDialog}
         onClose={() => setShowManualDialog(false)}
         workflowId={workflowId}
+      />
+
+      {/* 分享表单弹窗 */}
+      <ShareFormDialog
+        workflowId={workflowId}
+        isOpen={showShareFormDialog}
+        onClose={() => setShowShareFormDialog(false)}
       />
     </div>
   )

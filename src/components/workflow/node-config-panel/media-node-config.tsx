@@ -6,6 +6,8 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Trash2, AlertCircle, Loader2 } from 'lucide-react'
 import { OutputTabContent } from './shared/output-tab-content'
+import { AIGenerateButton } from './shared/ai-generate-button'
+import { toast } from 'sonner'
 import type { ImportedFile } from '@/types/workflow'
 import type { AIProviderConfig } from './shared/types'
 
@@ -26,6 +28,7 @@ export function MediaNodeConfigPanel({
   nodeId,
   config,
   onUpdate,
+  nodeType,
   title,
   acceptFormats,
   formatDescription,
@@ -34,6 +37,7 @@ export function MediaNodeConfigPanel({
   const [activeTab, setActiveTab] = useState<MediaTabType>('prompt')
   const [providers, setProviders] = useState<AIProviderConfig[]>([])
   const [loadingProviders, setLoadingProviders] = useState(true)
+  const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const mediaConfig = config as {
@@ -43,11 +47,26 @@ export function MediaNodeConfigPanel({
     model?: string
   } || {}
 
-  // 加载可用的服务商列表
+  // 根据节点类型确定模态
+  const getModalityForNodeType = (type: string): string => {
+    switch (type) {
+      case 'image':
+        return 'ocr' // 图片识别/OCR
+      case 'audio':
+        return 'audio-transcription' // 音频转录
+      case 'video':
+        return 'text' // 视频暂时使用文本模型
+      default:
+        return 'text'
+    }
+  }
+
+  // 加载可用的服务商列表（根据节点类型使用对应模态）
   useEffect(() => {
     async function loadProviders() {
       try {
-        const res = await fetch('/api/ai/providers')
+        const modality = getModalityForNodeType(nodeType)
+        const res = await fetch(`/api/ai/providers?modality=${modality}`)
         if (res.ok) {
           const data = await res.json()
           const providerList = data.providers || []
@@ -61,6 +80,7 @@ export function MediaNodeConfigPanel({
             onUpdate({
               ...mediaConfig,
               aiConfigId: data.defaultProvider.id,
+              model: data.defaultProvider.defaultModel,
             })
           }
         }
@@ -72,7 +92,7 @@ export function MediaNodeConfigPanel({
     }
     loadProviders()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [nodeType])
 
   const files = mediaConfig.files || []
 
@@ -84,25 +104,47 @@ export function MediaNodeConfigPanel({
     const selectedFiles = e.target.files
     if (!selectedFiles || selectedFiles.length === 0) return
 
+    setUploading(true)
     const newFiles: ImportedFile[] = []
-    for (let i = 0; i < selectedFiles.length; i++) {
-      const file = selectedFiles[i]
-      // 创建临时 URL（实际应用中需要上传到服务器）
-      const url = URL.createObjectURL(file)
-      newFiles.push({
-        id: `file_${Date.now()}_${i}`,
-        name: file.name,
-        url: url,
-        size: file.size,
-        type: file.type,
-        uploadedAt: new Date().toISOString(),
-      })
-    }
+    
+    try {
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i]
+        
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('fieldType', nodeType)
 
-    handleChange('files', [...files, ...newFiles])
-    // 清空 input 以便可以再次选择相同文件
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''
+        const response = await fetch('/api/files/temp', {
+          method: 'POST',
+          body: formData,
+        })
+
+        const data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(data.error || `上传 ${file.name} 失败`)
+        }
+
+        newFiles.push({
+          id: `file_${Date.now()}_${i}`,
+          name: data.data.fileName || file.name,
+          url: data.data.url,
+          size: data.data.size || file.size,
+          type: data.data.mimeType || file.type,
+          uploadedAt: new Date().toISOString(),
+        })
+      }
+
+      handleChange('files', [...files, ...newFiles])
+      toast.success(`成功上传 ${newFiles.length} 个文件`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '文件上传失败')
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
     }
   }
 
@@ -165,8 +207,12 @@ export function MediaNodeConfigPanel({
 
           {/* 文件上传区域 */}
           <div
-            className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:bg-muted/50 transition-colors"
-            onClick={() => fileInputRef.current?.click()}
+            className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+              uploading 
+                ? 'cursor-not-allowed bg-muted/30' 
+                : 'cursor-pointer hover:bg-muted/50'
+            }`}
+            onClick={() => !uploading && fileInputRef.current?.click()}
           >
             <input
               ref={fileInputRef}
@@ -175,15 +221,27 @@ export function MediaNodeConfigPanel({
               multiple
               className="hidden"
               onChange={handleFileSelect}
+              disabled={uploading}
             />
             <div className="flex flex-col items-center gap-2">
-              {icon}
-              <p className="text-sm text-muted-foreground">
-                点击或拖拽文件到此处上传
-              </p>
-              <p className="text-xs text-muted-foreground">
-                支持格式: {formatDescription}
-              </p>
+              {uploading ? (
+                <>
+                  <Loader2 className="h-8 w-8 text-primary animate-spin" />
+                  <p className="text-sm text-muted-foreground">
+                    正在上传文件...
+                  </p>
+                </>
+              ) : (
+                <>
+                  {icon}
+                  <p className="text-sm text-muted-foreground">
+                    点击或拖拽文件到此处上传
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    支持格式: {formatDescription}
+                  </p>
+                </>
+              )}
             </div>
           </div>
 
@@ -225,7 +283,15 @@ export function MediaNodeConfigPanel({
       {activeTab === 'prompt' && (
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label>处理提示词</Label>
+            <div className="flex items-center justify-between">
+              <Label>处理提示词</Label>
+              <AIGenerateButton
+                fieldType="mediaPrompt"
+                currentContent={mediaConfig.prompt || ''}
+                onConfirm={(value) => handleChange('prompt', value)}
+                fieldLabel="处理提示词"
+              />
+            </div>
             <textarea
               className="min-h-[150px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-y"
               placeholder={`描述如何处理导入的${title}...\n\n例如：\n- 提取数据中的关键信息\n- 对内容进行分析或转换`}
@@ -274,14 +340,34 @@ export function MediaNodeConfigPanel({
               </div>
 
               <div className="space-y-2">
-                <Label>模型（可选）</Label>
-                <Input
-                  value={mediaConfig.model || ''}
-                  onChange={(e) => handleChange('model', e.target.value)}
-                  placeholder="留空使用服务商默认模型"
-                />
+                <Label>模型</Label>
+                {(() => {
+                  const selectedProvider = providers.find(p => p.id === mediaConfig.aiConfigId)
+                  if (selectedProvider && selectedProvider.models && selectedProvider.models.length > 0) {
+                    return (
+                      <select
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={mediaConfig.model || selectedProvider.defaultModel || ''}
+                        onChange={(e) => handleChange('model', e.target.value)}
+                      >
+                        {selectedProvider.models.map((model) => (
+                          <option key={model} value={model}>
+                            {model}{model === selectedProvider.defaultModel ? ' (默认)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    )
+                  }
+                  return (
+                    <Input
+                      value={mediaConfig.model || ''}
+                      onChange={(e) => handleChange('model', e.target.value)}
+                      placeholder="选择服务商后显示可用模型"
+                    />
+                  )
+                })()}
                 <p className="text-xs text-muted-foreground">
-                  自定义模型名称，留空则使用服务商的默认模型
+                  选择用于处理{title}的模型
                 </p>
               </div>
             </>

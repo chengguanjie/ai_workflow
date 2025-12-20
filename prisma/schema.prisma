@@ -201,7 +201,8 @@ model ApiKey {
   baseUrl      String     @default("")  // API 基础地址
   keyEncrypted String     @db.Text
   keyMasked    String
-  defaultModel String     @default("")
+  defaultModel String     @default("")  // 兼容旧版，存储文本模态默认模型
+  defaultModels Json      @default("{}") // 各模态默认模型 { "text": "...", "image-gen": "...", ... }
   models       Json       @default("[]") // 可用模型列表
   isDefault    Boolean    @default(false)
   isActive     Boolean    @default(true)
@@ -293,6 +294,7 @@ model Workflow {
   triggers   WorkflowTrigger[]
   permissions WorkflowPermission[]
   platformFeedbacks PlatformFeedback[]
+  forms      WorkflowForm[]
 
   // 版本管理
   versions          WorkflowVersion[]
@@ -1383,4 +1385,91 @@ enum AnalyticsPeriod {
   DAILY
   WEEKLY
   MONTHLY
+}
+
+// ============================================
+// 工作流表单分享
+// ============================================
+
+model WorkflowForm {
+  id              String   @id @default(cuid())
+  name            String   // 表单名称
+  description     String?  @db.Text // 表单描述
+  shareToken      String   @unique // 分享链接 token
+
+  // 表单配置
+  isActive        Boolean  @default(true) // 是否启用
+  expiresAt       DateTime? // 过期时间
+  maxSubmissions  Int?     // 最大提交次数限制
+  submissionCount Int      @default(0) // 已提交次数
+
+  // 显示设置
+  showResult      Boolean  @default(true) // 是否显示执行结果
+  successMessage  String?  @db.Text // 提交成功消息
+  theme           String   @default("default") // 表单主题
+
+  // AI 网页模式
+  mode            FormMode @default(FORM) // 表单模式
+  stylePrompt     String?  @db.Text // AI 风格描述
+  htmlTemplate    String?  @db.LongText // AI 生成的 HTML 模板
+  cssStyles       String?  @db.LongText // AI 生成的 CSS 样式
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // 关联
+  workflowId      String
+  workflow        Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  createdById     String // 创建者 ID
+
+  submissions     WorkflowFormSubmission[]
+
+  @@index([workflowId])
+  @@index([shareToken])
+  @@index([isActive])
+  @@map("workflow_forms")
+}
+
+enum FormMode {
+  FORM    // 标准表单
+  AI_PAGE // AI 网页模式
+}
+
+model WorkflowFormSubmission {
+  id            String   @id @default(cuid())
+
+  // 提交数据
+  inputData     Json     // 表单输入数据
+
+  // 执行关联
+  executionId   String?  // 关联的工作流执行 ID
+
+  // 提交者信息
+  submitterIp   String?  // 提交者 IP
+  submitterInfo Json?    // 其他提交者信息 (如 user-agent)
+
+  // 结果
+  status        FormSubmissionStatus @default(PENDING)
+  result        Json?    // 执行结果
+  errorMessage  String?  @db.Text
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // 关联
+  formId        String
+  form          WorkflowForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([formId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("workflow_form_submissions")
+}
+
+enum FormSubmissionStatus {
+  PENDING   // 待处理
+  RUNNING   // 执行中
+  COMPLETED // 已完成
+  FAILED    // 失败
 }

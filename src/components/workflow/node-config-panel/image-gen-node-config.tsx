@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label'
 import { Loader2, AlertCircle, Image as ImageIcon, Wand2 } from 'lucide-react'
 import { HighlightedTextarea } from './shared/highlighted-textarea'
 import { OutputTabContent } from './shared/output-tab-content'
+import { AIGenerateButton } from './shared/ai-generate-button'
 import type { ImageGenNodeConfigData, ImageSize, ImageQuality, ImageGenProvider } from '@/types/workflow'
 
 type ImageGenTabType = 'basic' | 'advanced' | 'output'
@@ -62,11 +63,11 @@ export function ImageGenNodeConfigPanel({
 
   const imageGenConfig = (config || {}) as ImageGenNodeConfigData
 
-  // 加载可用的服务商列表
+  // 加载可用的服务商列表（图片生成模态）
   useEffect(() => {
     async function loadProviders() {
       try {
-        const res = await fetch('/api/ai/providers')
+        const res = await fetch('/api/ai/providers?modality=image-gen')
         if (res.ok) {
           const data = await res.json()
           // 过滤支持图像生成的服务商
@@ -179,33 +180,48 @@ export function ImageGenNodeConfigPanel({
           {selectedProvider && (
             <div className="space-y-2">
               <Label>模型</Label>
-              <select
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={imageGenConfig.imageModel || ''}
-                onChange={(e) => handleChange('imageModel', e.target.value)}
-              >
-                <option value="">使用默认模型</option>
-                {selectedProvider.provider === 'OPENAI' && (
-                  <>
-                    <option value="dall-e-3">DALL-E 3 (推荐)</option>
-                    <option value="dall-e-2">DALL-E 2</option>
-                  </>
-                )}
-                {selectedProvider.provider === 'STABILITYAI' && (
-                  <>
-                    <option value="stable-diffusion-xl-1024-v1-0">SDXL 1.0</option>
-                    <option value="stable-diffusion-v1-6">SD 1.6</option>
-                  </>
-                )}
-              </select>
+              {selectedProvider.models && selectedProvider.models.length > 0 ? (
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={imageGenConfig.imageModel || selectedProvider.defaultModel || ''}
+                  onChange={(e) => handleChange('imageModel', e.target.value)}
+                >
+                  {selectedProvider.models.map((model) => (
+                    <option key={model} value={model}>
+                      {model}{model === selectedProvider.defaultModel ? ' (默认)' : ''}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={imageGenConfig.imageModel || ''}
+                  onChange={(e) => handleChange('imageModel', e.target.value)}
+                >
+                  <option value="">使用默认模型</option>
+                </select>
+              )}
+              {selectedProvider.defaultModel && (
+                <p className="text-xs text-muted-foreground">
+                  默认模型: {selectedProvider.defaultModel}
+                </p>
+              )}
             </div>
           )}
 
           {/* 图像描述提示词 */}
           <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <Wand2 className="h-4 w-4 text-primary" />
-              <Label>图像描述</Label>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Wand2 className="h-4 w-4 text-primary" />
+                <Label>图像描述</Label>
+              </div>
+              <AIGenerateButton
+                fieldType="imagePrompt"
+                currentContent={imageGenConfig.prompt || ''}
+                onConfirm={(value) => handleChange('prompt', value)}
+                fieldLabel="图像描述"
+              />
             </div>
             <HighlightedTextarea
               className="bg-background"
@@ -299,7 +315,15 @@ export function ImageGenNodeConfigPanel({
 
           {/* 负面提示词 */}
           <div className="space-y-2">
-            <Label>负面提示词（可选）</Label>
+            <div className="flex items-center justify-between">
+              <Label>负面提示词（可选）</Label>
+              <AIGenerateButton
+                fieldType="negativePrompt"
+                currentContent={imageGenConfig.negativePrompt || ''}
+                onConfirm={(value) => handleChange('negativePrompt', value)}
+                fieldLabel="负面提示词"
+              />
+            </div>
             <textarea
               className="min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-y"
               placeholder="描述不希望出现在图像中的元素..."

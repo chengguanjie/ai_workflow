@@ -14,7 +14,6 @@
 import type {
   ConditionNodeConfig,
   Condition,
-  ConditionOperator,
   NodeConfig,
 } from '@/types/workflow'
 import type { NodeProcessor, ExecutionContext, NodeOutput } from '../types'
@@ -130,7 +129,7 @@ function evaluateCondition(
       if (typeof normalizedLeft === 'string' && typeof normalizedRight === 'string') {
         return !normalizedLeft.includes(normalizedRight)
       }
-      return true
+      return false
       
     case 'startsWith':
       if (typeof normalizedLeft === 'string' && typeof normalizedRight === 'string') {

@@ -15,18 +15,32 @@ import {
 } from '@/lib/errors'
 
 /**
+ * Generate a unique trace ID for request tracking
+ */
+export function generateTraceId(): string {
+  const timestamp = Date.now().toString(36)
+  const random = Math.random().toString(36).substring(2, 8)
+  return `${timestamp}-${random}`
+}
+
+/**
  * Handles API errors and returns standardized error responses
  * 
  * @param error - The error to handle
+ * @param traceId - Optional trace ID for request tracking
  * @returns NextResponse with appropriate status code and error body
  */
-export function handleApiError(error: unknown): NextResponse<ApiErrorResponse> {
+export function handleApiError(error: unknown, traceId?: string): NextResponse<ApiErrorResponse> {
+  const requestTraceId = traceId || generateTraceId()
+  
   // Log error for debugging (in production, use proper logging service)
-  console.error('[API Error]', error)
+  console.error(`[API Error] [${requestTraceId}]`, error)
 
   // Handle AppError instances (our custom error types)
   if (error instanceof AppError) {
-    return NextResponse.json(error.toJSON(), { status: error.statusCode })
+    const response = error.toJSON()
+    response.error.traceId = requestTraceId
+    return NextResponse.json(response, { status: error.statusCode })
   }
 
   // Handle Zod validation errors
@@ -40,7 +54,9 @@ export function handleApiError(error: unknown): NextResponse<ApiErrorResponse> {
         message: e.message,
       }))
     )
-    return NextResponse.json(validationError.toJSON(), { status: 400 })
+    const response = validationError.toJSON()
+    response.error.traceId = requestTraceId
+    return NextResponse.json(response, { status: 400 })
   }
 
   // Handle standard Error instances
@@ -51,24 +67,30 @@ export function handleApiError(error: unknown): NextResponse<ApiErrorResponse> {
     const internalError = new InternalError(
       isDev ? error.message : '服务器内部错误'
     )
-    return NextResponse.json(internalError.toJSON(), { status: 500 })
+    const response = internalError.toJSON()
+    response.error.traceId = requestTraceId
+    return NextResponse.json(response, { status: 500 })
   }
 
   // Handle unknown error types
   const unknownError = new InternalError('服务器内部错误')
-  return NextResponse.json(unknownError.toJSON(), { status: 500 })
+  const response = unknownError.toJSON()
+  response.error.traceId = requestTraceId
+  return NextResponse.json(response, { status: 500 })
 }
 
 /**
  * Wraps an async API handler with error handling
  * 
  * @param handler - The async handler function to wrap
+ * @param traceId - Optional trace ID for request tracking
  * @returns A wrapped handler that catches and handles errors
  */
 export function withErrorHandler<T>(
-  handler: () => Promise<NextResponse<T>>
+  handler: () => Promise<NextResponse<T>>,
+  traceId?: string
 ): Promise<NextResponse<T | ApiErrorResponse>> {
-  return handler().catch((error: unknown) => handleApiError(error))
+  return handler().catch((error: unknown) => handleApiError(error, traceId))
 }
 
 /**
@@ -81,10 +103,11 @@ export function createApiHandler<TRequest, TResponse>(
   handler: (request: TRequest) => Promise<NextResponse<TResponse>>
 ): (request: TRequest) => Promise<NextResponse<TResponse | ApiErrorResponse>> {
   return async (request: TRequest) => {
+    const traceId = generateTraceId()
     try {
       return await handler(request)
     } catch (error) {
-      return handleApiError(error)
+      return handleApiError(error, traceId)
     }
   }
 }

@@ -1,9 +1,46 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { persist, PersistStorage, StorageValue } from 'zustand/middleware'
 import type { Node, Edge, OnNodesChange, OnEdgesChange, OnConnect, Viewport } from '@xyflow/react'
 import { applyNodeChanges, applyEdgeChanges, addEdge } from '@xyflow/react'
 import type { NodeConfig, WorkflowConfig, GroupNodeConfigData, NodePosition } from '@/types/workflow'
 import dagre from 'dagre'
+
+function createThrottledStorage<T>(delay: number = 1000): PersistStorage<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null
+  let pendingValue: StorageValue<T> | null = null
+
+  return {
+    getItem: (name: string): StorageValue<T> | null => {
+      const str = localStorage.getItem(name)
+      if (!str) return null
+      try {
+        return JSON.parse(str)
+      } catch {
+        return null
+      }
+    },
+    setItem: (name: string, value: StorageValue<T>): void => {
+      pendingValue = value
+      if (!timeoutId) {
+        timeoutId = setTimeout(() => {
+          if (pendingValue) {
+            localStorage.setItem(name, JSON.stringify(pendingValue))
+          }
+          timeoutId = null
+          pendingValue = null
+        }, delay)
+      }
+    },
+    removeItem: (name: string): void => {
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+        timeoutId = null
+      }
+      pendingValue = null
+      localStorage.removeItem(name)
+    },
+  }
+}
 
 interface WorkflowState {
   // 基本信息
@@ -963,6 +1000,7 @@ export const useWorkflowStore = create<WorkflowState>()(
     }),
     {
       name: 'workflow-draft',
+      storage: createThrottledStorage(1000),
       partialize: (state) => ({
         id: state.id,
         name: state.name,

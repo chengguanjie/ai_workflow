@@ -1,6 +1,6 @@
 // AI 服务管理器
 
-import type { AIProvider, AIProviderType, ChatRequest, ChatResponse, Model } from './types'
+import type { AIProvider, AIProviderType, ChatRequest, ChatResponse, Model, TranscriptionOptions, TranscriptionResponse } from './types'
 import { shensuanProvider } from './providers/shensuan'
 import { openRouterProvider } from './providers/openrouter'
 import { openAIProvider } from './providers/openai'
@@ -48,11 +48,47 @@ class AIService {
     return provider.listModels(apiKey, baseUrl)
   }
 
-  /**
-   * 获取所有支持的提供商类型
-   */
+  async transcribeAudio(
+    providerType: AIProviderType,
+    audioData: ArrayBuffer,
+    options: TranscriptionOptions,
+    apiKey: string,
+    baseUrl?: string
+  ): Promise<TranscriptionResponse> {
+    const provider = this.getProvider(providerType)
+    if (!provider.transcribeAudio) {
+      throw new Error(`Provider ${providerType} does not support audio transcription`)
+    }
+    return provider.transcribeAudio(audioData, options, apiKey, baseUrl)
+  }
+
+  async transcribeAudioFromUrl(
+    providerType: AIProviderType,
+    audioUrl: string,
+    options: TranscriptionOptions,
+    apiKey: string,
+    baseUrl?: string
+  ): Promise<TranscriptionResponse> {
+    const provider = this.getProvider(providerType)
+    if (!provider.transcribeAudioFromUrl) {
+      throw new Error(`Provider ${providerType} does not support audio transcription from URL`)
+    }
+    return provider.transcribeAudioFromUrl(audioUrl, options, apiKey, baseUrl)
+  }
+
+  supportsTranscription(providerType: AIProviderType): boolean {
+    const provider = this.providers.get(providerType)
+    return !!(provider?.transcribeAudio || provider?.transcribeAudioFromUrl)
+  }
+
   getSupportedProviders(): AIProviderType[] {
     return Array.from(this.providers.keys())
+  }
+
+  getTranscriptionProviders(): AIProviderType[] {
+    return Array.from(this.providers.entries())
+      .filter(([, provider]) => !!provider.transcribeAudio)
+      .map(([type]) => type)
   }
 }
 

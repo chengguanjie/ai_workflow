@@ -19,6 +19,7 @@ import { httpNodeProcessor, processHttpNode } from './http'
 import { mergeNodeProcessor } from './merge'
 import { imageGenNodeProcessor } from './image-gen'
 import { notificationNodeProcessor } from './notification'
+import { groupNodeProcessor } from './group'
 
 // 注册所有处理器
 const processors: Map<string, NodeProcessor> = new Map()
@@ -52,6 +53,9 @@ processors.set('IMAGE_GEN', imageGenNodeProcessor)
 
 // 通知节点
 processors.set('NOTIFICATION', notificationNodeProcessor)
+
+// 分组节点
+processors.set('GROUP', groupNodeProcessor)
 
 /**
  * 获取节点处理器
@@ -88,4 +92,5 @@ export {
   mergeNodeProcessor,
   imageGenNodeProcessor,
   notificationNodeProcessor,
+  groupNodeProcessor,
 }

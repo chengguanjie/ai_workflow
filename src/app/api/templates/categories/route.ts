@@ -9,8 +9,10 @@ import { ApiResponse, ApiSuccessResponse } from '@/lib/api/api-response'
 
 /**
  * 模板分类定义
+ * 包含：功能分类 + 部门分类
  */
 const TEMPLATE_CATEGORIES = [
+  // ===== 功能分类 =====
   { id: 'ai-processing', name: 'AI处理', icon: 'Brain', description: '使用AI进行文本、图像处理' },
   { id: 'data-analysis', name: '数据分析', icon: 'BarChart', description: 'Excel、CSV数据分析和处理' },
   { id: 'document-generation', name: '文档生成', icon: 'FileText', description: '生成Word、PDF等文档' },
@@ -19,6 +21,19 @@ const TEMPLATE_CATEGORIES = [
   { id: 'translation', name: '翻译', icon: 'Globe', description: '多语言翻译工作流' },
   { id: 'automation', name: '自动化', icon: 'Zap', description: '重复性任务自动化' },
   { id: 'qa', name: '问答', icon: 'MessageCircle', description: '基于知识库的问答系统' },
+  // ===== 部门分类 =====
+  { id: 'sales', name: '销售', icon: 'TrendingUp', description: '销售团队常用模板' },
+  { id: 'marketing', name: '市场', icon: 'Megaphone', description: '市场营销团队模板' },
+  { id: 'hr', name: '人力资源', icon: 'Users', description: 'HR招聘培训模板' },
+  { id: 'finance', name: '财务', icon: 'Calculator', description: '财务分析审核模板' },
+  { id: 'operation', name: '运营', icon: 'Activity', description: '运营客服模板' },
+  { id: 'product', name: '产品', icon: 'Lightbulb', description: '产品需求设计模板' },
+  { id: 'admin', name: '行政', icon: 'Building', description: '行政办公模板' },
+  { id: 'legal', name: '法务', icon: 'Scale', description: '法务合规模板' },
+  { id: 'sales-support', name: '销售内勤', icon: 'Headset', description: '订单处理与客户档案' },
+  { id: 'tech', name: '技术研发', icon: 'Code', description: '代码审查与架构评审' },
+  { id: 'production', name: '生产制造', icon: 'Factory', description: '生产日报与质检分析' },
+  { id: 'procurement', name: '供应链', icon: 'Truck', description: '供应商评估与采购审核' },
   { id: 'other', name: '其他', icon: 'MoreHorizontal', description: '其他类型模板' },
 ] as const
 

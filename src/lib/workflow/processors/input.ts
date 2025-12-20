@@ -4,6 +4,7 @@
 
 import type { NodeConfig, InputNodeConfig } from '@/types/workflow'
 import type { NodeProcessor, NodeOutput, ExecutionContext } from '../types'
+import { replaceVariables } from '../utils'
 
 export class InputNodeProcessor implements NodeProcessor {
   nodeType = 'INPUT'
@@ -19,9 +20,22 @@ export class InputNodeProcessor implements NodeProcessor {
       const fields = inputNode.config?.fields || []
       const data: Record<string, unknown> = {}
 
-      // 将输入字段转换为输出数据
       for (const field of fields) {
-        data[field.name] = field.value
+        let value = field.value
+
+        if (typeof value === 'string' && value.includes('{{')) {
+          value = replaceVariables(value, context)
+        }
+
+        if (field.file) {
+          data[field.name] = {
+            value,
+            file: field.file,
+            url: field.file.url,
+          }
+        } else {
+          data[field.name] = value
+        }
       }
 
       return {

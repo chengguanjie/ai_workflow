@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Loader2, AlertCircle } from 'lucide-react'
 import type { AIProviderConfig } from './types'
+import type { ModelModality } from '@/lib/ai/types'
 
 interface AIProviderSelectProps {
   aiConfigId?: string
@@ -18,6 +19,8 @@ interface AIProviderSelectProps {
   showAdvancedSettings?: boolean
   defaultTemperature?: number
   defaultMaxTokens?: number
+  /** 模态类型，用于过滤模型列表 */
+  modality?: ModelModality
 }
 
 export function AIProviderSelect({
@@ -32,6 +35,7 @@ export function AIProviderSelect({
   showAdvancedSettings = true,
   defaultTemperature = 0.7,
   defaultMaxTokens = 2048,
+  modality,
 }: AIProviderSelectProps) {
   const [providers, setProviders] = useState<AIProviderConfig[]>([])
   const [loadingProviders, setLoadingProviders] = useState(true)
@@ -40,7 +44,11 @@ export function AIProviderSelect({
   useEffect(() => {
     async function loadProviders() {
       try {
-        const res = await fetch('/api/ai/providers')
+        // 根据 modality 参数过滤模型
+        const url = modality
+          ? `/api/ai/providers?modality=${modality}`
+          : '/api/ai/providers'
+        const res = await fetch(url)
         if (res.ok) {
           const data = await res.json()
           const providerList = data.providers || []
@@ -66,7 +74,8 @@ export function AIProviderSelect({
       }
     }
     loadProviders()
-  }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modality])
 
   const handleProviderChange = (configId: string) => {
     const selected = providers.find(p => p.id === configId)
@@ -174,7 +183,7 @@ export function AIProviderSelect({
 }
 
 // Hook to load providers (for components that need more control)
-export function useAIProviders() {
+export function useAIProviders(modality?: ModelModality) {
   const [providers, setProviders] = useState<AIProviderConfig[]>([])
   const [loading, setLoading] = useState(true)
   const [defaultProvider, setDefaultProvider] = useState<AIProviderConfig | null>(null)
@@ -182,7 +191,10 @@ export function useAIProviders() {
   useEffect(() => {
     async function loadProviders() {
       try {
-        const res = await fetch('/api/ai/providers')
+        const url = modality
+          ? `/api/ai/providers?modality=${modality}`
+          : '/api/ai/providers'
+        const res = await fetch(url)
         if (res.ok) {
           const data = await res.json()
           setProviders(data.providers || [])
@@ -195,7 +207,7 @@ export function useAIProviders() {
       }
     }
     loadProviders()
-  }, [])
+  }, [modality])
 
   return { providers, loading, defaultProvider }
 }

@@ -10,6 +10,14 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Play,
   X,
@@ -26,7 +34,16 @@ import {
   Eye,
   Radio,
   StopCircle,
+  Upload,
+  Image,
+  FileSpreadsheet,
+  Music,
+  Video,
+  Trash2,
+  List,
+  ListChecks,
 } from 'lucide-react'
+import type { InputFieldType } from '@/types/workflow'
 import { toast } from 'sonner'
 import { useWorkflowStore } from '@/stores/workflow-store'
 import { ExecutionFeedbackDialog } from './execution-feedback-dialog'
@@ -96,6 +113,17 @@ export function ExecutionPanel({
   const [executionError, setExecutionError] = useState<string | null>(null)
   const [inputValues, setInputValues] = useState<Record<string, string>>({})
   const [showInputs, setShowInputs] = useState(true)
+  // 文件上传状态: { fieldName: { uploading: boolean, file?: { name, url, size, mimeType } } }
+  const [fileUploads, setFileUploads] = useState<Record<string, {
+    uploading: boolean
+    file?: {
+      name: string
+      url: string
+      size: number
+      mimeType: string
+    }
+  }>>({})
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const [showOutput, setShowOutput] = useState(true)
   const [asyncMode, setAsyncMode] = useState(true)
   const [taskId, setTaskId] = useState<string | null>(null)
@@ -115,25 +143,151 @@ export function ExecutionPanel({
 
   const { nodes } = useWorkflowStore()
 
+  // 字段类型对应的 accept 属性
+  const FIELD_TYPE_ACCEPT: Record<string, string> = {
+    image: 'image/*',
+    pdf: '.pdf,application/pdf',
+    word: '.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    excel: '.xls,.xlsx,.csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv',
+    audio: 'audio/*',
+    video: 'video/*',
+  }
+
+  // 字段类型对应的图标
+  const getFieldTypeIcon = (fieldType: InputFieldType) => {
+    switch (fieldType) {
+      case 'image':
+        return <Image className="h-4 w-4" />
+      case 'pdf':
+        return <FileText className="h-4 w-4" />
+      case 'word':
+        return <FileText className="h-4 w-4" />
+      case 'excel':
+        return <FileSpreadsheet className="h-4 w-4" />
+      case 'audio':
+        return <Music className="h-4 w-4" />
+      case 'video':
+        return <Video className="h-4 w-4" />
+      case 'select':
+        return <List className="h-4 w-4" />
+      case 'multiselect':
+        return <ListChecks className="h-4 w-4" />
+      default:
+        return <FileText className="h-4 w-4" />
+    }
+  }
+
+  // 字段类型对应的标签
+  const getFieldTypeLabel = (fieldType: InputFieldType) => {
+    const labels: Record<InputFieldType, string> = {
+      text: '文本',
+      image: '图片',
+      pdf: 'PDF',
+      word: 'Word',
+      excel: 'Excel',
+      audio: '音频',
+      video: '视频',
+      select: '单选',
+      multiselect: '多选',
+    }
+    return labels[fieldType] || '文件'
+  }
+
   // 获取输入节点的字段
   const inputFields: Array<{
     nodeId: string
     nodeName: string
     fieldId: string
     fieldName: string
+    fieldType: InputFieldType
     defaultValue: string
+    options?: Array<{ label: string; value: string }>
   }> = nodes
     .filter((node) => node.data?.type === 'INPUT')
     .flatMap((node) => {
-      const fields = (node.data?.config as { fields?: Array<{ id: string; name: string; value: string }> })?.fields || []
+      const fields = (node.data?.config as { fields?: Array<{ id: string; name: string; value: string; fieldType?: InputFieldType; options?: Array<{ label: string; value: string }> }> })?.fields || []
       return fields.map((field) => ({
         nodeId: node.id,
         nodeName: String(node.data?.name || '输入'),
         fieldId: field.id,
         fieldName: field.name,
+        fieldType: field.fieldType || 'text',
         defaultValue: field.value || '',
+        options: field.options,
       }))
     })
+
+  // 文件上传处理函数
+  const handleFileUpload = useCallback(async (fieldName: string, fieldType: InputFieldType, file: File) => {
+    setFileUploads((prev) => ({
+      ...prev,
+      [fieldName]: { uploading: true },
+    }))
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('fieldType', fieldType)
+
+      const response = await fetch('/api/files/temp', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || '上传失败')
+      }
+
+      setFileUploads((prev) => ({
+        ...prev,
+        [fieldName]: {
+          uploading: false,
+          file: {
+            name: data.data.fileName,
+            url: data.data.url,
+            size: data.data.size,
+            mimeType: data.data.mimeType,
+          },
+        },
+      }))
+
+      // 将文件 URL 存入 inputValues
+      setInputValues((prev) => ({
+        ...prev,
+        [fieldName]: data.data.url,
+      }))
+
+      toast.success('文件上传成功')
+    } catch (error) {
+      setFileUploads((prev) => ({
+        ...prev,
+        [fieldName]: { uploading: false },
+      }))
+      toast.error(error instanceof Error ? error.message : '上传失败')
+    }
+  }, [])
+
+  // 删除已上传的文件
+  const handleRemoveFile = useCallback((fieldName: string) => {
+    setFileUploads((prev) => {
+      const newState = { ...prev }
+      delete newState[fieldName]
+      return newState
+    })
+    setInputValues((prev) => ({
+      ...prev,
+      [fieldName]: '',
+    }))
+  }, [])
+
+  // 格式化文件大小
+  const formatUploadSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  }
 
   // 初始化输入值
   useEffect(() => {
@@ -143,6 +297,7 @@ export function ExecutionPanel({
         initial[field.fieldName] = field.defaultValue
       })
       setInputValues(initial)
+      setFileUploads({}) // 重置文件上传状态
       setResult(null)
       setTaskId(null)
       setExecutionError(null)
@@ -732,20 +887,159 @@ export function ExecutionPanel({
                 <div className="mt-3 space-y-3">
                   {inputFields.map((field) => (
                     <div key={`${field.nodeId}-${field.fieldId}`} className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">
+                      <Label className="text-xs text-muted-foreground flex items-center gap-1">
                         {field.nodeName} / {field.fieldName}
+                        {field.fieldType !== 'text' && (
+                          <span className="ml-1 px-1.5 py-0.5 text-[10px] bg-muted rounded">
+                            {getFieldTypeLabel(field.fieldType)}
+                          </span>
+                        )}
                       </Label>
-                      <Input
-                        value={inputValues[field.fieldName] || ''}
-                        onChange={(e) =>
-                          setInputValues((prev) => ({
-                            ...prev,
-                            [field.fieldName]: e.target.value,
-                          }))
-                        }
-                        placeholder={`输入 ${field.fieldName}`}
-                        disabled={isExecuting}
-                      />
+                      {field.fieldType === 'text' ? (
+                        // 文本类型：使用文本输入框
+                        <Input
+                          value={inputValues[field.fieldName] || ''}
+                          onChange={(e) =>
+                            setInputValues((prev) => ({
+                              ...prev,
+                              [field.fieldName]: e.target.value,
+                            }))
+                          }
+                          placeholder={`输入 ${field.fieldName}`}
+                          disabled={isExecuting}
+                        />
+                      ) : field.fieldType === 'select' ? (
+                        // 单选类型：使用下拉选择
+                        <Select
+                          value={inputValues[field.fieldName] || ''}
+                          onValueChange={(value) =>
+                            setInputValues((prev) => ({
+                              ...prev,
+                              [field.fieldName]: value,
+                            }))
+                          }
+                          disabled={isExecuting}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder={`选择 ${field.fieldName}`} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(field.options || []).map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : field.fieldType === 'multiselect' ? (
+                        // 多选类型：使用复选框
+                        <div className="space-y-2 p-2 border rounded-md">
+                          {(field.options || []).map((option) => {
+                            const selectedValues = (inputValues[field.fieldName] || '').split(',').filter(Boolean)
+                            const isChecked = selectedValues.includes(option.value)
+                            return (
+                              <div key={option.value} className="flex items-center space-x-2">
+                                <Checkbox
+                                  id={`${field.fieldId}-${option.value}`}
+                                  checked={isChecked}
+                                  disabled={isExecuting}
+                                  onCheckedChange={(checked) => {
+                                    setInputValues((prev) => {
+                                      const current = (prev[field.fieldName] || '').split(',').filter(Boolean)
+                                      let newValues: string[]
+                                      if (checked) {
+                                        newValues = [...current, option.value]
+                                      } else {
+                                        newValues = current.filter((v) => v !== option.value)
+                                      }
+                                      return {
+                                        ...prev,
+                                        [field.fieldName]: newValues.join(','),
+                                      }
+                                    })
+                                  }}
+                                />
+                                <label
+                                  htmlFor={`${field.fieldId}-${option.value}`}
+                                  className="text-sm font-normal cursor-pointer"
+                                >
+                                  {option.label}
+                                </label>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        // 文件类型：使用文件上传
+                        <div className="space-y-2">
+                          {fileUploads[field.fieldName]?.file ? (
+                            // 已上传文件显示
+                            <div className="flex items-center gap-2 p-2 border rounded-md bg-muted/30">
+                              {getFieldTypeIcon(field.fieldType)}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium truncate">
+                                  {fileUploads[field.fieldName].file!.name}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {formatUploadSize(fileUploads[field.fieldName].file!.size)}
+                                </p>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 shrink-0"
+                                onClick={() => handleRemoveFile(field.fieldName)}
+                                disabled={isExecuting}
+                              >
+                                <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+                              </Button>
+                            </div>
+                          ) : (
+                            // 上传按钮
+                            <div
+                              className={cn(
+                                'flex items-center justify-center gap-2 p-4 border border-dashed rounded-md cursor-pointer transition-colors',
+                                'hover:border-primary hover:bg-primary/5',
+                                fileUploads[field.fieldName]?.uploading && 'pointer-events-none opacity-50'
+                              )}
+                              onClick={() => {
+                                if (!isExecuting && !fileUploads[field.fieldName]?.uploading) {
+                                  fileInputRefs.current[field.fieldName]?.click()
+                                }
+                              }}
+                            >
+                              {fileUploads[field.fieldName]?.uploading ? (
+                                <>
+                                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                                  <span className="text-sm text-muted-foreground">上传中...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Upload className="h-5 w-5 text-muted-foreground" />
+                                  <span className="text-sm text-muted-foreground">
+                                    点击上传{getFieldTypeLabel(field.fieldType)}文件
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          )}
+                          {/* 隐藏的文件输入 */}
+                          <input
+                            type="file"
+                            ref={(el) => { fileInputRefs.current[field.fieldName] = el }}
+                            className="hidden"
+                            accept={FIELD_TYPE_ACCEPT[field.fieldType]}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0]
+                              if (file) {
+                                handleFileUpload(field.fieldName, field.fieldType, file)
+                              }
+                              e.target.value = '' // 重置以允许重复选择同一文件
+                            }}
+                            disabled={isExecuting}
+                          />
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

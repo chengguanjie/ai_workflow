@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Bell, MessageSquare, AtSign, X, Plus, AlertCircle } from 'lucide-react'
+import { AIGenerateButton } from './shared/ai-generate-button'
 import type { NotificationNodeConfigData, NotificationPlatform, NotificationMessageType } from '@/types/workflow'
 
 type NotificationTabType = 'basic' | 'advanced'
@@ -168,7 +169,15 @@ export function NotificationNodeConfigPanel({
 
           {/* 消息内容 */}
           <div className="space-y-2">
-            <Label>消息内容</Label>
+            <div className="flex items-center justify-between">
+              <Label>消息内容</Label>
+              <AIGenerateButton
+                fieldType="notificationContent"
+                currentContent={notificationConfig.content || ''}
+                onConfirm={(value) => handleChange('content', value)}
+                fieldLabel="消息内容"
+              />
+            </div>
             <textarea
               className="min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-y font-mono"
               placeholder={

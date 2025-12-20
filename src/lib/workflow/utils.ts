@@ -7,9 +7,30 @@ import type { NodeConfig, EdgeConfig } from '@/types/workflow'
 
 /**
  * 变量引用正则表达式
- * 匹配 {{节点名.字段名}} 格式
+ * 匹配 {{节点名.字段名}} 或 {{节点名.字段名.子字段.更深层级}} 格式
  */
 const VARIABLE_PATTERN = /\{\{([^.}]+)\.([^}]+)\}\}/g
+
+/**
+ * 根据路径获取嵌套属性值
+ */
+function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
+  const parts = path.split('.')
+  let current: unknown = obj
+  
+  for (const part of parts) {
+    if (current === null || current === undefined) {
+      return undefined
+    }
+    if (typeof current === 'object' && part in (current as Record<string, unknown>)) {
+      current = (current as Record<string, unknown>)[part]
+    } else {
+      return undefined
+    }
+  }
+  
+  return current
+}
 
 /**
  * 解析文本中的变量引用
@@ -26,7 +47,6 @@ export function parseVariableReferences(text: string): VariableReference[] {
     })
   }
 
-  // 重置正则表达式状态
   VARIABLE_PATTERN.lastIndex = 0
 
   return references
@@ -34,27 +54,34 @@ export function parseVariableReferences(text: string): VariableReference[] {
 
 /**
  * 替换文本中的变量引用
+ * 支持嵌套属性访问，如 {{节点名.字段.子字段}}
  */
 export function replaceVariables(
   text: string,
   context: ExecutionContext
 ): string {
-  return text.replace(VARIABLE_PATTERN, (match, nodeName, fieldName) => {
+  return text.replace(VARIABLE_PATTERN, (match, nodeName, fieldPath) => {
     const nodeOutput = findNodeOutputByName(nodeName.trim(), context)
 
     if (!nodeOutput) {
       console.warn(`Variable reference not found: ${match}`)
-      return match // 保持原样
+      return match
     }
 
-    const value = nodeOutput.data[fieldName.trim()]
+    const trimmedPath = fieldPath.trim()
+    let value: unknown
+
+    if (trimmedPath.includes('.')) {
+      value = getNestedValue(nodeOutput.data, trimmedPath)
+    } else {
+      value = nodeOutput.data[trimmedPath]
+    }
 
     if (value === undefined || value === null) {
       console.warn(`Field not found in node output: ${match}`)
       return ''
     }
 
-    // 将值转换为字符串
     if (typeof value === 'object') {
       return JSON.stringify(value, null, 2)
     }

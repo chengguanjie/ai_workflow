@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { ReferenceSelector } from './reference-selector'
 import { HighlightedTextarea, type HighlightedTextareaHandle } from './highlighted-textarea'
+import { AIGenerateButton } from './ai-generate-button'
 import type { KnowledgeItem } from '@/types/workflow'
 import { cn } from '@/lib/utils'
 
@@ -17,6 +18,8 @@ interface ResizablePromptDialogProps {
   onChange: (value: string) => void
   knowledgeItems: KnowledgeItem[]
   placeholder?: string
+  /** AI 生成的字段类型 */
+  fieldType?: string
 }
 
 export function ResizablePromptDialog({
@@ -27,6 +30,7 @@ export function ResizablePromptDialog({
   onChange,
   knowledgeItems,
   placeholder = '输入提示词...',
+  fieldType = 'userPrompt',
 }: ResizablePromptDialogProps) {
   const textareaRef = useRef<HighlightedTextareaHandle>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -184,6 +188,12 @@ export function ResizablePromptDialog({
             <Label className="font-medium">{title}</Label>
           </div>
           <div className="flex items-center gap-1">
+            <AIGenerateButton
+              fieldType={fieldType}
+              currentContent={value}
+              onConfirm={onChange}
+              fieldLabel={title}
+            />
             <ReferenceSelector
               knowledgeItems={knowledgeItems}
               onInsert={handleInsertReference}

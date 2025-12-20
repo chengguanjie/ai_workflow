@@ -3,7 +3,6 @@ import { auth } from '@/lib/auth'
 import { Sidebar } from '@/components/layout/sidebar'
 import { Header } from '@/components/layout/header'
 import { SessionProvider } from 'next-auth/react'
-import { Toaster } from 'sonner'
 
 export default async function DashboardLayout({
   children,
@@ -27,7 +26,6 @@ export default async function DashboardLayout({
           </main>
         </div>
       </div>
-      <Toaster richColors position="top-right" />
     </SessionProvider>
   )
 }
