@@ -14,6 +14,8 @@ import {
   ChevronRight,
   RefreshCw,
   Shield,
+  Filter,
+  X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -51,6 +53,19 @@ import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { KnowledgeBasePermissionsDialog } from '@/components/knowledge-base/knowledge-base-permissions-dialog'
 
+interface Department {
+  id: string
+  name: string
+  level: number
+  parentId: string | null
+}
+
+interface Creator {
+  id: string
+  name: string | null
+  email: string
+}
+
 interface KnowledgeBase {
   id: string
   name: string
@@ -84,6 +99,13 @@ export default function KnowledgeBasesPage() {
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
+  // 筛选状态
+  const [filterCreatorId, setFilterCreatorId] = useState<string>('')
+  const [filterDepartmentId, setFilterDepartmentId] = useState<string>('')
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [creators, setCreators] = useState<Creator[]>([])
+  const [showFilters, setShowFilters] = useState(false)
+
   const [newKB, setNewKB] = useState({
     name: '',
     description: '',
@@ -91,10 +113,48 @@ export default function KnowledgeBasesPage() {
     embeddingModel: 'text-embedding-3-large',
   })
 
+  // 获取部门列表
+  const fetchDepartments = useCallback(async () => {
+    try {
+      const res = await fetch('/api/settings/departments')
+      if (res.ok) {
+        const data = await res.json()
+        setDepartments(data.departments || [])
+      }
+    } catch (err) {
+      console.error('Failed to load departments:', err)
+    }
+  }, [])
+
+  // 获取成员列表（用于创建人筛选）
+  const fetchCreators = useCallback(async () => {
+    try {
+      const res = await fetch('/api/settings/members')
+      if (res.ok) {
+        const data = await res.json()
+        const members = data.members || []
+        setCreators(members.map((m: { id: string; name: string | null; email: string }) => ({
+          id: m.id,
+          name: m.name,
+          email: m.email,
+        })))
+      }
+    } catch (err) {
+      console.error('Failed to load members:', err)
+    }
+  }, [])
+
   const fetchKnowledgeBases = useCallback(async () => {
     try {
       setLoading(true)
-      const response = await fetch('/api/knowledge-bases')
+
+      // 构建查询参数
+      const params = new URLSearchParams()
+      if (filterCreatorId) params.append('creatorId', filterCreatorId)
+      if (filterDepartmentId) params.append('departmentId', filterDepartmentId)
+
+      const url = `/api/knowledge-bases${params.toString() ? `?${params.toString()}` : ''}`
+      const response = await fetch(url)
       const data = await response.json()
 
       if (data.success) {
@@ -107,11 +167,21 @@ export default function KnowledgeBasesPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [filterCreatorId, filterDepartmentId])
+
+  // 清除筛选
+  const clearFilters = () => {
+    setFilterCreatorId('')
+    setFilterDepartmentId('')
+  }
+
+  const hasActiveFilters = filterCreatorId || filterDepartmentId
 
   useEffect(() => {
     fetchKnowledgeBases()
-  }, [fetchKnowledgeBases])
+    fetchDepartments()
+    fetchCreators()
+  }, [fetchKnowledgeBases, fetchDepartments, fetchCreators])
 
   const handleCreate = async () => {
     if (!newKB.name.trim()) {
@@ -196,8 +266,8 @@ export default function KnowledgeBasesPage() {
       </div>
 
       {/* 搜索和筛选 */}
-      <div className="flex items-center gap-4">
-        <div className="relative flex-1 max-w-md">
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="relative flex-1 max-w-md min-w-[200px]">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="搜索知识库..."
@@ -206,10 +276,78 @@ export default function KnowledgeBasesPage() {
             className="pl-10"
           />
         </div>
+
+        <Button
+          variant={showFilters ? 'secondary' : 'outline'}
+          size="sm"
+          onClick={() => setShowFilters(!showFilters)}
+          className="gap-2"
+        >
+          <Filter className="h-4 w-4" />
+          筛选
+          {hasActiveFilters && (
+            <Badge variant="secondary" className="ml-1 h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs">
+              {(filterCreatorId ? 1 : 0) + (filterDepartmentId ? 1 : 0)}
+            </Badge>
+          )}
+        </Button>
+
+        {hasActiveFilters && (
+          <Button variant="ghost" size="sm" onClick={clearFilters} className="gap-1 text-muted-foreground">
+            <X className="h-4 w-4" />
+            清除筛选
+          </Button>
+        )}
+
         <Button variant="outline" size="icon" onClick={fetchKnowledgeBases}>
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
         </Button>
       </div>
+
+      {/* 筛选面板 */}
+      {showFilters && (
+        <div className="flex items-center gap-4 p-4 bg-muted/50 rounded-lg flex-wrap">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground whitespace-nowrap">创建人:</span>
+            <Select
+              value={filterCreatorId || '_all'}
+              onValueChange={(value) => setFilterCreatorId(value === '_all' ? '' : value)}
+            >
+              <SelectTrigger className="w-[180px] h-9">
+                <SelectValue placeholder="全部" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_all">全部</SelectItem>
+                {creators.map((creator) => (
+                  <SelectItem key={creator.id} value={creator.id}>
+                    {creator.name || creator.email}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground whitespace-nowrap">部门:</span>
+            <Select
+              value={filterDepartmentId || '_all'}
+              onValueChange={(value) => setFilterDepartmentId(value === '_all' ? '' : value)}
+            >
+              <SelectTrigger className="w-[180px] h-9">
+                <SelectValue placeholder="全部" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_all">全部</SelectItem>
+                {departments.map((dept) => (
+                  <SelectItem key={dept.id} value={dept.id}>
+                    {dept.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      )}
 
       {/* 知识库列表 */}
       {loading ? (

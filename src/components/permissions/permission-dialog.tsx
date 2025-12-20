@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from 'sonner'
 import {
@@ -84,7 +84,7 @@ const PERMISSION_LABELS: Record<ResourcePermission, string> = {
   MANAGER: '管理者',
 }
 
-const PERMISSION_DESCRIPTIONS: Record<ResourcePermission, string> = {
+const _PERMISSION_DESCRIPTIONS: Record<ResourcePermission, string> = {
   VIEWER: '可查看和使用',
   EDITOR: '可编辑内容',
   MANAGER: '可管理权限',

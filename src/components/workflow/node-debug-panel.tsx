@@ -9,7 +9,6 @@ import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useWorkflowStore } from '@/stores/workflow-store'
-import { cn } from '@/lib/utils'
 
 interface DebugResult {
   status: 'success' | 'error' | 'skipped'

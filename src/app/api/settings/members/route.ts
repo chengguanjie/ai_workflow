@@ -17,7 +17,46 @@ const createMemberSchema = z.object({
   departmentId: z.string().optional(),
 })
 
-// GET: 获取所有成员
+// 获取用户管理的部门ID列表（包括子部门）
+async function getManagedDepartmentIds(userId: string, organizationId: string): Promise<string[]> {
+  // 查找用户管理的所有部门
+  const managedDepartments = await prisma.department.findMany({
+    where: {
+      managerId: userId,
+      organizationId,
+    },
+    select: { id: true, path: true },
+  })
+
+  if (managedDepartments.length === 0) {
+    return []
+  }
+
+  // 获取这些部门及其所有子部门
+  const allDepartmentIds = new Set<string>()
+
+  for (const dept of managedDepartments) {
+    allDepartmentIds.add(dept.id)
+
+    // 查找所有子部门（path 以当前部门路径开头）
+    const childDepts = await prisma.department.findMany({
+      where: {
+        organizationId,
+        OR: [
+          { parentId: dept.id },
+          { path: { startsWith: dept.path ? `${dept.path}/${dept.id}` : `/${dept.id}` } },
+        ],
+      },
+      select: { id: true },
+    })
+
+    childDepts.forEach(child => allDepartmentIds.add(child.id))
+  }
+
+  return Array.from(allDepartmentIds)
+}
+
+// GET: 获取成员列表
 export async function GET() {
   try {
     const session = await auth()
@@ -26,10 +65,38 @@ export async function GET() {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
+    const isAdmin = session.user.role === 'OWNER' || session.user.role === 'ADMIN'
+
+    // 构建查询条件
+    const whereCondition: {
+      organizationId: string
+      departmentId?: { in: string[] } | null
+    } = {
+      organizationId: session.user.organizationId,
+    }
+
+    // 如果不是管理员，检查是否是部门负责人
+    if (!isAdmin) {
+      const managedDepartmentIds = await getManagedDepartmentIds(
+        session.user.id,
+        session.user.organizationId
+      )
+
+      // 如果不是部门负责人，返回空列表（普通员工无权查看成员）
+      if (managedDepartmentIds.length === 0) {
+        return NextResponse.json({
+          members: [],
+          canManageMembers: false,
+          managedDepartmentIds: [],
+        })
+      }
+
+      // 部门负责人只能看到自己管理的部门中的成员
+      whereCondition.departmentId = { in: managedDepartmentIds }
+    }
+
     const members = await prisma.user.findMany({
-      where: {
-        organizationId: session.user.organizationId,
-      },
+      where: whereCondition,
       select: {
         id: true,
         email: true,
@@ -41,11 +108,11 @@ export async function GET() {
         createdAt: true,
         departmentId: true,
         department: {
-          select: { id: true, name: true },
+          select: { id: true, name: true, level: true, parentId: true },
         },
       },
       orderBy: [
-        { role: 'asc' }, // OWNER 排最前
+        { role: 'asc' },
         { createdAt: 'asc' },
       ],
     })
@@ -57,7 +124,17 @@ export async function GET() {
              (roleOrder[b.role as keyof typeof roleOrder] || 99)
     })
 
-    return NextResponse.json({ members: sortedMembers })
+    // 获取部门负责人管理的部门ID（用于前端判断）
+    const managedDepartmentIds = isAdmin
+      ? [] // 管理员可以管理所有
+      : await getManagedDepartmentIds(session.user.id, session.user.organizationId)
+
+    return NextResponse.json({
+      members: sortedMembers,
+      canManageMembers: isAdmin || managedDepartmentIds.length > 0,
+      managedDepartmentIds,
+      isAdmin,
+    })
   } catch (error) {
     console.error('Failed to get members:', error)
     return NextResponse.json({ error: '获取成员列表失败' }, { status: 500 })
@@ -73,13 +150,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    // 检查权限：只有 OWNER 和 ADMIN 可以创建成员
-    if (session.user.role !== 'OWNER' && session.user.role !== 'ADMIN') {
+    const isAdmin = session.user.role === 'OWNER' || session.user.role === 'ADMIN'
+
+    // 获取用户管理的部门ID
+    const managedDepartmentIds = isAdmin
+      ? null // 管理员不受限制
+      : await getManagedDepartmentIds(session.user.id, session.user.organizationId)
+
+    // 检查权限：只有 OWNER、ADMIN 或部门负责人可以创建成员
+    if (!isAdmin && (!managedDepartmentIds || managedDepartmentIds.length === 0)) {
       return NextResponse.json({ error: '无权限创建成员' }, { status: 403 })
     }
 
     const body = await request.json()
     const { email, name, departmentId } = createMemberSchema.parse(body)
+
+    // 部门负责人必须指定部门，且只能添加到自己管理的部门
+    if (!isAdmin) {
+      if (!departmentId) {
+        return NextResponse.json({ error: '请选择部门' }, { status: 400 })
+      }
+      if (!managedDepartmentIds!.includes(departmentId)) {
+        return NextResponse.json({ error: '您只能添加成员到您管理的部门' }, { status: 403 })
+      }
+    }
 
     // 检查邮箱是否已被使用
     const existingUser = await prisma.user.findUnique({

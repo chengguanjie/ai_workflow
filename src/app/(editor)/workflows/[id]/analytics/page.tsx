@@ -17,14 +17,8 @@ import {
 import {
   ArrowLeft,
   Loader2,
-  TrendingUp,
-  TrendingDown,
   CheckCircle2,
-  XCircle,
   Star,
-  Clock,
-  Zap,
-  MessageSquare,
   Lightbulb,
   Check,
   X,
@@ -92,7 +86,6 @@ const ISSUE_CATEGORY_LABELS: Record<string, string> = {
 
 export default function WorkflowAnalyticsPage() {
   const params = useParams()
-  const router = useRouter()
   const workflowId = params.id as string
 
   const [period, setPeriod] = useState('week')
@@ -109,7 +102,7 @@ export default function WorkflowAnalyticsPage() {
       if (!response.ok) throw new Error('加载失败')
       const result = await response.json()
       setAnalytics(result.data)
-    } catch (error) {
+    } catch {
       toast.error('加载统计数据失败')
     } finally {
       setIsLoading(false)
@@ -124,8 +117,8 @@ export default function WorkflowAnalyticsPage() {
       if (!response.ok) throw new Error('加载失败')
       const result = await response.json()
       setSuggestions(result.data.suggestions || [])
-    } catch (error) {
-      console.error('加载建议失败', error)
+    } catch {
+      // 静默失败，不影响主功能
     } finally {
       setIsLoadingSuggestions(false)
     }
@@ -150,7 +143,7 @@ export default function WorkflowAnalyticsPage() {
       toast.success('优化建议已应用')
       loadSuggestions()
       loadAnalytics()
-    } catch (error) {
+    } catch {
       toast.error('应用建议失败')
     }
   }
@@ -166,7 +159,7 @@ export default function WorkflowAnalyticsPage() {
 
       toast.success('已忽略该建议')
       loadSuggestions()
-    } catch (error) {
+    } catch {
       toast.error('操作失败')
     }
   }

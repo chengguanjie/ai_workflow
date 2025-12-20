@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import {
@@ -101,11 +101,7 @@ export default function OrganizationsPage() {
   const [status, setStatus] = useState(searchParams.get('status') || 'all')
   const [plan, setPlan] = useState(searchParams.get('plan') || 'all')
 
-  useEffect(() => {
-    fetchOrganizations()
-  }, [searchParams])
-
-  const fetchOrganizations = async () => {
+  const fetchOrganizations = useCallback(async () => {
     setLoading(true)
     try {
       const params = new URLSearchParams()
@@ -127,7 +123,11 @@ export default function OrganizationsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [searchParams, search, status, plan])
+
+  useEffect(() => {
+    fetchOrganizations()
+  }, [fetchOrganizations])
 
   const handleSearch = () => {
     const params = new URLSearchParams()

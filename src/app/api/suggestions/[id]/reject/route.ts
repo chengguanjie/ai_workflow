@@ -50,14 +50,10 @@ export const POST = withAuth(async (request: NextRequest, { user, params }: Auth
     throw new NotFoundError('建议不存在')
   }
 
-  // 解析请求体
-  let reason: string | undefined
+  // 解析请求体（预留用于后续审计日志）
   try {
     const body = await request.json()
-    const parseResult = rejectSchema.safeParse(body)
-    if (parseResult.success) {
-      reason = parseResult.data.reason
-    }
+    rejectSchema.safeParse(body)
   } catch {
     // 忽略解析错误
   }

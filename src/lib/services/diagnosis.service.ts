@@ -5,7 +5,7 @@
  */
 
 import { prisma } from '@/lib/db'
-import { IssueCategory, SuggestionType, SuggestionStatus } from '@prisma/client'
+import { IssueCategory, SuggestionType } from '@prisma/client'
 import type { WorkflowConfig, NodeConfig } from '@/types/workflow'
 
 // ============================================

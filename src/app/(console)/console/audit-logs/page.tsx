@@ -1,12 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import {
   FileText,
-  Search,
   ChevronLeft,
   ChevronRight,
-  Filter,
   Calendar,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -106,11 +104,7 @@ export default function AuditLogsPage() {
   const [startDate, setStartDate] = useState<string>('')
   const [endDate, setEndDate] = useState<string>('')
 
-  useEffect(() => {
-    fetchLogs()
-  }, [pagination.page, selectedAction, selectedResource, selectedAdmin, startDate, endDate])
-
-  const fetchLogs = async () => {
+  const fetchLogs = useCallback(async () => {
     try {
       setLoading(true)
       const params = new URLSearchParams()
@@ -135,7 +129,11 @@ export default function AuditLogsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [pagination.page, pagination.pageSize, selectedAction, selectedResource, selectedAdmin, startDate, endDate])
+
+  useEffect(() => {
+    fetchLogs()
+  }, [fetchLogs])
 
   const getActionColor = (action: string) => {
     const prefix = action.split('_')[0]

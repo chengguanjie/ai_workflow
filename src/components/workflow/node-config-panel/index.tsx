@@ -31,7 +31,7 @@ import { GroupNodeConfigPanel } from './group-node-config'
 
 export function NodeConfigPanel() {
   const { nodes, selectedNodeId, selectNode, updateNode } = useWorkflowStore()
-  const [panelWidth, setPanelWidth] = useState(320)
+  const [panelWidth, setPanelWidth] = useState(576)
 
   // 处理配置面板宽度拖拽
   const handlePanelResizeStart = useCallback((e: React.MouseEvent) => {
@@ -41,7 +41,7 @@ export function NodeConfigPanel() {
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
       const deltaX = startX - moveEvent.clientX // 向左拖变宽
-      const newWidth = Math.max(280, Math.min(600, startWidth + deltaX))
+      const newWidth = Math.max(400, Math.min(900, startWidth + deltaX))
       setPanelWidth(newWidth)
     }
 
@@ -86,6 +86,7 @@ export function NodeConfigPanel() {
       case 'input':
         return (
           <InputNodeConfigPanel
+            nodeName={nodeData.name}
             config={nodeData.config}
             onUpdate={handleConfigChange}
           />

@@ -6,7 +6,6 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
-  Filter,
   Clock,
   CheckCircle2,
   AlertCircle,
@@ -19,8 +18,6 @@ import {
   Building2,
   User,
   Reply,
-  AlertTriangle,
-  ChevronUp,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'

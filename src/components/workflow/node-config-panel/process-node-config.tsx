@@ -38,7 +38,7 @@ export function ProcessNodeConfigPanel({
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([])
   const [loadingProviders, setLoadingProviders] = useState(true)
   const [loadingKBs, setLoadingKBs] = useState(true)
-  const [activeTab, setActiveTab] = useState<ProcessTabType>('ai')
+  const [activeTab, setActiveTab] = useState<ProcessTabType>('prompt')
 
   const processConfig = config as {
     aiConfigId?: string // 企业配置 ID

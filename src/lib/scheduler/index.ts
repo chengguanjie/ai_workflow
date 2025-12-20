@@ -7,7 +7,6 @@
 
 import cron, { ScheduledTask } from 'node-cron'
 import { prisma } from '@/lib/db'
-import { executeWorkflow } from '@/lib/workflow/engine'
 import { executionQueue } from '@/lib/workflow/queue'
 
 interface ScheduledJob {

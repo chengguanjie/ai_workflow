@@ -47,7 +47,7 @@ export function SwitchNodeConfigPanel({
   const cases = (config?.cases as SwitchCase[]) || []
   const matchType = (config?.matchType as SwitchMatchType) || 'exact'
   const caseSensitive = (config?.caseSensitive as boolean) ?? true
-  const includeDefault = (config?.includeDefault as boolean) ?? true
+  const _includeDefault = (config?.includeDefault as boolean) ?? true
 
   // Tab 配置
   const tabs: { key: SwitchTabType; label: string }[] = [

@@ -193,6 +193,25 @@ function WorkflowEditor() {
     }
   }, [isDirty, isLoading, autoSaveToDb])
 
+  // 监听立即保存请求事件
+  useEffect(() => {
+    const handleRequestSave = () => {
+      // 清除自动保存定时器，立即保存
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current)
+      }
+      // 延迟 100ms 确保状态已更新
+      setTimeout(() => {
+        autoSaveToDb(true)
+      }, 100)
+    }
+
+    window.addEventListener('workflow-request-save', handleRequestSave)
+    return () => {
+      window.removeEventListener('workflow-request-save', handleRequestSave)
+    }
+  }, [autoSaveToDb])
+
   const handleSave = useCallback(async () => {
     if (!name.trim()) {
       toast.error('请输入工作流名称')

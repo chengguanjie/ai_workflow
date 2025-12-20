@@ -31,7 +31,7 @@ export function MediaNodeConfigPanel({
   formatDescription,
   icon,
 }: MediaNodeConfigPanelProps) {
-  const [activeTab, setActiveTab] = useState<MediaTabType>('import')
+  const [activeTab, setActiveTab] = useState<MediaTabType>('prompt')
   const [providers, setProviders] = useState<AIProviderConfig[]>([])
   const [loadingProviders, setLoadingProviders] = useState(true)
   const fileInputRef = useRef<HTMLInputElement>(null)

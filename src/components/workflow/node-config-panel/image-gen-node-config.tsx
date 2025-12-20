@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Loader2, AlertCircle, Image as ImageIcon, Wand2 } from 'lucide-react'
@@ -39,7 +38,7 @@ const QUALITY_OPTIONS: { value: ImageQuality; label: string; description: string
   { value: 'hd', label: '高清', description: '更高图像质量' },
 ]
 
-const PROVIDER_OPTIONS: { value: ImageGenProvider; label: string }[] = [
+const _PROVIDER_OPTIONS: { value: ImageGenProvider; label: string }[] = [
   { value: 'OPENAI', label: 'OpenAI (DALL-E)' },
   { value: 'STABILITYAI', label: 'Stability AI' },
   { value: 'ALIYUN_TONGYI', label: '阿里通义' },

@@ -292,6 +292,7 @@ model Workflow {
   executions Execution[]
   triggers   WorkflowTrigger[]
   permissions WorkflowPermission[]
+  platformFeedbacks PlatformFeedback[]
 
   // 版本管理
   versions          WorkflowVersion[]
@@ -848,6 +849,7 @@ model PlatformFeedback {
 
   // 关联信息（可选）
   workflowId   String? // 相关工作流ID
+  workflow     Workflow? @relation(fields: [workflowId], references: [id])
   executionId  String? // 相关执行ID
 
   // 处理状态

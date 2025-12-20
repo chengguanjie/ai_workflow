@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, use } from 'react'
+import { useEffect, useState, use, useCallback } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
@@ -47,8 +47,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 
 interface OrganizationDetail {
   id: string
@@ -134,11 +132,7 @@ export default function OrganizationDetailPage({
     tempPassword: string
   } | null>(null)
 
-  useEffect(() => {
-    fetchOrganization()
-  }, [id])
-
-  const fetchOrganization = async () => {
+  const fetchOrganization = useCallback(async () => {
     setLoading(true)
     try {
       const res = await fetch(`/api/console/organizations/${id}`)
@@ -153,7 +147,11 @@ export default function OrganizationDetailPage({
     } finally {
       setLoading(false)
     }
-  }
+  }, [id, router])
+
+  useEffect(() => {
+    fetchOrganization()
+  }, [fetchOrganization])
 
   const handleStatusChange = async (newStatus: string) => {
     const reason =

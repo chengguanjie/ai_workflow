@@ -1,6 +1,6 @@
 'use client'
 
-import { Settings, Server, Database, Mail, Bell } from 'lucide-react'
+import { Server, Database, Mail, Bell } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 export default function SettingsPage() {

@@ -27,8 +27,6 @@ import {
   Trash2,
   Copy,
   Check,
-  Eye,
-  EyeOff,
   Clock,
   Activity,
   AlertTriangle,

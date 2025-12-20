@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Loader2, AlertCircle } from 'lucide-react'
 import { ReferenceSelector } from './shared/reference-selector'
-import { HighlightedTextarea } from './shared/highlighted-textarea'
+import { HighlightedTextarea, type HighlightedTextareaHandle } from './shared/highlighted-textarea'
 import { OutputTabContent } from './shared/output-tab-content'
 import type { AIProviderConfig } from './shared/types'
 
@@ -24,8 +24,8 @@ export function OutputNodeConfigPanel({
 }: OutputNodeConfigPanelProps) {
   const [providers, setProviders] = useState<AIProviderConfig[]>([])
   const [loadingProviders, setLoadingProviders] = useState(true)
-  const [activeTab, setActiveTab] = useState<OutputTabType>('ai')
-  const promptRef = useRef<HTMLTextAreaElement>(null)
+  const [activeTab, setActiveTab] = useState<OutputTabType>('prompt')
+  const promptRef = useRef<HighlightedTextareaHandle>(null)
 
   const outputConfig = config as {
     aiConfigId?: string
@@ -100,25 +100,13 @@ export function OutputNodeConfigPanel({
   const handleInsertReference = (reference: string) => {
     const textarea = promptRef.current
     if (!textarea) {
-      // 如果无法获取光标位置，直接追加
+      // 如果无法获取 ref，直接追加
       handleChange('prompt', (outputConfig.prompt || '') + reference)
       return
     }
 
-    const start = textarea.selectionStart
-    const end = textarea.selectionEnd
-    const currentValue = outputConfig.prompt || ''
-
-    // 在光标位置插入引用
-    const newValue = currentValue.substring(0, start) + reference + currentValue.substring(end)
-    handleChange('prompt', newValue)
-
-    // 重新设置光标位置
-    requestAnimationFrame(() => {
-      textarea.focus()
-      const newCursorPos = start + reference.length
-      textarea.setSelectionRange(newCursorPos, newCursorPos)
-    })
+    // 使用 insertText 方法插入文本，会自动处理光标位置
+    textarea.insertText(reference)
   }
 
   const selectedProvider = providers.find(p => p.id === outputConfig.aiConfigId)

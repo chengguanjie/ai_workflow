@@ -1,20 +1,29 @@
 'use client'
 
+import { useState, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { X, Plus, GripVertical } from 'lucide-react'
 import type { InputField } from '@/types/workflow'
+import { useWorkflowStore } from '@/stores/workflow-store'
 
 interface InputNodeConfigPanelProps {
+  nodeName: string
   config?: Record<string, unknown>
   onUpdate: (config: Record<string, unknown>) => void
 }
 
 export function InputNodeConfigPanel({
+  nodeName,
   config,
   onUpdate,
 }: InputNodeConfigPanelProps) {
   const fields = (config?.fields as InputField[]) || []
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+  const renameInputField = useWorkflowStore((state) => state.renameInputField)
+  // 用于追踪字段名称修改前的值
+  const fieldNameBeforeEdit = useRef<string>('')
 
   const addField = () => {
     const newField: InputField = {
@@ -35,6 +44,42 @@ export function InputNodeConfigPanel({
   const removeField = (index: number) => {
     const newFields = fields.filter((_, i) => i !== index)
     onUpdate({ ...config, fields: newFields })
+  }
+
+  // 拖拽排序相关处理
+  const handleDragStart = (index: number) => {
+    setDraggedIndex(index)
+  }
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault()
+    if (draggedIndex !== null && draggedIndex !== index) {
+      setDragOverIndex(index)
+    }
+  }
+
+  const handleDragLeave = () => {
+    setDragOverIndex(null)
+  }
+
+  const handleDrop = (e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault()
+    if (draggedIndex !== null && draggedIndex !== dropIndex) {
+      const newFields = [...fields]
+      const [draggedField] = newFields.splice(draggedIndex, 1)
+      newFields.splice(dropIndex, 0, draggedField)
+      onUpdate({ ...config, fields: newFields })
+
+      // 触发立即保存事件
+      window.dispatchEvent(new CustomEvent('workflow-request-save'))
+    }
+    setDraggedIndex(null)
+    setDragOverIndex(null)
+  }
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null)
+    setDragOverIndex(null)
   }
 
   // 处理文本框高度拖拽
@@ -75,13 +120,41 @@ export function InputNodeConfigPanel({
       ) : (
         <div className="space-y-4">
           {fields.map((field, index) => (
-            <div key={field.id} className="border rounded-lg p-3 space-y-2">
+            <div
+              key={field.id}
+              draggable
+              onDragStart={() => handleDragStart(index)}
+              onDragOver={(e) => handleDragOver(e, index)}
+              onDragLeave={handleDragLeave}
+              onDrop={(e) => handleDrop(e, index)}
+              onDragEnd={handleDragEnd}
+              className={`border rounded-lg p-3 space-y-2 transition-all ${
+                draggedIndex === index ? 'opacity-50 scale-[0.98]' : ''
+              } ${
+                dragOverIndex === index
+                  ? 'border-primary border-2 bg-primary/5'
+                  : ''
+              }`}
+            >
               {/* 字段名称行 */}
               <div className="flex items-center gap-2">
-                <GripVertical className="h-4 w-4 text-muted-foreground flex-shrink-0 cursor-move" />
+                <GripVertical className="h-4 w-4 text-muted-foreground flex-shrink-0 cursor-grab active:cursor-grabbing" />
                 <Input
                   value={field.name}
+                  onFocus={() => {
+                    // 记录编辑前的字段名称
+                    fieldNameBeforeEdit.current = field.name
+                  }}
                   onChange={(e) => updateField(index, { name: e.target.value })}
+                  onBlur={(e) => {
+                    // 当输入框失去焦点时，检查字段名是否有变化，如果有则更新引用
+                    const oldName = fieldNameBeforeEdit.current
+                    const newName = e.target.value.trim()
+                    if (oldName && newName && oldName !== newName) {
+                      renameInputField(nodeName, oldName, newName)
+                    }
+                    fieldNameBeforeEdit.current = ''
+                  }}
                   placeholder="字段名称"
                   className="h-7 text-sm font-medium flex-1"
                 />

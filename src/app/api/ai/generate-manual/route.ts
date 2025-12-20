@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { workflowId, workflowContext } = body
+    const { workflowContext } = body
 
     if (!workflowContext) {
       return NextResponse.json({ error: '工作流信息不完整' }, { status: 400 })

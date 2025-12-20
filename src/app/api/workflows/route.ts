@@ -41,6 +41,8 @@ export const GET = withAuth(async (request: NextRequest, { user }: AuthContext) 
     pageSize: params.pageSize,
     search: params.search,
     category: params.category,
+    creatorId: params.creatorId,
+    departmentId: params.departmentId,
   })
 
   // Return paginated response

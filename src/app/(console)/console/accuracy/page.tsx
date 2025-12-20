@@ -12,7 +12,6 @@ import {
   Minus,
   Target,
   CheckCircle2,
-  XCircle,
   Star,
   Activity,
   GitBranch,

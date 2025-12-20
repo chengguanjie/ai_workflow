@@ -40,6 +40,22 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           data: { lastLoginAt: new Date() },
         })
 
+        // 检查是否是部门负责人
+        let isDepartmentManager = false
+        let managedDepartmentIds: string[] = []
+        if (user.departmentId) {
+          // 查询用户是否是任何部门的负责人
+          const managedDepartments = await prisma.department.findMany({
+            where: {
+              managerId: user.id,
+              organizationId: user.organizationId,
+            },
+            select: { id: true },
+          })
+          isDepartmentManager = managedDepartments.length > 0
+          managedDepartmentIds = managedDepartments.map(d => d.id)
+        }
+
         return {
           id: user.id,
           email: user.email,
@@ -48,6 +64,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           role: user.role,
           organizationId: user.organizationId,
           organizationName: user.organization.name,
+          departmentId: user.departmentId,
+          isDepartmentManager,
+          managedDepartmentIds,
           mustChangePassword: user.mustChangePassword,
         }
       },
@@ -60,6 +79,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.role = user.role
         token.organizationId = user.organizationId
         token.organizationName = user.organizationName
+        token.departmentId = user.departmentId
+        token.isDepartmentManager = user.isDepartmentManager
+        token.managedDepartmentIds = user.managedDepartmentIds
         token.mustChangePassword = user.mustChangePassword
       }
       return token
@@ -70,6 +92,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         session.user.role = token.role as string
         session.user.organizationId = token.organizationId as string
         session.user.organizationName = token.organizationName as string
+        session.user.departmentId = token.departmentId as string | null
+        session.user.isDepartmentManager = token.isDepartmentManager as boolean
+        session.user.managedDepartmentIds = token.managedDepartmentIds as string[]
         session.user.mustChangePassword = token.mustChangePassword as boolean
       }
       return session
@@ -91,6 +116,9 @@ declare module 'next-auth' {
     role?: string
     organizationId?: string
     organizationName?: string
+    departmentId?: string | null
+    isDepartmentManager?: boolean
+    managedDepartmentIds?: string[]
     mustChangePassword?: boolean
   }
 
@@ -100,6 +128,9 @@ declare module 'next-auth' {
       role: string
       organizationId: string
       organizationName: string
+      departmentId: string | null
+      isDepartmentManager: boolean
+      managedDepartmentIds: string[]
       mustChangePassword: boolean
     }
   }

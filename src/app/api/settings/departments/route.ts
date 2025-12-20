@@ -100,11 +100,10 @@ export async function POST(request: Request) {
 
     // 计算层级
     let level = 0
-    const path = ''
     if (parentId) {
       const parentDeptData = await prisma.department.findUnique({
         where: { id: parentId },
-        select: { level: true, path: true },
+        select: { level: true },
       })
       if (parentDeptData) {
         level = parentDeptData.level + 1

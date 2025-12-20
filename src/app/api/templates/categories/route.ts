@@ -22,7 +22,7 @@ const TEMPLATE_CATEGORIES = [
   { id: 'other', name: '其他', icon: 'MoreHorizontal', description: '其他类型模板' },
 ] as const
 
-type TemplateCategoryId = (typeof TEMPLATE_CATEGORIES)[number]['id']
+type _TemplateCategoryId = (typeof TEMPLATE_CATEGORIES)[number]['id']
 
 interface CategoryResponse {
   categories: typeof TEMPLATE_CATEGORIES

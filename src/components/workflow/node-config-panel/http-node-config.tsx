@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Plus, X, Globe, Key, Clock, RefreshCw } from 'lucide-react'
+import { Plus, X, Clock } from 'lucide-react'
 import { OutputTabContent } from './shared/output-tab-content'
 import type { HttpMethod, HttpBodyType, HttpAuthType } from '@/types/workflow'
 

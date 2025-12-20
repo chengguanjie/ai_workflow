@@ -1,9 +1,12 @@
 'use client'
 
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
+import { Expand } from 'lucide-react'
 import { Label } from '@/components/ui/label'
+import { Button } from '@/components/ui/button'
 import { ReferenceSelector } from './reference-selector'
-import { HighlightedTextarea } from './highlighted-textarea'
+import { HighlightedTextarea, type HighlightedTextareaHandle } from './highlighted-textarea'
+import { ResizablePromptDialog } from './resizable-prompt-dialog'
 import type { KnowledgeItem } from '@/types/workflow'
 
 interface PromptTabContentProps {
@@ -22,31 +25,20 @@ export function PromptTabContent({
   onSystemPromptChange,
   onUserPromptChange,
 }: PromptTabContentProps) {
-  const userPromptRef = useRef<HTMLTextAreaElement>(null)
+  const userPromptRef = useRef<HighlightedTextareaHandle>(null)
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
 
   // 插入引用到光标位置
   const handleInsertReference = (reference: string) => {
     const textarea = userPromptRef.current
     if (!textarea) {
-      // 如果无法获取光标位置，直接追加
+      // 如果无法获取 ref，直接追加
       onUserPromptChange((processConfig.userPrompt || '') + reference)
       return
     }
 
-    const start = textarea.selectionStart
-    const end = textarea.selectionEnd
-    const currentValue = processConfig.userPrompt || ''
-
-    // 在光标位置插入引用
-    const newValue = currentValue.substring(0, start) + reference + currentValue.substring(end)
-    onUserPromptChange(newValue)
-
-    // 重新设置光标位置
-    requestAnimationFrame(() => {
-      textarea.focus()
-      const newCursorPos = start + reference.length
-      textarea.setSelectionRange(newCursorPos, newCursorPos)
-    })
+    // 使用 insertText 方法插入文本，会自动处理光标位置
+    textarea.insertText(reference)
   }
 
   return (
@@ -64,10 +56,21 @@ export function PromptTabContent({
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <Label>User Prompt</Label>
-          <ReferenceSelector
-            knowledgeItems={knowledgeItems}
-            onInsert={handleInsertReference}
-          />
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => setIsDialogOpen(true)}
+            >
+              <Expand className="h-3.5 w-3.5 mr-1" />
+              展开
+            </Button>
+            <ReferenceSelector
+              knowledgeItems={knowledgeItems}
+              onInsert={handleInsertReference}
+            />
+          </div>
         </div>
         <HighlightedTextarea
           ref={userPromptRef}
@@ -81,6 +84,17 @@ export function PromptTabContent({
           点击「插入引用」按钮选择节点和字段，或直接输入 {'{{节点名.字段名}}'}
         </p>
       </div>
+
+      {/* 可调整大小的弹窗 */}
+      <ResizablePromptDialog
+        isOpen={isDialogOpen}
+        onClose={() => setIsDialogOpen(false)}
+        title="User Prompt"
+        value={processConfig.userPrompt || ''}
+        onChange={onUserPromptChange}
+        knowledgeItems={knowledgeItems}
+        placeholder="用户提示词，点击「插入引用」选择变量..."
+      />
     </div>
   )
 }

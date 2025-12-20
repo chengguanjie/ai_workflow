@@ -4,7 +4,7 @@
  * POST /api/workflows/[id]/triggers/[triggerId]/trigger-now
  */
 
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { withAuth, AuthContext } from '@/lib/api/with-auth'
 import { ApiResponse } from '@/lib/api/api-response'
 import { NotFoundError, BusinessError } from '@/lib/errors'

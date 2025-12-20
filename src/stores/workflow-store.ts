@@ -47,6 +47,9 @@ interface WorkflowState {
   duplicateNode: (nodeId: string) => void
   selectNode: (nodeId: string | null) => void
 
+  // 字段引用更新
+  renameInputField: (nodeName: string, oldFieldName: string, newFieldName: string) => void
+
   // 节点组合操作
   groupNodes: (nodeIds: string[]) => void
   ungroupNodes: (groupId: string) => void
@@ -140,11 +143,18 @@ export const useWorkflowStore = create<WorkflowState>()(
             const isCollapsed = groupConfig?.collapsed || false
             // 根据折叠状态设置不同尺寸
             const childCount = childNodeIds.length
+            const nodeWidth = 180
+            const nodeGap = 20
+            const padding = 20
+            const headerHeight = 50
             return {
               ...baseNode,
               style: isCollapsed
                 ? { width: 180, height: 60 }
-                : { width: Math.max(200, childCount * 200 + 40), height: 140 },
+                : {
+                    width: childCount * nodeWidth + (childCount - 1) * nodeGap + padding * 2,
+                    height: 100 + padding * 2 + headerHeight
+                  },
             }
           }
 
@@ -384,6 +394,59 @@ export const useWorkflowStore = create<WorkflowState>()(
 
       selectNode: (nodeId) => set({ selectedNodeId: nodeId }),
 
+      // 字段引用更新：当输入节点字段名称变更时，更新所有引用该字段的节点配置
+      renameInputField: (nodeName, oldFieldName, newFieldName) => {
+        if (oldFieldName === newFieldName) return
+
+        const oldReference = `{{${nodeName}.${oldFieldName}}}`
+        const newReference = `{{${nodeName}.${newFieldName}}}`
+
+        // 递归替换对象中所有字符串值里的引用
+        const replaceInValue = (value: unknown): unknown => {
+          if (typeof value === 'string') {
+            return value.split(oldReference).join(newReference)
+          }
+          if (Array.isArray(value)) {
+            return value.map(replaceInValue)
+          }
+          if (value !== null && typeof value === 'object') {
+            const newObj: Record<string, unknown> = {}
+            for (const [key, val] of Object.entries(value)) {
+              newObj[key] = replaceInValue(val)
+            }
+            return newObj
+          }
+          return value
+        }
+
+        const nodes = get().nodes
+        let hasChanges = false
+
+        const updatedNodes = nodes.map((node) => {
+          const nodeData = node.data as { config?: Record<string, unknown> }
+          if (!nodeData.config) return node
+
+          const newConfig = replaceInValue(nodeData.config) as Record<string, unknown>
+          const configChanged = JSON.stringify(newConfig) !== JSON.stringify(nodeData.config)
+
+          if (configChanged) {
+            hasChanges = true
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                config: newConfig,
+              },
+            }
+          }
+          return node
+        })
+
+        if (hasChanges) {
+          set({ nodes: updatedNodes, isDirty: true })
+        }
+      },
+
       // 获取当前选中的节点 ID 列表
       getSelectedNodeIds: () => {
         return get().nodes.filter((node) => node.selected).map((node) => node.id)
@@ -394,30 +457,79 @@ export const useWorkflowStore = create<WorkflowState>()(
         if (nodeIds.length < 2) return
 
         const nodes = get().nodes
+        const edges = get().edges
         const nodesToGroup = nodes.filter((n) => nodeIds.includes(n.id))
         if (nodesToGroup.length < 2) return
 
-        // 计算组的边界框
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
-        nodesToGroup.forEach((node) => {
-          minX = Math.min(minX, node.position.x)
-          minY = Math.min(minY, node.position.y)
-          maxX = Math.max(maxX, node.position.x + 180) // 假设节点宽度约180
-          maxY = Math.max(maxY, node.position.y + 100) // 假设节点高度约100
+        // 按照连接顺序排序节点（拓扑排序）
+        const nodeIdSet = new Set(nodeIds)
+        const inDegree = new Map<string, number>()
+        const adjacency = new Map<string, string[]>()
+
+        nodeIds.forEach((id) => {
+          inDegree.set(id, 0)
+          adjacency.set(id, [])
         })
 
-        // 添加padding
-        const padding = 20
-        const headerHeight = 40 // 标题栏高度
-        minX -= padding
-        minY -= padding + headerHeight // 顶部多留空间给标题
+        // 构建入度和邻接表（只考虑组内的边）
+        edges.forEach((edge) => {
+          if (nodeIdSet.has(edge.source) && nodeIdSet.has(edge.target)) {
+            inDegree.set(edge.target, (inDegree.get(edge.target) || 0) + 1)
+            adjacency.get(edge.source)?.push(edge.target)
+          }
+        })
 
-        // 计算每个子节点相对于组的位置
+        // 拓扑排序
+        const queue: string[] = []
+        const sortedNodeIds: string[] = []
+
+        nodeIds.forEach((id) => {
+          if (inDegree.get(id) === 0) {
+            queue.push(id)
+          }
+        })
+
+        while (queue.length > 0) {
+          const current = queue.shift()!
+          sortedNodeIds.push(current)
+          adjacency.get(current)?.forEach((neighbor) => {
+            const newDegree = (inDegree.get(neighbor) || 1) - 1
+            inDegree.set(neighbor, newDegree)
+            if (newDegree === 0) {
+              queue.push(neighbor)
+            }
+          })
+        }
+
+        // 如果有环或未连接的节点，将剩余节点按原顺序添加
+        nodeIds.forEach((id) => {
+          if (!sortedNodeIds.includes(id)) {
+            sortedNodeIds.push(id)
+          }
+        })
+
+        // 计算组的边界框（基于排列后的位置）
+        const nodeWidth = 180
+        const nodeHeight = 100
+        const nodeGap = 20 // 节点间距
+        const padding = 20
+        const headerHeight = 50 // 标题栏高度
+
+        // 计算组的起始位置（取第一个节点的位置作为参考）
+        const firstNode = nodesToGroup[0]
+        const groupX = firstNode.position.x - padding
+        const groupY = firstNode.position.y - padding - headerHeight
+
+        // 计算组的尺寸
+        const groupWidth = sortedNodeIds.length * nodeWidth + (sortedNodeIds.length - 1) * nodeGap + padding * 2
+        const groupHeight = nodeHeight + padding * 2 + headerHeight
+
+        // 计算每个子节点在组内的整齐位置
         const childRelativePositions: Record<string, NodePosition> = {}
-        nodesToGroup.forEach((node) => {
-          childRelativePositions[node.id] = {
-            x: node.position.x - minX,
-            y: node.position.y - minY,
+        sortedNodeIds.forEach((nodeId, index) => {
+          childRelativePositions[nodeId] = {
+            x: padding + index * (nodeWidth + nodeGap),
+            y: padding + headerHeight,
           }
         })
 
@@ -426,22 +538,22 @@ export const useWorkflowStore = create<WorkflowState>()(
         const groupNode: Node = {
           id: groupId,
           type: 'group',
-          position: { x: minX, y: minY },
+          position: { x: groupX, y: groupY },
           data: {
             id: groupId,
             type: 'GROUP',
             name: '节点组',
-            position: { x: minX, y: minY },
+            position: { x: groupX, y: groupY },
             config: {
-              childNodeIds: nodeIds,
+              childNodeIds: sortedNodeIds,
               label: '节点组',
               collapsed: false,
               childRelativePositions,
             } as GroupNodeConfigData,
           },
           style: {
-            width: maxX - minX + padding * 2,
-            height: maxY - minY + padding * 2,
+            width: groupWidth,
+            height: groupHeight,
           },
         }
 
@@ -561,6 +673,12 @@ export const useWorkflowStore = create<WorkflowState>()(
         const childNodeIdSet = new Set(childNodeIds)
 
         // 更新组节点的折叠状态和尺寸
+        const nodeWidth = 180
+        const nodeGap = 20
+        const padding = 20
+        const headerHeight = 50
+        const childCount = childNodeIds.length
+
         const updatedNodes = nodes.map((node) => {
           if (node.id === groupId) {
             // 更新组节点
@@ -576,7 +694,10 @@ export const useWorkflowStore = create<WorkflowState>()(
               },
               style: newCollapsedState
                 ? { width: 180, height: 60 } // 折叠后的小尺寸
-                : { width: Math.max(200, childNodeIds.length * 200 + 40), height: 140 }, // 展开后的尺寸
+                : {
+                    width: childCount * nodeWidth + (childCount - 1) * nodeGap + padding * 2,
+                    height: 100 + padding * 2 + headerHeight
+                  }, // 展开后的尺寸
             }
           }
 
@@ -748,12 +869,16 @@ export const useWorkflowStore = create<WorkflowState>()(
         })
 
         // 组节点也参与布局，但尺寸不同
+        const groupNodeWidth = 180
+        const groupNodeGap = 20
+        const groupPadding = 20
+        const groupHeaderHeight = 50
         groupNodes.forEach((node) => {
           const config = node.data.config as GroupNodeConfigData
           const childCount = config?.childNodeIds?.length || 1
           const isCollapsed = config?.collapsed || false
-          const width = isCollapsed ? 180 : Math.max(200, childCount * 200 + 40)
-          const height = isCollapsed ? 60 : 140
+          const width = isCollapsed ? 180 : childCount * groupNodeWidth + (childCount - 1) * groupNodeGap + groupPadding * 2
+          const height = isCollapsed ? 60 : 100 + groupPadding * 2 + groupHeaderHeight
           dagreGraph.setNode(node.id, { width, height })
         })
 

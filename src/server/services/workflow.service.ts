@@ -25,6 +25,8 @@ export interface WorkflowListParams {
   pageSize?: number
   search?: string
   category?: string
+  creatorId?: string  // 按创建人筛选
+  departmentId?: string  // 按部门筛选
 }
 
 /**
@@ -96,7 +98,7 @@ export class WorkflowService {
    * Requirements: 3.1, 4.1, 4.2
    */
   async list(params: WorkflowListParams): Promise<PaginatedResult<WorkflowSummary>> {
-    const { organizationId, userId, page = 1, pageSize = 20, search, category } = params
+    const { organizationId, userId, page = 1, pageSize = 20, search, category, creatorId, departmentId } = params
 
     // Build where clause
     const where: Prisma.WorkflowWhereInput = {
@@ -122,6 +124,24 @@ export class WorkflowService {
 
     if (category) {
       where.category = category
+    }
+
+    // 按创建人筛选
+    if (creatorId) {
+      where.creatorId = creatorId
+    }
+
+    // 按部门筛选（查找该部门下所有用户创建的工作流）
+    if (departmentId) {
+      const departmentUsers = await prisma.user.findMany({
+        where: {
+          organizationId,
+          departmentId,
+        },
+        select: { id: true },
+      })
+      const userIds = departmentUsers.map(u => u.id)
+      where.creatorId = { in: userIds }
     }
 
     // Get total count

@@ -7,7 +7,7 @@
 import { NextRequest } from 'next/server'
 import { withAuth, AuthContext } from '@/lib/api/with-auth'
 import { ApiResponse } from '@/lib/api/api-response'
-import { NotFoundError, ValidationError } from '@/lib/errors'
+import { NotFoundError } from '@/lib/errors'
 import { versionService } from '@/lib/services/version.service'
 import { workflowService } from '@/server/services/workflow.service'
 import { z } from 'zod'

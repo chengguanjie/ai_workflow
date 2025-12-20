@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -39,7 +39,7 @@ interface ExecutionFeedbackDialogProps {
 
 export function ExecutionFeedbackDialog({
   executionId,
-  actualOutput,
+  actualOutput: _actualOutput,
   open,
   onOpenChange,
   onSubmit,

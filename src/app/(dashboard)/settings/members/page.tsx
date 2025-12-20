@@ -112,6 +112,11 @@ export default function MembersPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
 
+  // 权限相关状态
+  const [canManageMembers, setCanManageMembers] = useState(false)
+  const [managedDepartmentIds, setManagedDepartmentIds] = useState<string[]>([])
+  const [isAdminUser, setIsAdminUser] = useState(false)
+
   // 邀请/创建表单状态
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false)
   const [inviteType, setInviteType] = useState<'CREATE' | 'EMAIL' | 'LINK'>('CREATE')
@@ -140,6 +145,9 @@ export default function MembersPage() {
       if (membersRes.ok) {
         const data = await membersRes.json()
         setMembers(data.members || [])
+        setCanManageMembers(data.canManageMembers ?? false)
+        setManagedDepartmentIds(data.managedDepartmentIds || [])
+        setIsAdminUser(data.isAdmin ?? false)
       }
 
       if (invitationsRes?.ok) {
@@ -370,10 +378,18 @@ export default function MembersPage() {
     }
   }
 
-  // 渲染带层级缩进的部门选项
-  const renderDepartmentOptions = () => {
+  // 渲染带层级缩进的部门选项（forInvite: 用于添加成员时只显示可管理的部门）
+  const renderDepartmentOptions = (forInvite: boolean = false) => {
+    // 筛选出可选的部门
+    let availableDepts = [...departments]
+
+    // 部门负责人在添加成员时只能选择自己管理的部门
+    if (forInvite && !isAdminUser && managedDepartmentIds.length > 0) {
+      availableDepts = availableDepts.filter(d => managedDepartmentIds.includes(d.id))
+    }
+
     // 按层级排序后的部门列表
-    const sortedDepts = [...departments].sort((a, b) => {
+    const sortedDepts = availableDepts.sort((a, b) => {
       // 先按层级排序
       if (a.level !== b.level) return a.level - b.level
       // 同级按名称排序
@@ -392,6 +408,15 @@ export default function MembersPage() {
     }
 
     const flatTree = buildFlatTree(null, 0)
+
+    // 如果筛选后只有子部门（没有顶级部门），直接返回扁平列表
+    if (flatTree.length === 0 && sortedDepts.length > 0) {
+      return sortedDepts.map((dept) => (
+        <SelectItem key={dept.id} value={dept.id}>
+          {dept.name}
+        </SelectItem>
+      ))
+    }
 
     return flatTree.map((dept) => (
       <SelectItem key={dept.id} value={dept.id}>
@@ -420,7 +445,7 @@ export default function MembersPage() {
             管理团队成员和邀请
           </p>
         </div>
-        {isAdmin && (
+        {canManageMembers && (
           <Dialog open={inviteDialogOpen} onOpenChange={(open) => {
             setInviteDialogOpen(open)
             if (!open) resetInviteForm()
@@ -435,30 +460,188 @@ export default function MembersPage() {
               <DialogHeader>
                 <DialogTitle>添加新成员</DialogTitle>
                 <DialogDescription>
-                  直接创建账号或通过邀请方式添加成员
+                  {isAdminUser ? '直接创建账号或通过邀请方式添加成员' : '添加成员到您管理的部门'}
                 </DialogDescription>
               </DialogHeader>
 
-              <Tabs value={inviteType} onValueChange={(v) => {
-                setInviteType(v as 'CREATE' | 'EMAIL' | 'LINK')
-                setCreatedInviteUrl('')
-              }}>
-                <TabsList className="grid w-full grid-cols-3">
-                  <TabsTrigger value="CREATE">
-                    <Plus className="mr-2 h-4 w-4" />
-                    直接创建
-                  </TabsTrigger>
-                  <TabsTrigger value="EMAIL">
-                    <Mail className="mr-2 h-4 w-4" />
-                    邮件邀请
-                  </TabsTrigger>
-                  <TabsTrigger value="LINK">
-                    <LinkIcon className="mr-2 h-4 w-4" />
-                    链接邀请
-                  </TabsTrigger>
-                </TabsList>
+              {/* 管理员可以使用所有方式，部门负责人只能直接创建 */}
+              {isAdminUser ? (
+                <Tabs value={inviteType} onValueChange={(v) => {
+                  setInviteType(v as 'CREATE' | 'EMAIL' | 'LINK')
+                  setCreatedInviteUrl('')
+                }}>
+                  <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="CREATE">
+                      <Plus className="mr-2 h-4 w-4" />
+                      直接创建
+                    </TabsTrigger>
+                    <TabsTrigger value="EMAIL">
+                      <Mail className="mr-2 h-4 w-4" />
+                      邮件邀请
+                    </TabsTrigger>
+                    <TabsTrigger value="LINK">
+                      <LinkIcon className="mr-2 h-4 w-4" />
+                      链接邀请
+                    </TabsTrigger>
+                  </TabsList>
 
-                <TabsContent value="CREATE" className="space-y-4 mt-4">
+                  <TabsContent value="CREATE" className="space-y-4 mt-4">
+                    <div className="space-y-2">
+                      <Label>邮箱/手机号</Label>
+                      <Input
+                        type="text"
+                        placeholder="邮箱或手机号"
+                        value={inviteEmail}
+                        onChange={(e) => setInviteEmail(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>姓名</Label>
+                      <Input
+                        placeholder="请输入姓名"
+                        value={inviteName}
+                        onChange={(e) => setInviteName(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>所属部门</Label>
+                      <Select
+                        value={inviteDepartmentId || '_none'}
+                        onValueChange={(value) => setInviteDepartmentId(value === '_none' ? '' : value)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="选择部门（可选）" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="_none">暂不分配</SelectItem>
+                          {renderDepartmentOptions(true)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      初始密码为 123456，成员首次登录后需要修改密码
+                    </p>
+                  </TabsContent>
+
+                  <TabsContent value="EMAIL" className="space-y-4 mt-4">
+                    <div className="space-y-2">
+                      <Label>邮箱地址</Label>
+                      <Input
+                        type="email"
+                        placeholder="member@example.com"
+                        value={inviteEmail}
+                        onChange={(e) => setInviteEmail(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>所属部门</Label>
+                      <Select
+                        value={inviteDepartmentId || '_none'}
+                        onValueChange={(value) => setInviteDepartmentId(value === '_none' ? '' : value)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="选择部门（可选）" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="_none">暂不分配</SelectItem>
+                          {renderDepartmentOptions(true)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>有效期</Label>
+                      <Select value={inviteExpireDays} onValueChange={setInviteExpireDays}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="1">1 天</SelectItem>
+                          <SelectItem value="3">3 天</SelectItem>
+                          <SelectItem value="7">7 天</SelectItem>
+                          <SelectItem value="14">14 天</SelectItem>
+                          <SelectItem value="30">30 天</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="LINK" className="space-y-4 mt-4">
+                    {createdInviteUrl ? (
+                      <div className="space-y-2">
+                        <Label>邀请链接</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            value={createdInviteUrl}
+                            readOnly
+                            className="font-mono text-xs"
+                          />
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => copyToClipboard(createdInviteUrl)}
+                          >
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          分享此链接给需要加入的成员
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="space-y-2">
+                          <Label>最大使用次数</Label>
+                          <Select value={inviteMaxUses} onValueChange={setInviteMaxUses}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="1">1 次</SelectItem>
+                              <SelectItem value="5">5 次</SelectItem>
+                              <SelectItem value="10">10 次</SelectItem>
+                              <SelectItem value="25">25 次</SelectItem>
+                              <SelectItem value="50">50 次</SelectItem>
+                              <SelectItem value="100">100 次</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>所属部门</Label>
+                          <Select
+                            value={inviteDepartmentId || '_none'}
+                            onValueChange={(value) => setInviteDepartmentId(value === '_none' ? '' : value)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="选择部门（可选）" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="_none">暂不分配</SelectItem>
+                              {renderDepartmentOptions(true)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>有效期</Label>
+                          <Select value={inviteExpireDays} onValueChange={setInviteExpireDays}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="1">1 天</SelectItem>
+                              <SelectItem value="3">3 天</SelectItem>
+                              <SelectItem value="7">7 天</SelectItem>
+                              <SelectItem value="14">14 天</SelectItem>
+                              <SelectItem value="30">30 天</SelectItem>
+                            </SelectContent>
+                          </Select>
+                      </div>
+                    </>
+                  )}
+                </TabsContent>
+              </Tabs>
+              ) : (
+                /* 部门负责人只能直接创建成员 */
+                <div className="space-y-4 mt-4">
                   <div className="space-y-2">
                     <Label>邮箱/手机号</Label>
                     <Input
@@ -477,141 +660,27 @@ export default function MembersPage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>所属部门</Label>
+                    <Label>所属部门 <span className="text-destructive">*</span></Label>
                     <Select
-                      value={inviteDepartmentId || '_none'}
-                      onValueChange={(value) => setInviteDepartmentId(value === '_none' ? '' : value)}
+                      value={inviteDepartmentId || ''}
+                      onValueChange={(value) => setInviteDepartmentId(value)}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="选择部门（可选）" />
+                        <SelectValue placeholder="请选择部门" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="_none">暂不分配</SelectItem>
-                        {renderDepartmentOptions()}
+                        {renderDepartmentOptions(true)}
                       </SelectContent>
                     </Select>
+                    <p className="text-xs text-muted-foreground">
+                      您只能添加成员到您管理的部门
+                    </p>
                   </div>
                   <p className="text-xs text-muted-foreground">
                     初始密码为 123456，成员首次登录后需要修改密码
                   </p>
-                </TabsContent>
-
-                <TabsContent value="EMAIL" className="space-y-4 mt-4">
-                  <div className="space-y-2">
-                    <Label>邮箱地址</Label>
-                    <Input
-                      type="email"
-                      placeholder="member@example.com"
-                      value={inviteEmail}
-                      onChange={(e) => setInviteEmail(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>所属部门</Label>
-                    <Select
-                      value={inviteDepartmentId || '_none'}
-                      onValueChange={(value) => setInviteDepartmentId(value === '_none' ? '' : value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="选择部门（可选）" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="_none">暂不分配</SelectItem>
-                        {renderDepartmentOptions()}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>有效期</Label>
-                    <Select value={inviteExpireDays} onValueChange={setInviteExpireDays}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="1">1 天</SelectItem>
-                        <SelectItem value="3">3 天</SelectItem>
-                        <SelectItem value="7">7 天</SelectItem>
-                        <SelectItem value="14">14 天</SelectItem>
-                        <SelectItem value="30">30 天</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="LINK" className="space-y-4 mt-4">
-                  {createdInviteUrl ? (
-                    <div className="space-y-2">
-                      <Label>邀请链接</Label>
-                      <div className="flex gap-2">
-                        <Input
-                          value={createdInviteUrl}
-                          readOnly
-                          className="font-mono text-xs"
-                        />
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={() => copyToClipboard(createdInviteUrl)}
-                        >
-                          <Copy className="h-4 w-4" />
-                        </Button>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        分享此链接给需要加入的成员
-                      </p>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="space-y-2">
-                        <Label>最大使用次数</Label>
-                        <Select value={inviteMaxUses} onValueChange={setInviteMaxUses}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="1">1 次</SelectItem>
-                            <SelectItem value="5">5 次</SelectItem>
-                            <SelectItem value="10">10 次</SelectItem>
-                            <SelectItem value="25">25 次</SelectItem>
-                            <SelectItem value="50">50 次</SelectItem>
-                            <SelectItem value="100">100 次</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>所属部门</Label>
-                        <Select
-                          value={inviteDepartmentId || '_none'}
-                          onValueChange={(value) => setInviteDepartmentId(value === '_none' ? '' : value)}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="选择部门（可选）" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="_none">暂不分配</SelectItem>
-                            {renderDepartmentOptions()}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>有效期</Label>
-                        <Select value={inviteExpireDays} onValueChange={setInviteExpireDays}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="1">1 天</SelectItem>
-                            <SelectItem value="3">3 天</SelectItem>
-                            <SelectItem value="7">7 天</SelectItem>
-                            <SelectItem value="14">14 天</SelectItem>
-                            <SelectItem value="30">30 天</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </>
-                  )}
-                </TabsContent>
-              </Tabs>
+                </div>
+              )}
 
               <DialogFooter>
                 {createdInviteUrl ? (
@@ -624,7 +693,7 @@ export default function MembersPage() {
                 ) : (
                   <Button onClick={handleCreateInvitation} disabled={saving === 'invite'}>
                     {saving === 'invite' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    {inviteType === 'CREATE' ? '创建成员' : inviteType === 'EMAIL' ? '发送邀请' : '生成链接'}
+                    {isAdminUser ? (inviteType === 'CREATE' ? '创建成员' : inviteType === 'EMAIL' ? '发送邀请' : '生成链接') : '创建成员'}
                   </Button>
                 )}
               </DialogFooter>
@@ -693,8 +762,8 @@ export default function MembersPage() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {/* 部门选择 */}
-                  {isAdmin && member.role !== 'OWNER' && (
+                  {/* 部门选择 - 管理员可改所有人，部门负责人只能改自己管理的部门内的人 */}
+                  {isAdminUser && member.role !== 'OWNER' && (
                     <Select
                       value={member.departmentId || '_none'}
                       onValueChange={(value) => handleChangeDepartment(member.id, value === '_none' ? null : value)}
@@ -710,7 +779,8 @@ export default function MembersPage() {
                     </Select>
                   )}
 
-                {isAdmin && member.role !== 'OWNER' && member.id !== session?.user?.id && (
+                {/* 只有管理员可以修改角色和移除成员 */}
+                {isAdminUser && member.role !== 'OWNER' && member.id !== session?.user?.id && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" size="icon" disabled={saving === member.id}>
@@ -762,8 +832,8 @@ export default function MembersPage() {
         </CardContent>
       </Card>
 
-      {/* 待处理邀请 */}
-      {isAdmin && invitations.length > 0 && (
+      {/* 待处理邀请 - 仅管理员可见 */}
+      {isAdminUser && invitations.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle>待处理邀请</CardTitle>

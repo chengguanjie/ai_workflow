@@ -1,13 +1,13 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { useSession } from 'next-auth/react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Search, MoreVertical, Play, Edit, Trash2, Loader2, Link2, Copy, Shield } from 'lucide-react'
+import { Plus, Search, MoreVertical, Play, Edit, Trash2, Loader2, Link2, Copy, Shield, Filter, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   DropdownMenu,
@@ -26,8 +26,28 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useRouter } from 'next/navigation'
 import { WorkflowPermissionsDialog } from '@/components/workflow/workflow-permissions-dialog'
+
+interface Department {
+  id: string
+  name: string
+  level: number
+  parentId: string | null
+}
+
+interface Creator {
+  id: string
+  name: string | null
+  email: string
+}
 
 interface Workflow {
   id: string
@@ -69,6 +89,13 @@ export default function WorkflowsPage() {
   const [workflowToDelete, setWorkflowToDelete] = useState<Workflow | null>(null)
   const [deleting, setDeleting] = useState(false)
 
+  // 筛选状态
+  const [filterCreatorId, setFilterCreatorId] = useState<string>('')
+  const [filterDepartmentId, setFilterDepartmentId] = useState<string>('')
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [creators, setCreators] = useState<Creator[]>([])
+  const [showFilters, setShowFilters] = useState(false)
+
   // 权限设置弹窗
   const [permissionsDialogOpen, setPermissionsDialogOpen] = useState(false)
   const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null)
@@ -79,12 +106,50 @@ export default function WorkflowsPage() {
     return isAdmin || workflow.creator.id === session?.user?.id
   }
 
+  // 获取部门列表
+  const fetchDepartments = useCallback(async () => {
+    try {
+      const res = await fetch('/api/settings/departments')
+      if (res.ok) {
+        const data = await res.json()
+        setDepartments(data.departments || [])
+      }
+    } catch (err) {
+      console.error('Failed to load departments:', err)
+    }
+  }, [])
+
+  // 获取成员列表（用于创建人筛选）
+  const fetchCreators = useCallback(async () => {
+    try {
+      const res = await fetch('/api/settings/members')
+      if (res.ok) {
+        const data = await res.json()
+        const members = data.members || []
+        setCreators(members.map((m: { id: string; name: string | null; email: string }) => ({
+          id: m.id,
+          name: m.name,
+          email: m.email,
+        })))
+      }
+    } catch (err) {
+      console.error('Failed to load members:', err)
+    }
+  }, [])
+
   // 获取工作流列表
-  const fetchWorkflows = async () => {
+  const fetchWorkflows = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
-      const response = await fetch('/api/workflows')
+
+      // 构建查询参数
+      const params = new URLSearchParams()
+      if (filterCreatorId) params.append('creatorId', filterCreatorId)
+      if (filterDepartmentId) params.append('departmentId', filterDepartmentId)
+
+      const url = `/api/workflows${params.toString() ? `?${params.toString()}` : ''}`
+      const response = await fetch(url)
       if (!response.ok) {
         throw new Error('获取工作流列表失败')
       }
@@ -95,11 +160,21 @@ export default function WorkflowsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [filterCreatorId, filterDepartmentId])
 
   useEffect(() => {
     fetchWorkflows()
-  }, [])
+    fetchDepartments()
+    fetchCreators()
+  }, [fetchWorkflows, fetchDepartments, fetchCreators])
+
+  // 清除筛选
+  const clearFilters = () => {
+    setFilterCreatorId('')
+    setFilterDepartmentId('')
+  }
+
+  const hasActiveFilters = filterCreatorId || filterDepartmentId
 
   // 删除工作流
   const handleDelete = async () => {
@@ -167,16 +242,85 @@ export default function WorkflowsPage() {
         </Link>
       </div>
 
-      {/* 搜索 */}
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="搜索工作流..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-9"
-        />
+      {/* 搜索和筛选 */}
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="relative max-w-md flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="搜索工作流..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+
+        <Button
+          variant={showFilters ? 'secondary' : 'outline'}
+          size="sm"
+          onClick={() => setShowFilters(!showFilters)}
+          className="gap-2"
+        >
+          <Filter className="h-4 w-4" />
+          筛选
+          {hasActiveFilters && (
+            <Badge variant="secondary" className="ml-1 h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs">
+              {(filterCreatorId ? 1 : 0) + (filterDepartmentId ? 1 : 0)}
+            </Badge>
+          )}
+        </Button>
+
+        {hasActiveFilters && (
+          <Button variant="ghost" size="sm" onClick={clearFilters} className="gap-1 text-muted-foreground">
+            <X className="h-4 w-4" />
+            清除筛选
+          </Button>
+        )}
       </div>
+
+      {/* 筛选面板 */}
+      {showFilters && (
+        <div className="flex items-center gap-4 p-4 bg-muted/50 rounded-lg flex-wrap">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground whitespace-nowrap">创建人:</span>
+            <Select
+              value={filterCreatorId || '_all'}
+              onValueChange={(value) => setFilterCreatorId(value === '_all' ? '' : value)}
+            >
+              <SelectTrigger className="w-[180px] h-9">
+                <SelectValue placeholder="全部" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_all">全部</SelectItem>
+                {creators.map((creator) => (
+                  <SelectItem key={creator.id} value={creator.id}>
+                    {creator.name || creator.email}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground whitespace-nowrap">部门:</span>
+            <Select
+              value={filterDepartmentId || '_all'}
+              onValueChange={(value) => setFilterDepartmentId(value === '_all' ? '' : value)}
+            >
+              <SelectTrigger className="w-[180px] h-9">
+                <SelectValue placeholder="全部" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_all">全部</SelectItem>
+                {departments.map((dept) => (
+                  <SelectItem key={dept.id} value={dept.id}>
+                    {dept.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      )}
 
       {/* 加载状态 */}
       {loading && (

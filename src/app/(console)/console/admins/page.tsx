@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import {
   UserCog,
   Plus,
@@ -99,11 +99,7 @@ export default function AdminsPage() {
     role: 'OPERATOR',
   })
 
-  useEffect(() => {
-    fetchAdmins()
-  }, [roleFilter])
-
-  const fetchAdmins = async () => {
+  const fetchAdmins = useCallback(async () => {
     try {
       const params = new URLSearchParams()
       if (roleFilter) params.set('role', roleFilter)
@@ -119,7 +115,11 @@ export default function AdminsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [roleFilter, search])
+
+  useEffect(() => {
+    fetchAdmins()
+  }, [fetchAdmins])
 
   const handleSearch = () => {
     fetchAdmins()

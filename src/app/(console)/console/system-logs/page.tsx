@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import {
   Terminal,
   Search,
@@ -26,7 +26,6 @@ import {
 } from '@/components/ui/select'
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -112,11 +111,7 @@ export default function SystemLogsPage() {
   const [startDate, setStartDate] = useState<string>('')
   const [endDate, setEndDate] = useState<string>('')
 
-  useEffect(() => {
-    fetchLogs()
-  }, [pagination.page, selectedLevel, selectedCategory, startDate, endDate])
-
-  const fetchLogs = async () => {
+  const fetchLogs = useCallback(async () => {
     try {
       setLoading(true)
       const params = new URLSearchParams()
@@ -142,7 +137,11 @@ export default function SystemLogsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [pagination.page, pagination.pageSize, selectedLevel, selectedCategory, search, startDate, endDate])
+
+  useEffect(() => {
+    fetchLogs()
+  }, [fetchLogs])
 
   const handleSearch = () => {
     setPagination((prev) => ({ ...prev, page: 1 }))

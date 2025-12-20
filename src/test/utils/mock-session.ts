@@ -8,6 +8,9 @@ export interface SessionUser {
   role: string
   organizationId: string
   organizationName: string
+  departmentId: string | null
+  isDepartmentManager: boolean
+  managedDepartmentIds: string[]
   mustChangePassword: boolean
 }
 
@@ -24,6 +27,9 @@ export function createMockSession(options: MockSessionOptions = {}): Session {
     role: 'EDITOR',
     organizationId: 'test-org-id',
     organizationName: 'Test Organization',
+    departmentId: null,
+    isDepartmentManager: false,
+    managedDepartmentIds: [],
     mustChangePassword: false,
   }
 

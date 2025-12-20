@@ -29,6 +29,8 @@ export const workflowListSchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   search: z.string().optional(),
   category: z.string().optional(),
+  creatorId: z.string().optional(),  // 按创建人筛选
+  departmentId: z.string().optional(),  // 按部门筛选
 })
 
 /**

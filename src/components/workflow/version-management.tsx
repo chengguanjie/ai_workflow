@@ -70,7 +70,7 @@ export function VersionManagement({ workflowId, onVersionChange }: VersionManage
   const [showCommitDialog, setShowCommitDialog] = useState(false)
   const [showHistoryPanel, setShowHistoryPanel] = useState(false)
   const [showCompareDialog, setShowCompareDialog] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
+  const [_isLoading, _setIsLoading] = useState(false)
 
   return (
     <>
@@ -261,7 +261,7 @@ function VersionHistoryPanel({
 }: VersionHistoryPanelProps) {
   const [versions, setVersions] = useState<WorkflowVersion[]>([])
   const [isLoading, setIsLoading] = useState(false)
-  const [selectedVersion, setSelectedVersion] = useState<string | null>(null)
+  const [_selectedVersion, _setSelectedVersion] = useState<string | null>(null)
   const [isRollingBack, setIsRollingBack] = useState(false)
 
   // 加载版本列表

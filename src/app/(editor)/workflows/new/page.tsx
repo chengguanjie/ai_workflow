@@ -25,12 +25,11 @@ import { toast } from 'sonner'
 
 function WorkflowEditor() {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
-  const { screenToFlowPosition, setViewport: setReactFlowViewport } = useReactFlow()
+  const { screenToFlowPosition } = useReactFlow()
   const router = useRouter()
   const [isSaving, setIsSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved')
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
-  const [isHydrated, setIsHydrated] = useState(false)
 
   const {
     id: workflowId,
@@ -58,14 +57,6 @@ function WorkflowEditor() {
     reset()
   }, [reset])
 
-  // 等待 zustand 持久化加载完成后恢复 viewport
-  useEffect(() => {
-    // 延迟一帧确保 store 已经 hydrate
-    const timer = setTimeout(() => {
-      setIsHydrated(true)
-    }, 50)
-    return () => clearTimeout(timer)
-  }, [])
 
   // 自动保存到数据库（仅当已有 workflowId 时）
   const autoSaveToDb = useCallback(async (silent = true) => {

@@ -12,7 +12,8 @@ import { NotFoundError, AuthorizationError, ValidationError } from '@/lib/errors
 import { prisma } from '@/lib/db'
 import type { KnowledgeDocument } from '@prisma/client'
 
-interface DocumentWithChunks extends KnowledgeDocument {
+// Document interface with chunk count (used for type consistency)
+type _DocumentWithChunks = KnowledgeDocument & {
   _count?: {
     chunks: number
   }

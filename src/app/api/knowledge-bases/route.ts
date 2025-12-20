@@ -16,6 +16,8 @@ interface KnowledgeBaseListParams {
   page?: number
   limit?: number
   search?: string
+  creatorId?: string  // 按创建人筛选
+  departmentId?: string  // 按部门筛选
 }
 
 interface KnowledgeBaseListResponse {
@@ -51,9 +53,11 @@ export const GET = withAuth<ApiSuccessResponse<KnowledgeBaseListResponse>>(
       page: parseInt(searchParams.get('page') || '1', 10),
       limit: Math.min(parseInt(searchParams.get('limit') || '20', 10), 100),
       search: searchParams.get('search') || undefined,
+      creatorId: searchParams.get('creatorId') || undefined,
+      departmentId: searchParams.get('departmentId') || undefined,
     }
 
-    const { page, limit, search } = params
+    const { page, limit, search, creatorId, departmentId } = params
 
     // 构建查询条件
     const where: Record<string, unknown> = {
@@ -66,6 +70,24 @@ export const GET = withAuth<ApiSuccessResponse<KnowledgeBaseListResponse>>(
         { name: { contains: search } },
         { description: { contains: search } },
       ]
+    }
+
+    // 按创建人筛选
+    if (creatorId) {
+      where.creatorId = creatorId
+    }
+
+    // 按部门筛选（查找该部门下所有用户创建的知识库）
+    if (departmentId) {
+      const departmentUsers = await prisma.user.findMany({
+        where: {
+          organizationId: user.organizationId,
+          departmentId,
+        },
+        select: { id: true },
+      })
+      const userIds = departmentUsers.map(u => u.id)
+      where.creatorId = { in: userIds }
     }
 
     const [knowledgeBases, total] = await Promise.all([
