@@ -55,7 +55,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     // 获取提交记录
     const [submissions, total] = await Promise.all([
-      prisma.formSubmission.findMany({
+      prisma.workflowFormSubmission.findMany({
         where: { formId },
         orderBy: { createdAt: 'desc' },
         skip,
@@ -68,7 +68,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           createdAt: true,
         },
       }),
-      prisma.formSubmission.count({
+      prisma.workflowFormSubmission.count({
         where: { formId },
       }),
     ])
