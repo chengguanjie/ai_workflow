@@ -144,6 +144,22 @@ UPLOAD_DIR=./uploads
 
 检查 `AUTH_SECRET` 和 `AUTH_URL` 是否正确配置。
 
+### Q: 运行时报错 `clientReferenceManifest` / `clientModules` 缺失
+
+常见报错包括：
+- `Invariant: Expected clientReferenceManifest to be defined`
+- `TypeError: Cannot read properties of undefined (reading 'clientModules')`
+
+通常原因是 **App Router 路由冲突**：Route Group 目录（例如 `(landing)`）不会出现在 URL 中，如果同时存在多个 `page.*` 映射到同一路径（尤其是 `/`），构建可能成功，但运行时会选到错误的产物从而缺少客户端引用清单。
+
+解决方式：
+1. 确保同一个 URL 只对应一个 `page.*`（例如不要同时存在 `src/app/page.tsx` 和 `src/app/(landing)/page.tsx`）。
+2. 如果想实现「已登录重定向到 `/dashboard`、未登录展示 Landing」，将逻辑合并到 `src/app/page.tsx` 中即可。
+3. Zeabur 重新部署时建议选择「清理构建缓存/无缓存重建」，避免旧的 `.next` 产物被复用。
+
+自检（可选）：
+- 本地 `pnpm build` 后检查 `.next/server/app-paths-manifest.json`，确认不存在与 `/` 重复的入口（例如 `"/(landing)/page"`）。
+
 ### Q: 文件上传失败
 
 如需持久化存储，建议使用阿里云 OSS：
