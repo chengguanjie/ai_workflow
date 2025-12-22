@@ -24,7 +24,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { useWorkflowStore } from '@/stores/workflow-store'
-import { Save, Play, ArrowLeft, Loader2, Cloud, CloudOff, History, Link2, Group, Sparkles, Trash2, LayoutGrid, BarChart3, FileJson, MessageSquare, BookOpen, Share2 } from 'lucide-react'
+import { Save, Play, ArrowLeft, Loader2, History, Link2, Group, Sparkles, Trash2, LayoutGrid, BarChart3, FileJson, MessageSquare, BookOpen, Share2 } from 'lucide-react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { NodePanel } from '@/components/workflow/node-panel'
@@ -34,13 +34,21 @@ import { ExecutionHistoryPanel } from '@/components/workflow/execution-history-p
 import { NodeDebugPanel } from '@/components/workflow/node-debug-panel'
 import { AIAssistantPanel } from '@/components/workflow/ai-assistant-panel'
 import { VersionManagement } from '@/components/workflow/version-management'
+import { PublishStatusIndicator } from '@/components/workflow/publish-status-indicator'
+import { SaveStatusIndicator } from '@/components/workflow/save-status-indicator'
 import { WorkflowImportExportDialog } from '@/components/workflow/workflow-import-export-dialog'
 import { NodeCommentDialog } from '@/components/workflow/node-comment-dialog'
 import { WorkflowManualDialog } from '@/components/workflow/workflow-manual-dialog'
 import { ShareFormDialog } from '@/components/workflow/share-form-dialog'
 import { nodeTypes } from '@/components/workflow/nodes'
+import AnimatedEdge from '@/components/workflow/animated-edge'
 import { useAIAssistantStore } from '@/stores/ai-assistant-store'
+import { useWorkflowSave } from '@/hooks/use-workflow-save'
 import { toast } from 'sonner'
+
+const edgeTypes = {
+  default: AnimatedEdge,
+}
 
 function WorkflowEditor() {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
@@ -49,12 +57,24 @@ function WorkflowEditor() {
   const workflowId = params.id as string
 
   const [isLoading, setIsLoading] = useState(true)
-  const [isSaving, setIsSaving] = useState(false)
-  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved')
   const [showExecutionPanel, setShowExecutionPanel] = useState(false)
   const [showHistoryPanel, setShowHistoryPanel] = useState(false)
   const [showImportExportDialog, setShowImportExportDialog] = useState(false)
-  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
+
+  // 使用新的保存 Hook（集成乐观更新、防抖保存、离线支持、冲突检测）
+  const {
+    status: saveStatus,
+    lastSavedAt,
+    isSaving,
+    conflict: _conflict,
+    save: saveWorkflow,
+    resolveConflict,
+    retry: retrySave,
+  } = useWorkflowSave({
+    workflowId,
+    debounceMs: 1500,
+    autoSave: !isLoading,
+  })
 
   // 选区右键菜单状态
   const [selectionContextMenu, setSelectionContextMenu] = useState<{ x: number; y: number } | null>(null)
@@ -85,8 +105,6 @@ function WorkflowEditor() {
     edges,
     viewport,
     name,
-    description,
-    isDirty,
     setWorkflow,
     setName,
     onNodesChange,
@@ -95,12 +113,12 @@ function WorkflowEditor() {
     addNode,
     selectNode,
     selectedNodeId,
-    getWorkflowConfig,
-    markSaved,
     setViewport,
     groupNodes,
     getSelectedNodeIds,
     autoLayout,
+    updateNodeExecutionStatus,
+    clearNodeExecutionStatus,
   } = useWorkflowStore()
 
   // 加载工作流数据
@@ -139,83 +157,7 @@ function WorkflowEditor() {
     loadWorkflow()
   }, [workflowId, setWorkflow]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 自动保存到数据库
-  const autoSaveToDb = useCallback(async (silent = true) => {
-    if (!workflowId || !name.trim() || nodes.length === 0) return
-
-    setSaveStatus('saving')
-    try {
-      const config = getWorkflowConfig()
-      const response = await fetch(`/api/workflows/${workflowId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description, config }),
-      })
-
-      if (!response.ok) {
-        throw new Error('保存失败')
-      }
-
-      markSaved()
-      setSaveStatus('saved')
-      if (!silent) {
-        toast.success('工作流已保存')
-      }
-    } catch (error) {
-      setSaveStatus('unsaved')
-      if (!silent) {
-        toast.error(error instanceof Error ? error.message : '保存失败')
-      }
-    }
-  }, [workflowId, name, description, nodes, getWorkflowConfig, markSaved])
-
-  // 监听数据变化，触发自动保存
-  useEffect(() => {
-    if (isLoading) return
-
-    if (!isDirty) {
-      setSaveStatus('saved')
-      return
-    }
-
-    setSaveStatus('unsaved')
-
-    // 清除之前的定时器
-    if (autoSaveTimerRef.current) {
-      clearTimeout(autoSaveTimerRef.current)
-    }
-
-    // 3秒后自动保存到数据库
-    autoSaveTimerRef.current = setTimeout(() => {
-      autoSaveToDb(true)
-    }, 3000)
-
-    return () => {
-      if (autoSaveTimerRef.current) {
-        clearTimeout(autoSaveTimerRef.current)
-      }
-    }
-  }, [isDirty, isLoading, autoSaveToDb])
-
-  // 监听立即保存请求事件
-  useEffect(() => {
-    const handleRequestSave = () => {
-      // 清除自动保存定时器，立即保存
-      if (autoSaveTimerRef.current) {
-        clearTimeout(autoSaveTimerRef.current)
-      }
-      // 延迟 100ms 确保状态已更新
-      setTimeout(() => {
-        autoSaveToDb(true)
-      }, 100)
-    }
-
-    window.addEventListener('workflow-request-save', handleRequestSave)
-    return () => {
-      window.removeEventListener('workflow-request-save', handleRequestSave)
-    }
-  }, [autoSaveToDb])
-
+  // 手动保存处理
   const handleSave = useCallback(async () => {
     if (!name.trim()) {
       toast.error('请输入工作流名称')
@@ -227,32 +169,8 @@ function WorkflowEditor() {
       return
     }
 
-    setIsSaving(true)
-    setSaveStatus('saving')
-    try {
-      const config = getWorkflowConfig()
-
-      const response = await fetch(`/api/workflows/${workflowId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description, config }),
-      })
-
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || '保存失败')
-      }
-
-      markSaved()
-      setSaveStatus('saved')
-      toast.success('工作流已保存')
-    } catch (error) {
-      setSaveStatus('unsaved')
-      toast.error(error instanceof Error ? error.message : '保存失败')
-    } finally {
-      setIsSaving(false)
-    }
-  }, [workflowId, name, description, nodes, getWorkflowConfig, markSaved])
+    await saveWorkflow({ silent: false })
+  }, [name, nodes, saveWorkflow])
 
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault()
@@ -562,27 +480,25 @@ function WorkflowEditor() {
           />
           {/* 右侧工具区 */}
           <div className="flex items-center gap-4">
-            {/* 保存状态指示器 */}
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              {saveStatus === 'saving' && (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>保存中...</span>
-                </>
-              )}
-              {saveStatus === 'saved' && (
-                <>
-                  <Cloud className="h-4 w-4 text-green-500" />
-                  <span>已保存</span>
-                </>
-              )}
-              {saveStatus === 'unsaved' && (
-                <>
-                  <CloudOff className="h-4 w-4 text-orange-500" />
-                  <span>未保存</span>
-                </>
-              )}
-            </div>
+            {/* 保存状态指示器（集成乐观更新、离线支持、冲突检测） */}
+            <SaveStatusIndicator
+              status={saveStatus}
+              lastSavedAt={lastSavedAt}
+              onRetry={retrySave}
+              onResolveConflict={resolveConflict}
+            />
+
+            {/* 发布状态指示器 */}
+            <PublishStatusIndicator
+              workflowId={workflowId}
+              onPublish={() => {
+                // 发布后可以刷新状态
+              }}
+              onTestExecute={() => {
+                // 测试执行使用草稿配置
+                setShowExecutionPanel(true)
+              }}
+            />
 
             {/* 版本管理 */}
             <VersionManagement
@@ -620,6 +536,7 @@ function WorkflowEditor() {
               onViewportChange={setViewport}
               defaultViewport={viewport}
               nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
               snapToGrid
               snapGrid={[15, 15]}
               selectionOnDrag={false}
@@ -656,7 +573,11 @@ function WorkflowEditor() {
       <ExecutionPanel
         workflowId={workflowId}
         isOpen={showExecutionPanel}
-        onClose={() => setShowExecutionPanel(false)}
+        onClose={() => {
+          setShowExecutionPanel(false)
+          clearNodeExecutionStatus()
+        }}
+        onNodeStatusChange={(nodeId, status) => updateNodeExecutionStatus(nodeId, status)}
       />
 
       {/* 执行历史面板 */}

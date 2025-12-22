@@ -31,7 +31,6 @@ import {
   Eye,
   Play,
   Pencil,
-  X,
 } from 'lucide-react'
 
 interface Department {

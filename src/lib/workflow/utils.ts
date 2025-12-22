@@ -247,7 +247,7 @@ export function getConditionBranchNodes(
 export function getReachableNodes(
   startNodeIds: string[],
   edges: EdgeConfig[],
-  allNodes: NodeConfig[]
+  _allNodes: NodeConfig[]
 ): Set<string> {
   const reachable = new Set<string>()
   const queue = [...startNodeIds]
@@ -290,7 +290,7 @@ export function isLoopNode(node: NodeConfig): boolean {
 export function getLoopBodyNodes(
   loopNodeId: string,
   edges: EdgeConfig[],
-  allNodes: NodeConfig[]
+  _allNodes: NodeConfig[]
 ): string[] {
   const bodyStartEdges = edges.filter(
     e => e.source === loopNodeId && e.sourceHandle === 'body'

@@ -1,5 +1,3 @@
-// Prisma Schema for AI Workflow
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,100 +8,59 @@ datasource db {
   relationMode = "prisma"
 }
 
-// ============================================
-// 企业与用户
-// ============================================
-
 model Organization {
-  id          String   @id @default(cuid())
-  name        String
-  logo        String?
-  description String?  @db.Text
-  industry    String?
-  website     String?
-  phone       String?
-  address     String?
-  plan        Plan     @default(FREE)
-  apiQuota    Int      @default(10000)
-  apiUsed     Int      @default(0)
-
-  // 企业状态（平台管理）
-  status       OrgStatus @default(ACTIVE)
-  statusReason String?   // 状态变更原因（如禁用原因）
-
-  // 平台管理相关
-  createdByAdminId String?  // 由哪个平台管理员创建（自助注册则为空）
-  notes            String?  @db.Text  // 平台备注
-
-  // 账单联系信息
-  billingEmail   String?
-  billingContact String?
-
-  // 安全设置
-  securitySettings Json @default("{}")
-  // 包含: {
-  //   passwordMinLength: number (默认8)
-  //   passwordRequireUppercase: boolean (默认false)
-  //   passwordRequireNumber: boolean (默认false)
-  //   passwordRequireSymbol: boolean (默认false)
-  //   sessionTimeout: number (分钟, 默认10080=7天)
-  //   maxLoginAttempts: number (默认5)
-  //   ipWhitelist: string[] (空数组表示不限制)
-  //   twoFactorRequired: boolean (默认false)
-  // }
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  users       User[]
-  workflows   Workflow[]
-  apiKeys     ApiKey[]
-  apiTokens   ApiToken[]
-  invitations Invitation[]
-  knowledgeBases KnowledgeBase[]
-  departments Department[]
+  id                String             @id @default(cuid())
+  name              String
+  logo              String?
+  plan              Plan               @default(FREE)
+  apiQuota          Int                @default(10000)
+  apiUsed           Int                @default(0)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  address           String?
+  description       String?            @db.Text
+  industry          String?
+  phone             String?
+  securitySettings  Json
+  website           String?
+  billingContact    String?
+  billingEmail      String?
+  createdByAdminId  String?
+  notes             String?            @db.Text
+  status            OrgStatus          @default(ACTIVE)
+  statusReason      String?
+  users             User[]
+  workflows         Workflow[]
+  apiKeys           ApiKey[]
+  apiTokens         ApiToken[]
+  invitations       Invitation[]
+  knowledgeBases    KnowledgeBase[]
+  departments       Department[]
   platformFeedbacks PlatformFeedback[]
 
   @@map("organizations")
 }
 
-enum OrgStatus {
-  PENDING    // 待激活
-  ACTIVE     // 正常
-  SUSPENDED  // 已暂停（欠费等）
-  DISABLED   // 已禁用
-}
-
-enum Plan {
-  FREE
-  STARTER
-  PROFESSIONAL
-  ENTERPRISE
-}
-
 model User {
-  id           String    @id @default(cuid())
-  email        String    @unique
-  name         String?
-  avatar       String?
-  passwordHash String
-  role         Role      @default(MEMBER)
-  isActive     Boolean   @default(true)
-  mustChangePassword Boolean @default(false) // 是否需要首次登录修改密码
-  lastLoginAt  DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  departmentId String?
-  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-
-  workflows  Workflow[]
-  executions Execution[]
-  platformFeedbacks PlatformFeedback[]
+  id                  String               @id @default(cuid())
+  email               String               @unique
+  name                String?
+  avatar              String?
+  passwordHash        String
+  role                Role                 @default(MEMBER)
+  isActive            Boolean              @default(true)
+  lastLoginAt         DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  organizationId      String
+  departmentId        String?
+  mustChangePassword  Boolean              @default(false)
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  department          Department?          @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  workflows           Workflow[]
+  executions          Execution[]
+  platformFeedbacks   PlatformFeedback[]
+  analyticsDataPoints AnalyticsDataPoint[]
 
   @@index([organizationId])
   @@index([departmentId])
@@ -111,44 +68,914 @@ model User {
   @@map("users")
 }
 
-// ============================================
-// 部门管理
-// ============================================
-
 model Department {
-  id          String   @id @default(cuid())
-  name        String
-  description String?  @db.Text
-  sortOrder   Int      @default(0)  // 排序顺序
-  level       Int      @default(0)  // 部门层级（0=顶级，1=一级，以此类推）
-  path        String   @default("") // 部门路径（如 /root/dept1/dept2）
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // 上级部门（支持多级部门）
-  parentId String?
-  parent   Department?  @relation("DepartmentHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  children Department[] @relation("DepartmentHierarchy")
-
-  // 所属企业
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  // 部门负责人
-  managerId String?
-
-  // 关联
-  users               User[]
-  workflowPermissions WorkflowPermission[]
+  id                       String                    @id @default(cuid())
+  name                     String
+  description              String?                   @db.Text
+  sortOrder                Int                       @default(0)
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  parentId                 String?
+  organizationId           String
+  level                    Int                       @default(0)
+  managerId                String?
+  path                     String                    @default("")
+  parent                   Department?               @relation("DepartmentHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children                 Department[]              @relation("DepartmentHierarchy")
+  organization             Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  users                    User[]
+  workflowPermissions      WorkflowPermission[]
   knowledgeBasePermissions KnowledgeBasePermission[]
-  invitations         Invitation[]
+  invitations              Invitation[]
+  analyticsDataPoints      AnalyticsDataPoint[]
 
   @@index([organizationId])
   @@index([parentId])
   @@index([path])
   @@index([managerId])
   @@map("departments")
+}
+
+model Invitation {
+  id             String         @id @default(cuid())
+  email          String?
+  role           Role           @default(MEMBER)
+  token          String         @unique
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  createdAt      DateTime       @default(now())
+  organizationId String
+  invitedById    String?
+  maxUses        Int            @default(1)
+  type           InvitationType @default(EMAIL)
+  usedCount      Int            @default(0)
+  departmentId   String?
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  department     Department?    @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  @@index([token])
+  @@index([organizationId])
+  @@index([departmentId])
+  @@map("invitations")
+}
+
+model ApiKey {
+  id             String       @id @default(cuid())
+  name           String
+  provider       AIProvider
+  keyEncrypted   String       @db.Text
+  keyMasked      String
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organizationId String
+  defaultModel   String       @default("")
+  isDefault      Boolean      @default(false)
+  baseUrl        String       @default("")
+  models         Json
+  defaultModels  Json
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("api_keys")
+}
+
+model ApiToken {
+  id             String       @id @default(cuid())
+  name           String
+  token          String       @unique
+  tokenHash      String       @unique
+  prefix         String
+  lastUsedAt     DateTime?
+  expiresAt      DateTime?
+  isActive       Boolean      @default(true)
+  scopes         Json
+  usageCount     Int          @default(0)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organizationId String
+  createdById    String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([tokenHash])
+  @@index([prefix])
+  @@map("api_tokens")
+}
+
+model Workflow {
+  id                  String               @id @default(cuid())
+  name                String
+  description         String?              @db.Text
+  category            String?
+  tags                Json
+  isActive            Boolean              @default(true)
+  isPublic            Boolean              @default(false)
+  version             Int                  @default(1)
+  config              Json
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  deletedAt           DateTime?
+  organizationId      String
+  creatorId           String
+  analyticsEnabled    Boolean              @default(true)
+  currentVersionId    String?
+  draftConfig         Json?
+  publishStatus       PublishStatus        @default(DRAFT)
+  publishedAt         DateTime?
+  publishedBy         String?
+  publishedConfig     Json?
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator             User                 @relation(fields: [creatorId], references: [id])
+  executions          Execution[]
+  triggers            WorkflowTrigger[]
+  permissions         WorkflowPermission[]
+  platformFeedbacks   PlatformFeedback[]
+  forms               WorkflowForm[]
+  versions            WorkflowVersion[]
+  analyticsConfigs    AnalyticsConfig[]
+  analyticsDashboards AnalyticsDashboard[]
+
+  @@index([organizationId])
+  @@index([creatorId])
+  @@index([deletedAt])
+  @@index([publishStatus])
+  @@map("workflows")
+}
+
+model WorkflowPermission {
+  id           String               @id @default(cuid())
+  permission   PermissionLevel
+  targetType   PermissionTargetType
+  targetId     String?
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  workflowId   String
+  departmentId String?
+  createdById  String
+  workflow     Workflow             @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  department   Department?          @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([workflowId, targetType, targetId])
+  @@index([workflowId])
+  @@index([targetType, targetId])
+  @@index([departmentId])
+  @@map("workflow_permissions")
+}
+
+model WorkflowTrigger {
+  id              String       @id @default(cuid())
+  name            String
+  type            TriggerType
+  enabled         Boolean      @default(true)
+  webhookPath     String?      @unique
+  webhookSecret   String?      @db.Text
+  cronExpression  String?
+  timezone        String?      @default("Asia/Shanghai")
+  inputTemplate   Json?
+  retryOnFail     Boolean      @default(false)
+  maxRetries      Int          @default(3)
+  triggerCount    Int          @default(0)
+  lastTriggeredAt DateTime?
+  lastSuccessAt   DateTime?
+  lastFailureAt   DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  workflowId      String
+  createdById     String
+  workflow        Workflow     @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  logs            TriggerLog[]
+
+  @@index([workflowId])
+  @@index([type])
+  @@index([enabled])
+  @@index([webhookPath])
+  @@map("workflow_triggers")
+}
+
+model TriggerLog {
+  id             String          @id @default(cuid())
+  status         TriggerStatus
+  requestMethod  String?
+  requestHeaders Json?
+  requestBody    Json?
+  requestIp      String?
+  executionId    String?
+  responseCode   Int?
+  errorMessage   String?         @db.Text
+  triggeredAt    DateTime        @default(now())
+  completedAt    DateTime?
+  duration       Int?
+  triggerId      String
+  trigger        WorkflowTrigger @relation(fields: [triggerId], references: [id], onDelete: Cascade)
+
+  @@index([triggerId])
+  @@index([status])
+  @@index([triggeredAt])
+  @@map("trigger_logs")
+}
+
+model WorkflowTemplate {
+  id                  String               @id @default(cuid())
+  name                String
+  description         String?              @db.Text
+  category            String
+  tags                Json
+  thumbnail           String?
+  config              Json
+  visibility          TemplateVisibility   @default(PRIVATE)
+  organizationId      String?
+  creatorId           String?
+  creatorName         String?
+  usageCount          Int                  @default(0)
+  rating              Float                @default(0)
+  ratingCount         Int                  @default(0)
+  isOfficial          Boolean              @default(false)
+  version             String               @default("1.0.0")
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  creatorDepartmentId String?
+  isHidden            Boolean              @default(false)
+  templateType        TemplateType         @default(INTERNAL)
+  ratings             TemplateRating[]
+  permissions         TemplatePermission[]
+
+  @@index([category])
+  @@index([visibility, organizationId])
+  @@index([isOfficial])
+  @@index([templateType])
+  @@index([creatorId])
+  @@index([creatorDepartmentId])
+  @@map("workflow_templates")
+}
+
+model TemplateRating {
+  id         String           @id @default(cuid())
+  score      Int
+  comment    String?          @db.Text
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  templateId String
+  userId     String
+  userName   String?
+  template   WorkflowTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, userId])
+  @@index([templateId])
+  @@index([userId])
+  @@index([score])
+  @@map("template_ratings")
+}
+
+model TemplatePermission {
+  id          String               @id @default(cuid())
+  permission  ResourcePermission
+  targetType  PermissionTargetType
+  targetId    String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  templateId  String
+  createdById String
+  template    WorkflowTemplate     @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, targetType, targetId])
+  @@index([templateId])
+  @@index([targetType, targetId])
+  @@map("template_permissions")
+}
+
+model Execution {
+  id                  String               @id @default(cuid())
+  status              executions_status    @default(PENDING)
+  input               Json
+  output              Json?
+  startedAt           DateTime?
+  completedAt         DateTime?
+  duration            Int?
+  totalTokens         Int                  @default(0)
+  promptTokens        Int                  @default(0)
+  completionTokens    Int                  @default(0)
+  estimatedCost       Decimal?             @db.Decimal(10, 6)
+  error               String?              @db.Text
+  errorDetail         Json?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  workflowId          String
+  userId              String
+  canResume           Boolean              @default(false)
+  checkpoint          Json?
+  lastCheckpoint      DateTime?
+  resumedFromId       String?
+  workflowVersionId   String?
+  workflow            Workflow             @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  user                User                 @relation(fields: [userId], references: [id])
+  logs                ExecutionLog[]
+  outputFiles         OutputFile[]
+  feedbacks           ExecutionFeedback[]
+  analyticsDataPoints AnalyticsDataPoint[]
+
+  @@index([workflowId])
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([workflowVersionId])
+  @@map("executions")
+}
+
+model ExecutionLog {
+  id               String                  @id @default(cuid())
+  nodeId           String
+  nodeName         String
+  nodeType         execution_logs_nodeType
+  input            Json
+  output           Json?
+  status           execution_logs_status
+  aiProvider       AIProvider?
+  aiModel          String?
+  promptTokens     Int?
+  completionTokens Int?
+  startedAt        DateTime
+  completedAt      DateTime?
+  duration         Int?
+  error            String?                 @db.Text
+  createdAt        DateTime                @default(now())
+  executionId      String
+  execution        Execution               @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@index([executionId])
+  @@index([nodeId])
+  @@map("execution_logs")
+}
+
+model OutputFile {
+  id             String       @id @default(cuid())
+  fileName       String
+  fileKey        String       @unique
+  format         OutputFormat
+  mimeType       String
+  size           Int
+  storageType    StorageType  @default(LOCAL)
+  url            String?      @db.Text
+  downloadCount  Int          @default(0)
+  maxDownloads   Int?
+  expiresAt      DateTime?
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  executionId    String
+  nodeId         String
+  organizationId String
+  execution      Execution    @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@index([executionId])
+  @@index([organizationId])
+  @@index([fileKey])
+  @@index([expiresAt])
+  @@map("output_files")
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  action         String
+  resource       String
+  resourceId     String?
+  detail         Json?
+  ip             String?
+  userAgent      String?  @db.Text
+  createdAt      DateTime @default(now())
+  userId         String?
+  organizationId String?
+
+  @@index([userId])
+  @@index([organizationId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model PlatformAdmin {
+  id            String             @id @default(cuid())
+  email         String             @unique
+  name          String?
+  passwordHash  String
+  role          PlatformRole       @default(OPERATOR)
+  isActive      Boolean            @default(true)
+  lastLoginAt   DateTime?
+  loginAttempts Int                @default(0)
+  lockedUntil   DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  createdById   String?
+  auditLogs     PlatformAuditLog[]
+
+  @@index([email])
+  @@map("platform_admins")
+}
+
+model PlatformAuditLog {
+  id         String        @id @default(cuid())
+  action     String
+  resource   String
+  resourceId String?
+  detail     Json?
+  ip         String?
+  userAgent  String?       @db.Text
+  createdAt  DateTime      @default(now())
+  adminId    String
+  admin      PlatformAdmin @relation(fields: [adminId], references: [id])
+
+  @@index([adminId])
+  @@index([resource])
+  @@index([action])
+  @@index([createdAt])
+  @@map("platform_audit_logs")
+}
+
+model PlatformFeedback {
+  id             String                   @id @default(cuid())
+  type           PlatformFeedbackType
+  title          String
+  content        String                   @db.Text
+  screenshots    Json?
+  source         PlatformFeedbackSource
+  workflowId     String?
+  executionId    String?
+  status         PlatformFeedbackStatus   @default(PENDING)
+  priority       PlatformFeedbackPriority @default(NORMAL)
+  assignedTo     String?
+  reply          String?                  @db.Text
+  repliedAt      DateTime?
+  resolvedAt     DateTime?
+  userId         String
+  organizationId String
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  workflow       Workflow?                @relation(fields: [workflowId], references: [id])
+  user           User                     @relation(fields: [userId], references: [id])
+  organization   Organization             @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+  @@map("platform_feedbacks")
+}
+
+model SystemLog {
+  id        String   @id @default(cuid())
+  level     LogLevel @default(INFO)
+  category  String
+  message   String   @db.Text
+  detail    Json?
+  source    String?
+  traceId   String?
+  createdAt DateTime @default(now())
+
+  @@index([level])
+  @@index([category])
+  @@index([createdAt])
+  @@map("system_logs")
+}
+
+model OrgApplication {
+  id             String            @id @default(cuid())
+  orgName        String
+  industry       String?
+  website        String?
+  phone          String?
+  address        String?
+  description    String?           @db.Text
+  contactName    String
+  contactEmail   String
+  contactPhone   String?
+  status         ApplicationStatus @default(PENDING)
+  rejectReason   String?
+  reviewedAt     DateTime?
+  reviewedById   String?
+  organizationId String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([status])
+  @@index([contactEmail])
+  @@index([createdAt])
+  @@map("org_applications")
+}
+
+model KnowledgeBase {
+  id                String                    @id @default(cuid())
+  name              String
+  description       String?                   @db.Text
+  embeddingModel    String                    @default("text-embedding-ada-002")
+  embeddingProvider AIProvider                @default(OPENAI)
+  chunkSize         Int                       @default(1000)
+  chunkOverlap      Int                       @default(200)
+  vectorStoreType   VectorStoreType           @default(PGVECTOR)
+  vectorStoreConfig Json
+  documentCount     Int                       @default(0)
+  chunkCount        Int                       @default(0)
+  totalSize         Int                       @default(0)
+  isActive          Boolean                   @default(true)
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  organizationId    String
+  creatorId         String?
+  organization      Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  documents         KnowledgeDocument[]
+  permissions       KnowledgeBasePermission[]
+  bm25IndexCache    BM25IndexCache?
+
+  @@index([organizationId])
+  @@index([isActive])
+  @@index([creatorId])
+  @@map("knowledge_bases")
+}
+
+model BM25IndexCache {
+  id              String        @id @default(cuid())
+  knowledgeBaseId String        @unique
+  indexData       String        @db.Text
+  documentCount   Int           @default(0)
+  termCount       Int           @default(0)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+
+  @@map("bm25_index_cache")
+}
+
+model EmbeddingUsage {
+  id              String   @id @default(cuid())
+  provider        String
+  model           String
+  tokenCount      Int
+  requestCount    Int      @default(1)
+  knowledgeBaseId String?
+  documentId      String?
+  organizationId  String
+  createdAt       DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([knowledgeBaseId])
+  @@index([createdAt])
+  @@map("embedding_usage")
+}
+
+model KnowledgeBasePermission {
+  id              String               @id @default(cuid())
+  permission      ResourcePermission
+  targetType      PermissionTargetType
+  targetId        String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  knowledgeBaseId String
+  departmentId    String?
+  createdById     String
+  knowledgeBase   KnowledgeBase        @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  department      Department?          @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([knowledgeBaseId, targetType, targetId])
+  @@index([knowledgeBaseId])
+  @@index([targetType, targetId])
+  @@index([departmentId])
+  @@map("knowledge_base_permissions")
+}
+
+model KnowledgeDocument {
+  id              String           @id @default(cuid())
+  fileName        String
+  fileType        String
+  fileSize        Int
+  fileUrl         String?
+  fileKey         String?
+  status          DocProcessStatus @default(PENDING)
+  errorMessage    String?          @db.Text
+  chunkCount      Int              @default(0)
+  processedAt     DateTime?
+  metadata        Json
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  knowledgeBaseId String
+  uploadedById    String?
+  knowledgeBase   KnowledgeBase    @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  chunks          DocumentChunk[]
+
+  @@index([knowledgeBaseId])
+  @@index([status])
+  @@map("knowledge_documents")
+}
+
+model DocumentChunk {
+  id          String            @id @default(cuid())
+  content     String            @db.Text
+  embedding   Json?
+  chunkIndex  Int
+  startOffset Int?
+  endOffset   Int?
+  metadata    Json
+  createdAt   DateTime          @default(now())
+  documentId  String
+  document    KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@index([chunkIndex])
+  @@map("document_chunks")
+}
+
+model WorkflowVersion {
+  id              String      @id @default(cuid())
+  versionNumber   Int
+  versionTag      String?
+  commitMessage   String      @db.Text
+  config          Json
+  versionType     VersionType @default(MANUAL)
+  isPublished     Boolean     @default(false)
+  isActive        Boolean     @default(false)
+  changesSummary  Json?
+  executionCount  Int         @default(0)
+  successRate     Float?
+  avgRating       Float?
+  sourceVersionId String?
+  optimizationIds Json?
+  createdAt       DateTime    @default(now())
+  workflowId      String
+  createdById     String
+  workflow        Workflow    @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@unique([workflowId, versionNumber])
+  @@index([workflowId])
+  @@index([isActive])
+  @@index([createdAt])
+  @@map("workflow_versions")
+}
+
+model ExecutionFeedback {
+  id                 String                   @id @default(cuid())
+  rating             Int
+  isAccurate         Boolean
+  expectedOutput     String?                  @db.Text
+  actualOutput       String?                  @db.Text
+  feedbackComment    String?                  @db.Text
+  issueCategories    Json
+  aiDiagnosis        Json?
+  diagnosedAt        DateTime?
+  optimizationStatus OptimizationStatus       @default(PENDING)
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  executionId        String
+  userId             String
+  execution          Execution                @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  suggestions        OptimizationSuggestion[]
+
+  @@index([executionId])
+  @@index([userId])
+  @@index([rating])
+  @@index([isAccurate])
+  @@index([createdAt])
+  @@index([optimizationStatus])
+  @@map("execution_feedbacks")
+}
+
+model OptimizationSuggestion {
+  id                 String            @id @default(cuid())
+  issueType          IssueCategory
+  issueDescription   String            @db.Text
+  rootCause          String            @db.Text
+  suggestionType     SuggestionType
+  suggestionTitle    String
+  suggestionDetail   String            @db.Text
+  suggestedChanges   Json
+  confidence         Float             @default(0.5)
+  priority           Int               @default(0)
+  status             SuggestionStatus  @default(PENDING)
+  appliedAt          DateTime?
+  appliedById        String?
+  effectivenessScore Float?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  feedbackId         String
+  workflowId         String
+  feedback           ExecutionFeedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+
+  @@index([feedbackId])
+  @@index([workflowId])
+  @@index([status])
+  @@index([suggestionType])
+  @@index([priority])
+  @@map("optimization_suggestions")
+}
+
+model WorkflowAnalytics {
+  id               String          @id @default(cuid())
+  periodType       AnalyticsPeriod
+  periodStart      DateTime
+  periodEnd        DateTime
+  totalExecutions  Int             @default(0)
+  successCount     Int             @default(0)
+  failureCount     Int             @default(0)
+  cancelledCount   Int             @default(0)
+  feedbackCount    Int             @default(0)
+  accurateCount    Int             @default(0)
+  inaccurateCount  Int             @default(0)
+  avgRating        Float?
+  issueBreakdown   Json?
+  avgDuration      Int?
+  avgTokens        Int?
+  suggestionsCount Int             @default(0)
+  appliedCount     Int             @default(0)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  workflowId       String
+
+  @@unique([workflowId, periodType, periodStart])
+  @@index([workflowId])
+  @@index([periodType])
+  @@index([periodStart])
+  @@map("workflow_analytics")
+}
+
+model WorkflowForm {
+  id              String                   @id @default(cuid())
+  name            String
+  description     String?                  @db.Text
+  shareToken      String                   @unique
+  isActive        Boolean                  @default(true)
+  expiresAt       DateTime?
+  maxSubmissions  Int?
+  submissionCount Int                      @default(0)
+  showResult      Boolean                  @default(true)
+  successMessage  String?                  @db.Text
+  theme           String                   @default("default")
+  mode            FormMode                 @default(FORM)
+  stylePrompt     String?                  @db.Text
+  htmlTemplate    String?                  @db.LongText
+  cssStyles       String?                  @db.LongText
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+  workflowId      String
+  createdById     String
+  workflow        Workflow                 @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  submissions     WorkflowFormSubmission[]
+
+  @@index([workflowId])
+  @@index([shareToken])
+  @@index([isActive])
+  @@map("workflow_forms")
+}
+
+model WorkflowFormSubmission {
+  id            String               @id @default(cuid())
+  inputData     Json
+  executionId   String?
+  submitterIp   String?
+  submitterInfo Json?
+  status        FormSubmissionStatus @default(PENDING)
+  result        Json?
+  errorMessage  String?              @db.Text
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  formId        String
+  form          WorkflowForm         @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([formId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("workflow_form_submissions")
+}
+
+model ApprovalRequest {
+  id            String                 @id @default(cuid())
+  workflowId    String
+  workflowName  String
+  executionId   String                 @unique
+  title         String
+  description   String?                @db.Text
+  requestData   Json
+  approvers     Json
+  status        ApprovalStatus         @default(PENDING)
+  approvedBy    String?
+  approvedAt    DateTime?
+  rejectedBy    String?
+  rejectedAt    DateTime?
+  comment       String?                @db.Text
+  expiresAt     DateTime?
+  timeoutAction TimeoutAction?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  notifications ApprovalNotification[]
+
+  @@index([workflowId])
+  @@index([status])
+  @@index([expiresAt])
+  @@index([createdAt])
+  @@map("approval_requests")
+}
+
+model ApprovalNotification {
+  id             String             @id @default(cuid())
+  approvalId     String
+  type           NotificationType
+  recipientId    String
+  recipientEmail String?
+  status         NotificationStatus @default(PENDING)
+  sentAt         DateTime?
+  errorMessage   String?            @db.Text
+  retryCount     Int                @default(0)
+  createdAt      DateTime           @default(now())
+  approval       ApprovalRequest    @relation(fields: [approvalId], references: [id], onDelete: Cascade)
+
+  @@index([approvalId])
+  @@index([recipientId])
+  @@index([status])
+  @@map("approval_notifications")
+}
+
+model AnalyticsConfig {
+  id            String               @id @default(cuid())
+  name          String
+  label         String
+  type          DataPointType
+  source        DataSourceType       @default(NODE_OUTPUT)
+  sourcePath    String
+  nodeId        String?
+  nodeName      String?
+  aggregation   Json
+  visualization VisualizationType    @default(LINE)
+  unit          String?
+  isActive      Boolean              @default(true)
+  isRequired    Boolean              @default(false)
+  defaultValue  Json?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  workflowId    String
+  workflow      Workflow             @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  dataPoints    AnalyticsDataPoint[]
+
+  @@unique([workflowId, name])
+  @@index([workflowId])
+  @@index([isActive])
+  @@map("analytics_configs")
+}
+
+model AnalyticsDataPoint {
+  id           String          @id @default(cuid())
+  configId     String
+  numberValue  Float?
+  stringValue  String?
+  booleanValue Boolean?
+  jsonValue    Json?
+  executionId  String
+  nodeId       String?
+  nodeName     String?
+  userId       String
+  departmentId String?
+  recordedAt   DateTime        @default(now())
+  metadata     Json?
+  config       AnalyticsConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  execution    Execution       @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  user         User            @relation(fields: [userId], references: [id])
+  department   Department?     @relation(fields: [departmentId], references: [id])
+
+  @@index([configId])
+  @@index([executionId])
+  @@index([userId])
+  @@index([departmentId])
+  @@index([recordedAt])
+  @@map("analytics_data_points")
+}
+
+model AnalyticsDashboard {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?  @db.Text
+  layout         Json
+  widgets        Json
+  defaultFilters Json?
+  isDefault      Boolean  @default(false)
+  isPublic       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  workflowId     String
+  creatorId      String
+  workflow       Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@index([workflowId])
+  @@index([isDefault])
+  @@map("analytics_dashboards")
+}
+
+enum OrgStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+enum Plan {
+  FREE
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
 }
 
 enum Role {
@@ -159,62 +986,9 @@ enum Role {
   VIEWER
 }
 
-model Invitation {
-  id         String         @id @default(cuid())
-  email      String?        // 可为空，链接邀请时不需要邮箱
-  role       Role           @default(MEMBER)
-  token      String         @unique
-  type       InvitationType @default(EMAIL)
-  expiresAt  DateTime
-  acceptedAt DateTime?
-  maxUses    Int            @default(1)  // 最大使用次数（链接邀请可设置多次）
-  usedCount  Int            @default(0)  // 已使用次数
-
-  createdAt DateTime @default(now())
-
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  invitedById  String?  // 邀请人 ID
-  departmentId String?  // 预设部门 ID
-  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-
-  @@index([token])
-  @@index([organizationId])
-  @@index([departmentId])
-  @@map("invitations")
-}
-
 enum InvitationType {
-  EMAIL  // 邮件邀请（指定邮箱）
-  LINK   // 链接邀请（任何人可用）
-}
-
-// ============================================
-// API Key 管理
-// ============================================
-
-model ApiKey {
-  id           String     @id @default(cuid())
-  name         String
-  provider     AIProvider
-  baseUrl      String     @default("")  // API 基础地址
-  keyEncrypted String     @db.Text
-  keyMasked    String
-  defaultModel String     @default("")  // 兼容旧版，存储文本模态默认模型
-  defaultModels Json      @default("{}") // 各模态默认模型 { "text": "...", "image-gen": "...", ... }
-  models       Json       @default("[]") // 可用模型列表
-  isDefault    Boolean    @default(false)
-  isActive     Boolean    @default(true)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@index([organizationId])
-  @@map("api_keys")
+  EMAIL
+  LINK
 }
 
 enum AIProvider {
@@ -228,410 +1002,206 @@ enum AIProvider {
   STABILITYAI
 }
 
-// ============================================
-// API Token (用于外部调用工作流)
-// ============================================
-
-model ApiToken {
-  id          String    @id @default(cuid())
-  name        String                          // Token 名称
-  token       String    @unique               // 完整 Token (仅创建时显示一次)
-  tokenHash   String    @unique               // Token 哈希值 (用于验证)
-  prefix      String                          // Token 前缀 (如 wf_xxx, 用于识别)
-  lastUsedAt  DateTime?                       // 最后使用时间
-  expiresAt   DateTime?                       // 过期时间 (null 表示永不过期)
-  isActive    Boolean   @default(true)        // 是否启用
-
-  // 权限控制
-  scopes      Json      @default("[]")        // 权限范围 ["workflow:execute", "workflow:read"]
-
-  // 使用统计
-  usageCount  Int       @default(0)           // 调用次数
-
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  // 关联
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  createdById    String                       // 创建者 ID
-
-  @@index([organizationId])
-  @@index([tokenHash])
-  @@index([prefix])
-  @@map("api_tokens")
-}
-
-// ============================================
-// 工作流
-// ============================================
-
-model Workflow {
-  id          String    @id @default(cuid())
-  name        String
-  description String?   @db.Text
-  category    String?
-  tags        Json      @default("[]")
-  isActive    Boolean   @default(true)
-  isPublic    Boolean   @default(false)
-  version     Int       @default(1)
-
-  // 工作流配置 (JSON)
-  config Json
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  creatorId String
-  creator   User   @relation(fields: [creatorId], references: [id])
-
-  executions Execution[]
-  triggers   WorkflowTrigger[]
-  permissions WorkflowPermission[]
-  platformFeedbacks PlatformFeedback[]
-  forms      WorkflowForm[]
-
-  // 版本管理
-  versions          WorkflowVersion[]
-  currentVersionId  String?           // 当前活跃版本ID
-
-  // 统计分析开关
-  analyticsEnabled  Boolean @default(true)
-
-  @@index([organizationId])
-  @@index([creatorId])
-  @@index([deletedAt])
-  @@map("workflows")
-}
-
-// ============================================
-// 工作流权限
-// ============================================
-
-model WorkflowPermission {
-  id String @id @default(cuid())
-
-  // 权限级别
-  permission PermissionLevel
-
-  // 权限目标类型和ID
-  targetType PermissionTargetType
-  targetId   String?  // 当 targetType 为 ALL 时为 null
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // 关联工作流
-  workflowId String
-  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-
-  // 关联部门（当 targetType 为 DEPARTMENT 时）
-  departmentId String?
-  department   Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade)
-
-  // 创建者
-  createdById String
-
-  @@unique([workflowId, targetType, targetId])
-  @@index([workflowId])
-  @@index([targetType, targetId])
-  @@index([departmentId])
-  @@map("workflow_permissions")
+enum PublishStatus {
+  DRAFT
+  PUBLISHED
+  DRAFT_MODIFIED
 }
 
 enum PermissionLevel {
-  VIEW  // 只能查看（兼容旧数据）
-  USE   // 可以使用（执行）（兼容旧数据）
-  EDIT  // 可以编辑（兼容旧数据）
+  VIEW
+  USE
+  EDIT
 }
 
-// 新的资源权限级别（四级权限体系）
 enum ResourcePermission {
-  VIEWER   // 使用者：查看、执行
-  EDITOR   // 编辑者：编辑内容、隐藏
-  MANAGER  // 管理者：编辑 + 设置权限 + 删除
+  VIEWER
+  EDITOR
+  MANAGER
 }
 
 enum PermissionTargetType {
-  USER        // 特定用户
-  DEPARTMENT  // 特定部门
-  ALL         // 企业所有人
-}
-
-// ============================================
-// 工作流触发器（Webhook / 定时任务）
-// ============================================
-
-model WorkflowTrigger {
-  id          String       @id @default(cuid())
-  name        String       // 触发器名称
-  type        TriggerType  // 触发器类型
-  enabled     Boolean      @default(true)
-
-  // Webhook 配置
-  webhookPath   String?    @unique  // Webhook 路径标识 (如: abc123)
-  webhookSecret String?    @db.Text // 签名密钥 (HMAC-SHA256)
-
-  // 定时任务配置
-  cronExpression String?   // Cron 表达式 (如: 0 0 * * *)
-  timezone       String?   @default("Asia/Shanghai")
-
-  // 执行配置
-  inputTemplate  Json?     // 默认输入模板
-  retryOnFail    Boolean   @default(false)
-  maxRetries     Int       @default(3)
-
-  // 统计信息
-  triggerCount     Int       @default(0)
-  lastTriggeredAt  DateTime?
-  lastSuccessAt    DateTime?
-  lastFailureAt    DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // 关联
-  workflowId String
-  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-
-  createdById String  // 创建者 ID
-
-  logs TriggerLog[]
-
-  @@index([workflowId])
-  @@index([type])
-  @@index([enabled])
-  @@index([webhookPath])
-  @@map("workflow_triggers")
+  USER
+  DEPARTMENT
+  ALL
 }
 
 enum TriggerType {
-  MANUAL    // 手动触发
-  WEBHOOK   // Webhook 触发
-  SCHEDULE  // 定时任务
-}
-
-model TriggerLog {
-  id          String        @id @default(cuid())
-  status      TriggerStatus
-
-  // 请求信息 (Webhook)
-  requestMethod  String?    // GET, POST 等
-  requestHeaders Json?      // 请求头
-  requestBody    Json?      // 请求体
-  requestIp      String?    // 来源 IP
-
-  // 响应/结果
-  executionId    String?    // 关联的执行记录 ID
-  responseCode   Int?       // HTTP 响应码
-  errorMessage   String?    @db.Text
-
-  // 时间
-  triggeredAt    DateTime   @default(now())
-  completedAt    DateTime?
-  duration       Int?       // 毫秒
-
-  // 关联
-  triggerId String
-  trigger   WorkflowTrigger @relation(fields: [triggerId], references: [id], onDelete: Cascade)
-
-  @@index([triggerId])
-  @@index([status])
-  @@index([triggeredAt])
-  @@map("trigger_logs")
+  MANUAL
+  WEBHOOK
+  SCHEDULE
 }
 
 enum TriggerStatus {
-  PENDING    // 等待中
-  RUNNING    // 执行中
-  SUCCESS    // 成功
-  FAILED     // 失败
-  SKIPPED    // 跳过（如工作流未激活）
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+  SKIPPED
 }
 
-// ============================================
-// 工作流模板
-// ============================================
-
-model WorkflowTemplate {
-  id            String   @id @default(cuid())
-  name          String
-  description   String?  @db.Text
-  category      String   // AI处理/数据分析/文档生成等
-  tags          Json     @default("[]") // 搜索标签
-  thumbnail     String?  // 缩略图 URL
-
-  // 工作流配置（节点+边）
-  config        Json
-
-  // 模板类型
-  templateType  TemplateType @default(INTERNAL)
-
-  // 可见性控制
-  visibility    TemplateVisibility @default(PRIVATE)
-  organizationId String? // 企业模板归属（null 表示官方模板）
-
-  // 创建者信息
-  creatorId     String?  // null 表示官方模板
-  creatorName   String?  // 创建者名称（用于显示）
-  creatorDepartmentId String? // 创建者所属部门（用于层级权限判断）
-
-  // 统计信息
-  usageCount    Int      @default(0)
-  rating        Float    @default(0)
-  ratingCount   Int      @default(0)
-
-  // 是否为官方模板（公域模板库）
-  isOfficial    Boolean  @default(false)
-
-  // 是否隐藏（软隐藏，不删除）
-  isHidden      Boolean  @default(false)
-
-  // 版本信息
-  version       String   @default("1.0.0")
-
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  // 关联评分和权限
-  ratings       TemplateRating[]
-  permissions   TemplatePermission[]
-
-  @@index([category])
-  @@index([visibility, organizationId])
-  @@index([isOfficial])
-  @@index([templateType])
-  @@index([creatorId])
-  @@index([creatorDepartmentId])
-  @@map("workflow_templates")
-}
-
-// 模板类型
 enum TemplateType {
-  PUBLIC    // 公域模板（平台推送）
-  INTERNAL  // 内部模板（企业员工创建）
+  PUBLIC
+  INTERNAL
 }
 
 enum TemplateVisibility {
-  PRIVATE      // 仅自己可见
-  ORGANIZATION // 企业内可见
-  PUBLIC       // 公开
+  PRIVATE
+  ORGANIZATION
+  PUBLIC
 }
 
-// ============================================
-// 模板评分
-// ============================================
-
-model TemplateRating {
-  id          String   @id @default(cuid())
-  score       Int      // 1-5 分
-  comment     String?  @db.Text  // 评论内容
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  templateId  String
-  template    WorkflowTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-
-  userId      String   // 评分用户
-  userName    String?  // 用户名（冗余存储）
-
-  @@unique([templateId, userId])  // 每用户对每模板只能评分一次
-  @@index([templateId])
-  @@index([userId])
-  @@index([score])
-  @@map("template_ratings")
+enum OutputFormat {
+  TEXT
+  JSON
+  MARKDOWN
+  HTML
+  WORD
+  EXCEL
+  PDF
+  IMAGE
+  AUDIO
+  VIDEO
 }
 
-// ============================================
-// 模板权限
-// ============================================
-
-model TemplatePermission {
-  id String @id @default(cuid())
-
-  // 权限级别
-  permission ResourcePermission
-
-  // 权限目标类型和ID
-  targetType PermissionTargetType
-  targetId   String?  // 当 targetType 为 ALL 时为 null
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // 关联模板
-  templateId String
-  template   WorkflowTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-
-  // 创建者
-  createdById String
-
-  @@unique([templateId, targetType, targetId])
-  @@index([templateId])
-  @@index([targetType, targetId])
-  @@map("template_permissions")
+enum StorageType {
+  LOCAL
+  ALIYUN_OSS
+  AWS_S3
+  CUSTOM
 }
 
-// ============================================
-// 执行记录
-// ============================================
-
-model Execution {
-  id     String          @id @default(cuid())
-  status ExecutionStatus @default(PENDING)
-
-  input  Json
-  output Json?
-
-  startedAt   DateTime?
-  completedAt DateTime?
-  duration    Int?
-
-  totalTokens      Int     @default(0)
-  promptTokens     Int     @default(0)
-  completionTokens Int     @default(0)
-  estimatedCost    Decimal? @db.Decimal(10, 6)
-
-  error       String? @db.Text
-  errorDetail Json?
-
-  // 断点续执行支持
-  checkpoint      Json?     // 保存已完成节点的输出和当前执行位置
-  lastCheckpoint  DateTime? // 最后一次保存检查点的时间
-  resumedFromId   String?   // 如果是恢复执行，关联原执行ID
-  canResume       Boolean   @default(false) // 是否可以恢复执行
-
-  // 版本关联
-  workflowVersionId String?  // 执行时的工作流版本
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  workflowId String
-  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  logs        ExecutionLog[]
-  outputFiles OutputFile[]
-  feedbacks   ExecutionFeedback[]
-
-  @@index([workflowId])
-  @@index([userId])
-  @@index([status])
-  @@index([createdAt])
-  @@index([workflowVersionId])
-  @@map("executions")
+enum PlatformRole {
+  SUPER_ADMIN
+  ADMIN
+  OPERATOR
+  SUPPORT
 }
 
-enum ExecutionStatus {
+enum PlatformFeedbackType {
+  BUG
+  FEATURE
+  IMPROVEMENT
+  ACCURACY
+  OTHER
+}
+
+enum PlatformFeedbackSource {
+  ENTERPRISE
+  EMPLOYEE
+}
+
+enum PlatformFeedbackStatus {
+  PENDING
+  PROCESSING
+  REPLIED
+  RESOLVED
+  CLOSED
+}
+
+enum PlatformFeedbackPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum LogLevel {
+  DEBUG
+  INFO
+  WARN
+  ERROR
+  FATAL
+}
+
+enum ApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum VectorStoreType {
+  PGVECTOR
+  PINECONE
+  QDRANT
+  MILVUS
+  MEMORY
+}
+
+enum DocProcessStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum VersionType {
+  MANUAL
+  AUTO_SAVE
+  OPTIMIZATION
+  ROLLBACK
+}
+
+enum OptimizationStatus {
+  PENDING
+  ANALYZING
+  SUGGESTED
+  APPLIED
+  REJECTED
+  INEFFECTIVE
+}
+
+enum IssueCategory {
+  KNOWLEDGE_BASE
+  PROMPT_UNCLEAR
+  PROMPT_WRONG
+  MODEL_CAPABILITY
+  MODEL_CONFIG
+  INPUT_QUALITY
+  CONTEXT_MISSING
+  LOGIC_ERROR
+  OTHER
+}
+
+enum SuggestionType {
+  PROMPT_OPTIMIZATION
+  KNOWLEDGE_UPDATE
+  MODEL_CHANGE
+  MODEL_CONFIG_ADJUST
+  ADD_NODE
+  REMOVE_NODE
+  MODIFY_FLOW
+  INPUT_VALIDATION
+  OTHER
+}
+
+enum SuggestionStatus {
+  PENDING
+  APPROVED
+  APPLIED
+  REJECTED
+  REVERTED
+}
+
+enum AnalyticsPeriod {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum FormMode {
+  FORM
+  AI_PAGE
+}
+
+enum FormSubmissionStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum executions_status {
   PENDING
   RUNNING
   COMPLETED
@@ -639,38 +1209,7 @@ enum ExecutionStatus {
   CANCELLED
 }
 
-model ExecutionLog {
-  id       String   @id @default(cuid())
-  nodeId   String
-  nodeName String
-  nodeType NodeType
-
-  input  Json
-  output Json?
-  status ExecutionStatus
-
-  aiProvider       AIProvider?
-  aiModel          String?
-  promptTokens     Int?
-  completionTokens Int?
-
-  startedAt   DateTime
-  completedAt DateTime?
-  duration    Int?
-
-  error String? @db.Text
-
-  createdAt DateTime @default(now())
-
-  executionId String
-  execution   Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
-
-  @@index([executionId])
-  @@index([nodeId])
-  @@map("execution_logs")
-}
-
-enum NodeType {
+enum execution_logs_nodeType {
   TRIGGER
   INPUT
   PROCESS
@@ -688,830 +1227,63 @@ enum NodeType {
   NOTIFICATION
 }
 
-// ============================================
-// 输出文件
-// ============================================
-
-model OutputFile {
-  id       String @id @default(cuid())
-
-  // 文件基本信息
-  fileName    String              // 原始文件名
-  fileKey     String   @unique    // 存储路径/键 (用于云存储)
-  format      OutputFormat        // 输出格式
-  mimeType    String              // MIME 类型
-  size        Int                 // 文件大小 (字节)
-
-  // 存储信息
-  storageType StorageType @default(LOCAL)  // 存储类型
-  url         String?     @db.Text         // 完整访问 URL
-
-  // 下载控制
-  downloadCount Int       @default(0)      // 下载次数
-  maxDownloads  Int?                       // 最大下载次数限制
-  expiresAt     DateTime?                  // 过期时间
-
-  // 元数据
-  metadata Json?                           // 额外元数据 (如图片尺寸、视频时长等)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // 关联
-  executionId String
-  execution   Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
-
-  nodeId String                            // 生成此文件的节点 ID
-
-  organizationId String
-
-  @@index([executionId])
-  @@index([organizationId])
-  @@index([fileKey])
-  @@index([expiresAt])
-  @@map("output_files")
+enum execution_logs_status {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
 }
 
-enum OutputFormat {
-  TEXT
-  JSON
-  MARKDOWN
-  HTML
-  WORD
-  EXCEL
-  PDF
-  IMAGE
-  AUDIO
-  VIDEO
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+  CANCELLED
 }
 
-enum StorageType {
-  LOCAL       // 本地存储
-  ALIYUN_OSS  // 阿里云 OSS
-  AWS_S3      // AWS S3
-  CUSTOM      // 自定义存储
+enum TimeoutAction {
+  APPROVE
+  REJECT
+  NOTIFY
 }
 
-// ============================================
-// 审计日志
-// ============================================
-
-model AuditLog {
-  id         String  @id @default(cuid())
-  action     String
-  resource   String
-  resourceId String?
-  detail     Json?
-  ip         String?
-  userAgent  String? @db.Text
-
-  createdAt DateTime @default(now())
-
-  userId         String?
-  organizationId String?
-
-  @@index([userId])
-  @@index([organizationId])
-  @@index([createdAt])
-  @@map("audit_logs")
+enum NotificationType {
+  EMAIL
+  SYSTEM
 }
 
-// ============================================
-// 平台管理（Console）
-// ============================================
-
-model PlatformAdmin {
-  id           String       @id @default(cuid())
-  email        String       @unique
-  name         String?
-  passwordHash String
-  role         PlatformRole @default(OPERATOR)
-  isActive     Boolean      @default(true)
-  lastLoginAt  DateTime?
-
-  // 登录安全
-  loginAttempts    Int       @default(0)   // 登录失败次数
-  lockedUntil      DateTime?               // 锁定截止时间
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // 创建者（用于审计，首个超管为空）
-  createdById String?
-
-  // 关联
-  auditLogs PlatformAuditLog[]
-
-  @@index([email])
-  @@map("platform_admins")
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
 }
 
-enum PlatformRole {
-  SUPER_ADMIN // 超级管理员 - 全部权限
-  ADMIN       // 管理员 - 企业管理、用户管理
-  OPERATOR    // 运营 - 查看数据、处理工单
-  SUPPORT     // 客服 - 只读 + 工单处理
+enum DataPointType {
+  NUMBER
+  STRING
+  BOOLEAN
+  ARRAY
+  OBJECT
+  RATING
+  PERCENTAGE
 }
 
-model PlatformAuditLog {
-  id         String  @id @default(cuid())
-  action     String  // CREATE_ORG, UPDATE_ORG, DISABLE_ORG, CREATE_ADMIN, etc.
-  resource   String  // organization, user, plan, admin
-  resourceId String?
-  detail     Json?   // 详细变更内容
-  ip         String?
-  userAgent  String? @db.Text
-
-  createdAt DateTime @default(now())
-
-  adminId String
-  admin   PlatformAdmin @relation(fields: [adminId], references: [id])
-
-  @@index([adminId])
-  @@index([resource])
-  @@index([action])
-  @@index([createdAt])
-  @@map("platform_audit_logs")
+enum DataSourceType {
+  NODE_OUTPUT
+  EXECUTION_META
+  USER_FEEDBACK
+  CUSTOM
 }
 
-// 平台反馈（企业/员工向平台管理员提交的反馈）
-model PlatformFeedback {
-  id String @id @default(cuid())
-
-  // 反馈类型
-  type PlatformFeedbackType
-
-  // 反馈内容
-  title       String   // 反馈标题
-  content     String   @db.Text // 反馈详情
-  screenshots Json?    // 截图URL数组
-
-  // 反馈来源
-  source PlatformFeedbackSource // ENTERPRISE（企业端）或 EMPLOYEE（员工端）
-
-  // 关联信息（可选）
-  workflowId   String? // 相关工作流ID
-  workflow     Workflow? @relation(fields: [workflowId], references: [id])
-  executionId  String? // 相关执行ID
-
-  // 处理状态
-  status      PlatformFeedbackStatus @default(PENDING)
-  priority    PlatformFeedbackPriority @default(NORMAL)
-
-  // 处理信息
-  assignedTo  String?  // 分配给哪个管理员
-  reply       String?  @db.Text // 管理员回复
-  repliedAt   DateTime? // 回复时间
-  resolvedAt  DateTime? // 解决时间
-
-  // 提交者信息
-  userId         String
-  user           User         @relation(fields: [userId], references: [id])
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([organizationId])
-  @@index([userId])
-  @@index([status])
-  @@index([type])
-  @@index([createdAt])
-  @@map("platform_feedbacks")
-}
-
-enum PlatformFeedbackType {
-  BUG           // 问题报告
-  FEATURE       // 功能建议
-  IMPROVEMENT   // 改进建议
-  ACCURACY      // 准确率问题
-  OTHER         // 其他
-}
-
-enum PlatformFeedbackSource {
-  ENTERPRISE    // 企业端（管理员）
-  EMPLOYEE      // 员工端
-}
-
-enum PlatformFeedbackStatus {
-  PENDING       // 待处理
-  PROCESSING    // 处理中
-  REPLIED       // 已回复
-  RESOLVED      // 已解决
-  CLOSED        // 已关闭
-}
-
-enum PlatformFeedbackPriority {
-  LOW           // 低优先级
-  NORMAL        // 普通
-  HIGH          // 高优先级
-  URGENT        // 紧急
-}
-
-// 系统日志（用于记录系统级别的事件）
-model SystemLog {
-  id        String   @id @default(cuid())
-  level     LogLevel @default(INFO)
-  category  String   // scheduler, queue, workflow, system, error
-  message   String   @db.Text
-  detail    Json?    // 详细信息
-  source    String?  // 来源模块
-  traceId   String?  // 追踪ID
-  createdAt DateTime @default(now())
-
-  @@index([level])
-  @@index([category])
-  @@index([createdAt])
-  @@map("system_logs")
-}
-
-enum LogLevel {
-  DEBUG
-  INFO
-  WARN
-  ERROR
-  FATAL
-}
-
-// ============================================
-// 企业申请（自助注册审批）
-// ============================================
-
-model OrgApplication {
-  id String @id @default(cuid())
-
-  // 企业信息
-  orgName     String   // 企业名称
-  industry    String?  // 所属行业
-  website     String?  // 企业网站
-  phone       String?  // 联系电话
-  address     String?  // 地址
-  description String?  @db.Text // 企业简介
-
-  // 申请人信息（将成为企业主）
-  contactName  String  // 联系人姓名
-  contactEmail String  // 联系人邮箱
-  contactPhone String? // 联系人电话
-
-  // 申请状态
-  status       ApplicationStatus @default(PENDING)
-  rejectReason String?           // 拒绝原因
-
-  // 审批信息
-  reviewedAt   DateTime? // 审批时间
-  reviewedById String?   // 审批人ID
-
-  // 转化信息（审批通过后）
-  organizationId String? // 创建的企业ID
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([status])
-  @@index([contactEmail])
-  @@index([createdAt])
-  @@map("org_applications")
-}
-
-enum ApplicationStatus {
-  PENDING  // 待审批
-  APPROVED // 已通过
-  REJECTED // 已拒绝
-}
-
-// ============================================
-// 知识库 RAG 系统
-// ============================================
-
-model KnowledgeBase {
-  id             String   @id @default(cuid())
-  name           String
-  description    String?  @db.Text
-
-  // 向量化配置
-  embeddingModel   String  @default("text-embedding-ada-002")
-  embeddingProvider AIProvider @default(OPENAI)
-  chunkSize        Int     @default(1000)  // 分块大小（字符数）
-  chunkOverlap     Int     @default(200)   // 分块重叠
-
-  // 向量存储配置
-  vectorStoreType   VectorStoreType @default(PGVECTOR)
-  vectorStoreConfig Json            @default("{}")  // 向量数据库连接配置
-
-  // 统计信息
-  documentCount Int @default(0)
-  chunkCount    Int @default(0)
-  totalSize     Int @default(0)  // 总文件大小（字节）
-
-  // 状态
-  isActive Boolean @default(true)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // 关联
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  creatorId String?  // 创建者
-
-  documents   KnowledgeDocument[]
-  permissions KnowledgeBasePermission[]
-  bm25IndexCache BM25IndexCache?
-
-  @@index([organizationId])
-  @@index([isActive])
-  @@index([creatorId])
-  @@map("knowledge_bases")
-}
-
-// ============================================
-// BM25 索引缓存
-// ============================================
-
-model BM25IndexCache {
-  id              String   @id @default(cuid())
-  knowledgeBaseId String   @unique
-  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
-
-  indexData       String   @db.Text  // JSON 序列化的索引数据
-  documentCount   Int      @default(0)
-  termCount       Int      @default(0)
-
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  @@map("bm25_index_cache")
-}
-
-// ============================================
-// Embedding 使用量记录
-// ============================================
-
-model EmbeddingUsage {
-  id              String   @id @default(cuid())
-  provider        String   // 提供商名称
-  model           String   // 模型名称
-  tokenCount      Int      // Token 数量
-  requestCount    Int      @default(1) // 请求次数
-  knowledgeBaseId String?  // 关联的知识库 ID
-  documentId      String?  // 关联的文档 ID
-  organizationId  String   // 组织 ID
-
-  createdAt       DateTime @default(now())
-
-  @@index([organizationId])
-  @@index([knowledgeBaseId])
-  @@index([createdAt])
-  @@map("embedding_usage")
-}
-
-// ============================================
-// 知识库权限
-// ============================================
-
-model KnowledgeBasePermission {
-  id String @id @default(cuid())
-
-  // 权限级别
-  permission ResourcePermission
-
-  // 权限目标类型和ID
-  targetType PermissionTargetType
-  targetId   String?  // 当 targetType 为 ALL 时为 null
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // 关联知识库
-  knowledgeBaseId String
-  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
-
-  // 关联部门（当 targetType 为 DEPARTMENT 时）
-  departmentId String?
-  department   Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade)
-
-  // 创建者
-  createdById String
-
-  @@unique([knowledgeBaseId, targetType, targetId])
-  @@index([knowledgeBaseId])
-  @@index([targetType, targetId])
-  @@index([departmentId])
-  @@map("knowledge_base_permissions")
-}
-
-enum VectorStoreType {
-  PGVECTOR    // PostgreSQL pgvector 扩展
-  PINECONE    // Pinecone 向量数据库
-  QDRANT      // Qdrant 向量数据库
-  MILVUS      // Milvus 向量数据库
-  MEMORY      // 内存存储（仅开发测试）
-}
-
-model KnowledgeDocument {
-  id              String   @id @default(cuid())
-
-  // 文件信息
-  fileName        String
-  fileType        String          // pdf, docx, md, txt 等
-  fileSize        Int             // 文件大小（字节）
-  fileUrl         String?         // 原始文件存储 URL
-  fileKey         String?         // 存储路径/键
-
-  // 处理状态
-  status          DocProcessStatus @default(PENDING)
-  errorMessage    String?          @db.Text
-
-  // 处理结果
-  chunkCount      Int       @default(0)
-  processedAt     DateTime?
-
-  // 元数据
-  metadata        Json      @default("{}")  // 额外信息如页数、字数等
-
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  // 关联
-  knowledgeBaseId String
-  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
-
-  uploadedById    String?  // 上传者
-
-  chunks          DocumentChunk[]
-
-  @@index([knowledgeBaseId])
-  @@index([status])
-  @@map("knowledge_documents")
-}
-
-enum DocProcessStatus {
-  PENDING     // 待处理
-  PROCESSING  // 处理中
-  COMPLETED   // 已完成
-  FAILED      // 失败
-}
-
-model DocumentChunk {
-  id          String @id @default(cuid())
-
-  // 内容
-  content     String @db.Text        // 分块文本内容
-
-  // 向量（存储为 JSON 数组，实际向量检索使用 pgvector）
-  embedding   Json?                  // 向量数据 [0.1, 0.2, ...]
-
-  // 位置信息
-  chunkIndex  Int                    // 分块序号
-  startOffset Int?                   // 在原文中的起始位置
-  endOffset   Int?                   // 在原文中的结束位置
-
-  // 元数据
-  metadata    Json   @default("{}")  // 页码、章节等信息
-
-  createdAt   DateTime @default(now())
-
-  // 关联
-  documentId  String
-  document    KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
-
-  @@index([documentId])
-  @@index([chunkIndex])
-  @@map("document_chunks")
-}
-
-// ============================================
-// 工作流版本管理
-// ============================================
-
-model WorkflowVersion {
-  id          String   @id @default(cuid())
-
-  // 版本信息
-  versionNumber    Int              // 版本号（递增）
-  versionTag       String?          // 版本标签 (如 "v1.0.0")
-  commitMessage    String  @db.Text // 提交说明
-
-  // 完整配置快照
-  config           Json             // 工作流配置快照
-
-  // 版本类型
-  versionType      VersionType      @default(MANUAL)
-
-  // 版本状态
-  isPublished      Boolean          @default(false)  // 是否发布
-  isActive         Boolean          @default(false)  // 是否为当前活跃版本
-
-  // 变更摘要
-  changesSummary   Json?            // { nodesAdded: [], nodesRemoved: [], nodesModified: [] }
-
-  // 统计信息（该版本的执行统计）
-  executionCount   Int              @default(0)
-  successRate      Float?           // 成功率
-  avgRating        Float?           // 平均评分
-
-  // 来源追踪
-  sourceVersionId  String?          // 从哪个版本分叉
-  optimizationIds  Json?            // 关联的优化建议IDs
-
-  createdAt        DateTime         @default(now())
-
-  // 关联
-  workflowId       String
-  workflow         Workflow         @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-
-  createdById      String           // 创建者
-
-  @@unique([workflowId, versionNumber])
-  @@index([workflowId])
-  @@index([isActive])
-  @@index([createdAt])
-  @@map("workflow_versions")
-}
-
-enum VersionType {
-  MANUAL           // 手动提交
-  AUTO_SAVE        // 自动保存
-  OPTIMIZATION     // AI 优化生成
-  ROLLBACK         // 回滚生成
-}
-
-// ============================================
-// 执行反馈
-// ============================================
-
-model ExecutionFeedback {
-  id          String   @id @default(cuid())
-
-  // 准确度评分 (1-5星)
-  rating      Int      // 1-5 星评分
-  isAccurate  Boolean  // 结果是否准确
-
-  // 反馈详情
-  expectedOutput   String?  @db.Text  // 期望的正确答案
-  actualOutput     String?  @db.Text  // 实际输出（快照）
-  feedbackComment  String?  @db.Text  // 用户反馈说明
-
-  // 问题分类（用户选择或AI识别）
-  issueCategories  Json     @default("[]")  // ["KNOWLEDGE_BASE", "PROMPT", "MODEL", ...]
-
-  // AI 诊断结果
-  aiDiagnosis      Json?    // AI 分析的诊断结果
-  diagnosedAt      DateTime?
-
-  // 优化状态
-  optimizationStatus OptimizationStatus @default(PENDING)
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // 关联
-  executionId String
-  execution   Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
-
-  userId      String   // 反馈提交者
-
-  suggestions OptimizationSuggestion[]
-
-  @@index([executionId])
-  @@index([userId])
-  @@index([rating])
-  @@index([isAccurate])
-  @@index([createdAt])
-  @@index([optimizationStatus])
-  @@map("execution_feedbacks")
-}
-
-enum OptimizationStatus {
-  PENDING      // 待处理
-  ANALYZING    // AI 分析中
-  SUGGESTED    // 已生成建议
-  APPLIED      // 已应用优化
-  REJECTED     // 已拒绝
-  INEFFECTIVE  // 优化无效
-}
-
-// ============================================
-// AI 优化建议
-// ============================================
-
-model OptimizationSuggestion {
-  id          String   @id @default(cuid())
-
-  // 问题诊断
-  issueType        IssueCategory
-  issueDescription String   @db.Text  // 问题描述
-  rootCause        String   @db.Text  // 根因分析
-
-  // 优化建议
-  suggestionType   SuggestionType
-  suggestionTitle  String            // 建议标题
-  suggestionDetail String   @db.Text // 详细说明
-
-  // 具体修改内容（JSON格式）
-  suggestedChanges Json     // { nodeId, field, oldValue, newValue, explanation }
-
-  // 置信度和优先级
-  confidence      Float    @default(0.5)  // 0-1 置信度
-  priority        Int      @default(0)    // 优先级排序
-
-  // 应用状态
-  status          SuggestionStatus @default(PENDING)
-  appliedAt       DateTime?
-  appliedById     String?
-
-  // 效果追踪
-  effectivenessScore Float?  // 应用后的效果评分
-
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  // 关联到反馈
-  feedbackId      String
-  feedback        ExecutionFeedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
-
-  // 关联到工作流
-  workflowId      String
-
-  @@index([feedbackId])
-  @@index([workflowId])
-  @@index([status])
-  @@index([suggestionType])
-  @@index([priority])
-  @@map("optimization_suggestions")
-}
-
-enum IssueCategory {
-  KNOWLEDGE_BASE    // 知识库内容不足或不准确
-  PROMPT_UNCLEAR    // 提示词不够具体/清晰
-  PROMPT_WRONG      // 提示词逻辑错误
-  MODEL_CAPABILITY  // 模型能力不足
-  MODEL_CONFIG      // 模型配置不当（temperature等）
-  INPUT_QUALITY     // 输入数据质量问题
-  CONTEXT_MISSING   // 上下文信息缺失
-  LOGIC_ERROR       // 工作流逻辑错误
-  OTHER             // 其他原因
-}
-
-enum SuggestionType {
-  PROMPT_OPTIMIZATION     // 提示词优化
-  KNOWLEDGE_UPDATE        // 知识库更新
-  MODEL_CHANGE            // 更换模型
-  MODEL_CONFIG_ADJUST     // 调整模型参数
-  ADD_NODE                // 添加节点
-  REMOVE_NODE             // 移除节点
-  MODIFY_FLOW             // 修改流程
-  INPUT_VALIDATION        // 增加输入校验
-  OTHER                   // 其他
-}
-
-enum SuggestionStatus {
-  PENDING   // 待处理
-  APPROVED  // 已批准
-  APPLIED   // 已应用
-  REJECTED  // 已拒绝
-  REVERTED  // 已撤销
-}
-
-// ============================================
-// 工作流统计分析
-// ============================================
-
-model WorkflowAnalytics {
-  id          String   @id @default(cuid())
-
-  // 时间周期
-  periodType       AnalyticsPeriod  // DAILY, WEEKLY, MONTHLY
-  periodStart      DateTime
-  periodEnd        DateTime
-
-  // 执行统计
-  totalExecutions  Int      @default(0)
-  successCount     Int      @default(0)
-  failureCount     Int      @default(0)
-  cancelledCount   Int      @default(0)
-
-  // 反馈统计
-  feedbackCount    Int      @default(0)
-  accurateCount    Int      @default(0)  // isAccurate = true
-  inaccurateCount  Int      @default(0)  // isAccurate = false
-  avgRating        Float?               // 平均评分
-
-  // 问题分类统计
-  issueBreakdown   Json?    // { "KNOWLEDGE_BASE": 10, "PROMPT": 5, ... }
-
-  // 性能统计
-  avgDuration      Int?     // 平均执行时长(ms)
-  avgTokens        Int?     // 平均 Token 消耗
-
-  // 优化统计
-  suggestionsCount Int      @default(0)
-  appliedCount     Int      @default(0)
-
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  // 关联
-  workflowId       String
-
-  @@unique([workflowId, periodType, periodStart])
-  @@index([workflowId])
-  @@index([periodType])
-  @@index([periodStart])
-  @@map("workflow_analytics")
-}
-
-enum AnalyticsPeriod {
-  DAILY
-  WEEKLY
-  MONTHLY
-}
-
-// ============================================
-// 工作流表单分享
-// ============================================
-
-model WorkflowForm {
-  id              String   @id @default(cuid())
-  name            String   // 表单名称
-  description     String?  @db.Text // 表单描述
-  shareToken      String   @unique // 分享链接 token
-
-  // 表单配置
-  isActive        Boolean  @default(true) // 是否启用
-  expiresAt       DateTime? // 过期时间
-  maxSubmissions  Int?     // 最大提交次数限制
-  submissionCount Int      @default(0) // 已提交次数
-
-  // 显示设置
-  showResult      Boolean  @default(true) // 是否显示执行结果
-  successMessage  String?  @db.Text // 提交成功消息
-  theme           String   @default("default") // 表单主题
-
-  // AI 网页模式
-  mode            FormMode @default(FORM) // 表单模式
-  stylePrompt     String?  @db.Text // AI 风格描述
-  htmlTemplate    String?  @db.LongText // AI 生成的 HTML 模板
-  cssStyles       String?  @db.LongText // AI 生成的 CSS 样式
-
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  // 关联
-  workflowId      String
-  workflow        Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-
-  createdById     String // 创建者 ID
-
-  submissions     WorkflowFormSubmission[]
-
-  @@index([workflowId])
-  @@index([shareToken])
-  @@index([isActive])
-  @@map("workflow_forms")
-}
-
-enum FormMode {
-  FORM    // 标准表单
-  AI_PAGE // AI 网页模式
-}
-
-model WorkflowFormSubmission {
-  id            String   @id @default(cuid())
-
-  // 提交数据
-  inputData     Json     // 表单输入数据
-
-  // 执行关联
-  executionId   String?  // 关联的工作流执行 ID
-
-  // 提交者信息
-  submitterIp   String?  // 提交者 IP
-  submitterInfo Json?    // 其他提交者信息 (如 user-agent)
-
-  // 结果
-  status        FormSubmissionStatus @default(PENDING)
-  result        Json?    // 执行结果
-  errorMessage  String?  @db.Text
-
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  // 关联
-  formId        String
-  form          WorkflowForm @relation(fields: [formId], references: [id], onDelete: Cascade)
-
-  @@index([formId])
-  @@index([status])
-  @@index([createdAt])
-  @@map("workflow_form_submissions")
-}
-
-enum FormSubmissionStatus {
-  PENDING   // 待处理
-  RUNNING   // 执行中
-  COMPLETED // 已完成
-  FAILED    // 失败
+enum VisualizationType {
+  LINE
+  BAR
+  PIE
+  AREA
+  SCATTER
+  HEATMAP
+  GAUGE
+  TABLE
 }

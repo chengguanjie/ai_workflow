@@ -8,10 +8,9 @@
 import { prisma } from '@/lib/db'
 import { generateEmbedding, cosineSimilarity } from './embedding'
 import { countTokens, truncateToTokenLimit } from './tokenizer'
-import { getDefaultVectorStore, getVectorStoreForKnowledgeBase } from './vector-store'
+import { getVectorStoreForKnowledgeBase } from './vector-store'
 import { BM25Index, segment } from './bm25'
 import { expandSearchResults, type WindowExpansionOptions, type ExpandedSearchResult } from './window-expansion'
-import type { VectorStore, VectorStoreConfig } from './vector-store'
 import type { AIProvider, VectorStoreType } from '@prisma/client'
 
 // BM25 索引缓存
@@ -263,7 +262,7 @@ export async function hybridSearch(
   const normalizedKeywordWeight = keywordWeight / totalWeight
 
   // 提取查询关键词
-  const keywords = extractKeywords(options.query)
+  const keywords = await extractKeywordsFromQuery(options.query)
 
   // 并行执行向量搜索和关键词搜索
   const [vectorResults, keywordResults] = await Promise.all([
@@ -355,20 +354,6 @@ async function extractKeywordsFromQuery(query: string): Promise<string[]> {
       .split(/[\s,，。.!！?？、；;：:""''「」【】（）()]+/)
       .filter(k => k.length > 1)
   }
-}
-
-/**
- * 同步版本的提取关键词（兼容旧代码）
- */
-function extractKeywords(query: string): string[] {
-  // 中英文分词（简单版本）
-  const keywords = query
-    .toLowerCase()
-    .split(/[\s,，。.!！?？、；;：:""''「」【】（）()]+/)
-    .filter(k => k.length > 1)
-
-  // 去重
-  return Array.from(new Set(keywords))
 }
 
 /**

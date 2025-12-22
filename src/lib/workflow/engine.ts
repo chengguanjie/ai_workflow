@@ -3,14 +3,13 @@
  */
 
 import { prisma } from '@/lib/db'
-import type { WorkflowConfig, NodeConfig, EdgeConfig, LoopNodeConfig, MergeNodeConfig, ParallelErrorStrategy } from '@/types/workflow'
+import type { WorkflowConfig, NodeConfig, LoopNodeConfig, MergeNodeConfig, ParallelErrorStrategy } from '@/types/workflow'
 import type {
   ExecutionContext,
   ExecutionResult,
   NodeOutput,
-  ExecutionStatus,
 } from './types'
-import { getExecutionOrder, getConditionBranchNodes, isConditionNode, getLoopBodyNodes, isLoopNode, getParallelExecutionLayers, isMergeNode as utilIsMergeNode, getPredecessorIds, type ExecutionLayer } from './utils'
+import { getExecutionOrder, getConditionBranchNodes, isConditionNode, getLoopBodyNodes, isLoopNode, getParallelExecutionLayers, getPredecessorIds } from './utils'
 import { getProcessor, outputNodeProcessor } from './processors'
 import {
   type LoopState,
@@ -29,6 +28,7 @@ import {
   createWorkflowHash,
   clearCheckpoint,
 } from './checkpoint'
+import { createAnalyticsCollector, type AnalyticsCollector } from './analytics-collector'
 
 /**
  * 检查节点是否为 MERGE 节点
@@ -58,6 +58,9 @@ export class WorkflowEngine {
   private checkpoint: CheckpointData | null = null
   private workflowHash: string
   private lastFailedNodeId: string | null = null
+
+  // 分析数据收集器
+  private analyticsCollector: AnalyticsCollector | null = null
 
   constructor(
     workflowId: string,
@@ -175,6 +178,20 @@ export class WorkflowEngine {
       },
     })
 
+    // 获取用户部门信息（用于分析数据）
+    const user = await prisma.user.findUnique({
+      where: { id: this.userId },
+      select: { departmentId: true },
+    })
+
+    // 初始化分析数据收集器
+    this.analyticsCollector = await createAnalyticsCollector(
+      this.workflowId,
+      this.userId,
+      execution.id,
+      user?.departmentId || undefined
+    )
+
     // 创建执行上下文
     const context: ExecutionContext = {
       executionId: execution.id,
@@ -193,6 +210,68 @@ export class WorkflowEngine {
     // 如果有检查点，恢复状态
     if (this.checkpoint) {
       this.restoreFromCheckpoint(context)
+    }
+
+    // Handle resume from approval - inject approval result into context
+    if (initialInput?._resumeFromApproval) {
+      const resumeData = initialInput._resumeFromApproval as {
+        approvalRequestId: string
+        approvalNodeId: string
+        checkpoint: {
+          completedNodes: Record<string, { output: NodeOutput }>
+          context: { nodeResults: Record<string, unknown> }
+          approvalResult: Record<string, unknown>
+        }
+      }
+
+      // Find the approval node name
+      const approvalNode = this.config.nodes.find(n => n.id === resumeData.approvalNodeId)
+      const approvalNodeName = approvalNode?.name || 'approval'
+
+      // Create the approval output
+      const approvalOutput: NodeOutput = {
+        nodeId: resumeData.approvalNodeId,
+        nodeName: approvalNodeName,
+        nodeType: 'APPROVAL',
+        status: 'success',
+        data: resumeData.checkpoint.approvalResult,
+        startedAt: new Date(),
+        completedAt: new Date(),
+        duration: 0,
+      }
+
+      // Inject approval result into node outputs
+      context.nodeOutputs.set(resumeData.approvalNodeId, approvalOutput)
+
+      // Also set by node name for variable replacement
+      context.nodeOutputs.set(approvalNodeName, approvalOutput)
+
+      // Mark the approval node as completed
+      this.completedNodes.add(resumeData.approvalNodeId)
+
+      // Mark all nodes before the approval node as completed (they were already executed)
+      const executionOrder = getExecutionOrder(this.config.nodes, this.config.edges)
+      for (const node of executionOrder) {
+        if (node.id === resumeData.approvalNodeId) {
+          break // Stop when we reach the approval node
+        }
+        this.completedNodes.add(node.id)
+        // Create a placeholder output for skipped nodes if not already present
+        if (!context.nodeOutputs.has(node.id)) {
+          context.nodeOutputs.set(node.id, {
+            nodeId: node.id,
+            nodeName: node.name,
+            nodeType: node.type,
+            status: 'success',
+            data: {},
+            startedAt: new Date(),
+            completedAt: new Date(),
+            duration: 0,
+          })
+        }
+      }
+
+      console.log(`[Engine] Resuming from approval node: ${approvalNodeName} (${resumeData.approvalNodeId})`)
     }
 
     try {
@@ -259,6 +338,15 @@ export class WorkflowEngine {
       // 清除检查点（执行成功）
       await clearCheckpoint(execution.id)
 
+      // 收集执行元数据用于分析
+      if (this.analyticsCollector) {
+        await this.analyticsCollector.collectExecutionMeta(
+          duration,
+          totalTokens,
+          'COMPLETED'
+        )
+      }
+
       // 更新执行记录为完成
       await prisma.execution.update({
         where: { id: execution.id },
@@ -298,6 +386,15 @@ export class WorkflowEngine {
         console.error('[Engine] Failed to save checkpoint:', checkpointError)
       }
 
+      // 收集执行元数据用于分析
+      if (this.analyticsCollector) {
+        await this.analyticsCollector.collectExecutionMeta(
+          duration,
+          0, // Failed executions have 0 total tokens
+          'FAILED'
+        )
+      }
+
       // 更新执行记录为失败
       await prisma.execution.update({
         where: { id: execution.id },
@@ -333,8 +430,7 @@ export class WorkflowEngine {
    */
   private handleConditionBranching(
     conditionNode: NodeConfig,
-    result: NodeOutput,
-    allNodes: NodeConfig[]
+    result: NodeOutput
   ): void {
     const conditionResult = result.data?.result === true || result.data?.conditionsMet === true
     
@@ -399,16 +495,16 @@ export class WorkflowEngine {
     const bodyNodes = this.config.nodes.filter(n => bodyNodeIds.includes(n.id))
     const bodyExecutionOrder = getExecutionOrder(bodyNodes, this.config.edges.filter(
       e => bodyNodeIds.includes(e.source) && bodyNodeIds.includes(e.target)
-    ))
-    
-    let state: LoopState
-    const { loopType, forConfig, whileConfig, maxIterations } = loopNode.config
-    
-    if (loopType === 'FOR') {
-      state = initializeForLoop(loopNode, context)
-    } else {
-      state = initializeWhileLoop(loopNode, context)
-    }
+	    ))
+	    
+	    let state: LoopState
+	    const { loopType, whileConfig } = loopNode.config
+	    
+	    if (loopType === 'FOR') {
+	      state = initializeForLoop(loopNode, context)
+	    } else {
+	      state = initializeWhileLoop(loopNode, context)
+	    }
     
     this.loopStates.set(loopNode.id, state)
     this.loopIterationResults.set(loopNode.id, [])
@@ -462,15 +558,18 @@ export class WorkflowEngine {
         outputs: iterationOutputs,
         success: true,
       })
-      
-      if (loopType === 'FOR') {
-        state = advanceForLoop(state)
-      } else {
-        state = advanceWhileLoop(state, whileConfig!.condition, context)
-      }
-      
-      this.loopStates.set(loopNode.id, state)
-    }
+	      
+	      if (loopType === 'FOR') {
+	        state = advanceForLoop(state)
+	      } else {
+	        if (!whileConfig) {
+	          throw new Error('WHILE 循环缺少 whileConfig 配置')
+	        }
+	        state = advanceWhileLoop(state, whileConfig.condition, context)
+	      }
+	      
+	      this.loopStates.set(loopNode.id, state)
+	    }
     
     const iterationResults = this.loopIterationResults.get(loopNode.id) || []
     context.nodeOutputs.set(loopNode.id, {
@@ -526,6 +625,15 @@ export class WorkflowEngine {
 
     // 保存到上下文
     context.nodeOutputs.set(node.id, result)
+
+    // 收集节点输出数据用于分析（仅在成功时）
+    if (this.analyticsCollector && result.status === 'success' && result.data) {
+      await this.analyticsCollector.collectNodeOutput(
+        node.id,
+        node.name,
+        result.data
+      )
+    }
 
     return result
   }
@@ -613,6 +721,9 @@ export class WorkflowEngine {
     promptTokens: number
     completionTokens: number
     lastOutput: Record<string, unknown>
+    paused?: boolean
+    pausedNodeId?: string
+    approvalRequestId?: string
   }> {
     let totalTokens = 0
     let promptTokens = 0
@@ -628,6 +739,15 @@ export class WorkflowEngine {
       if (this.isNodeRestoredFromCheckpoint(node.id)) {
         console.log(`[Engine] Skipping restored node: ${node.name}`)
         // 发送节点完成事件（显示为已恢复）
+        executionEvents.nodeComplete(executionId, node.id, node.name, node.type,
+          context.nodeOutputs.get(node.id))
+        continue
+      }
+
+      // 检查是否已完成（例如从审批恢复时的节点）
+      if (this.completedNodes.has(node.id)) {
+        console.log(`[Engine] Skipping already completed node: ${node.name}`)
+        // 发送节点完成事件
         executionEvents.nodeComplete(executionId, node.id, node.name, node.type,
           context.nodeOutputs.get(node.id))
         continue
@@ -662,6 +782,27 @@ export class WorkflowEngine {
         throw new Error(`节点 "${node.name}" 执行失败: ${result.error}`)
       }
 
+      // Handle APPROVAL node pause - workflow needs to wait for human approval
+      if (result.status === 'paused' && result.approvalRequestId) {
+        // 发送执行暂停事件
+        executionEvents.executionPaused(executionId, node.id, result.approvalRequestId)
+        // Return partial result - the workflow is paused
+        return {
+          totalTokens,
+          promptTokens,
+          completionTokens,
+          lastOutput: {
+            _paused: true,
+            _pausedNodeId: node.id,
+            _approvalRequestId: result.approvalRequestId,
+            ...result.data,
+          },
+          paused: true,
+          pausedNodeId: node.id,
+          approvalRequestId: result.approvalRequestId,
+        }
+      }
+
       if (result.tokenUsage) {
         totalTokens += result.tokenUsage.totalTokens
         promptTokens += result.tokenUsage.promptTokens
@@ -669,7 +810,7 @@ export class WorkflowEngine {
       }
 
       if (isConditionNode(node)) {
-        this.handleConditionBranching(node, result, this.config.nodes)
+        this.handleConditionBranching(node, result)
       }
 
       if (node.type === 'OUTPUT') {
@@ -809,9 +950,9 @@ export class WorkflowEngine {
           completionTokens += result.tokenUsage.completionTokens
         }
 
-        if (isConditionNode(node)) {
-          this.handleConditionBranching(node, result, this.config.nodes)
-        }
+      if (isConditionNode(node)) {
+          this.handleConditionBranching(node, result)
+      }
 
         if (node.type === 'OUTPUT') {
           lastOutput = result.data || {}
@@ -874,6 +1015,13 @@ export class WorkflowEngine {
 /**
  * 创建并执行工作流
  */
+/**
+ * Execution mode for Draft/Published mechanism
+ * - 'production': Uses publishedConfig (for production runs, webhooks, scheduled triggers)
+ * - 'draft': Uses draftConfig (for testing in editor)
+ */
+export type ExecutionMode = 'production' | 'draft'
+
 export async function executeWorkflow(
   workflowId: string,
   organizationId: string,
@@ -881,8 +1029,12 @@ export async function executeWorkflow(
   initialInput?: Record<string, unknown>,
   options?: {
     resumeFromExecutionId?: string
+    /** Execution mode: 'production' uses publishedConfig, 'draft' uses draftConfig */
+    mode?: ExecutionMode
   }
 ): Promise<ExecutionResult> {
+  const mode = options?.mode ?? 'production'
+
   // 获取工作流配置
   const workflow = await prisma.workflow.findFirst({
     where: {
@@ -890,13 +1042,31 @@ export async function executeWorkflow(
       organizationId,
       deletedAt: null,
     },
+    select: {
+      id: true,
+      config: true,
+      draftConfig: true,
+      publishedConfig: true,
+      publishStatus: true,
+    },
   })
 
   if (!workflow) {
     throw new Error('工作流不存在或无权访问')
   }
 
-  const config = workflow.config as unknown as WorkflowConfig
+  // Select config based on execution mode (Draft/Published mechanism)
+  let config: WorkflowConfig
+
+  if (mode === 'production') {
+    // Production mode: prefer publishedConfig, fallback to config
+    const rawConfig = workflow.publishedConfig || workflow.config
+    config = rawConfig as unknown as WorkflowConfig
+  } else {
+    // Draft mode: prefer draftConfig, fallback to config
+    const rawConfig = workflow.draftConfig || workflow.config
+    config = rawConfig as unknown as WorkflowConfig
+  }
 
   if (!config || !config.nodes || !config.edges) {
     throw new Error('工作流配置无效')

@@ -111,6 +111,31 @@ const AI_PROVIDERS = [
       code: 'anthropic/claude-opus-4.5',
     } as Record<ModelModality, string>,
   },
+  {
+    id: 'OPENAI',
+    name: 'AIGO / OpenAI兼容',
+    description: '适用于 AIGO / OneAPI / 自建网关（OpenAI Chat Completions 兼容）',
+    placeholder: 'sk-...',
+    defaultBaseUrl: 'https://api.openai.com/v1',
+    modelsByModality: {
+      text: [
+        { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', description: 'Claude 3.5（原生模型 ID）' },
+        { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', description: '更快更便宜（原生模型 ID）' },
+        { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus', description: '强推理（原生模型 ID）' },
+        { id: 'anthropic/claude-sonnet-4.5', name: 'Claude Sonnet 4.5', description: '部分网关使用 OpenRouter 风格 ID' },
+        { id: 'anthropic/claude-opus-4.5', name: 'Claude Opus 4.5', description: '部分网关使用 OpenRouter 风格 ID' },
+      ],
+      code: [
+        { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', description: '代码与推理' },
+        { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus', description: '更强代码能力' },
+        { id: 'anthropic/claude-opus-4.5', name: 'Claude Opus 4.5', description: '部分网关使用 OpenRouter 风格 ID' },
+      ],
+    } as Record<ModelModality, { id: string; name: string; description: string }[]>,
+    defaultModels: {
+      text: 'claude-3-5-sonnet-20241022',
+      code: 'claude-3-5-sonnet-20241022',
+    } as Record<ModelModality, string>,
+  },
 ] as const
 
 // 获取模型显示名称

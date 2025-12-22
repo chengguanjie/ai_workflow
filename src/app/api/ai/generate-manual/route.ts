@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
-import { decryptApiKey } from '@/lib/crypto'
+import { safeDecryptApiKey } from '@/lib/crypto'
 import { aiService } from '@/lib/ai'
 
 // 节点类型中文名称映射
@@ -186,7 +186,7 @@ export async function POST(request: NextRequest) {
         temperature: 0.7,
         maxTokens: 4000,
       },
-      decryptApiKey(apiKey.keyEncrypted),
+      safeDecryptApiKey(apiKey.keyEncrypted),
       apiKey.baseUrl || undefined
     )
 

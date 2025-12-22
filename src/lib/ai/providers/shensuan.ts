@@ -1,6 +1,7 @@
 // 胜算云 API Provider (OpenAI 兼容)
 
 import type { AIProvider, ChatRequest, ChatResponse, Model, TranscriptionOptions, TranscriptionResponse, ContentPart } from '../types'
+import { fetchWithTimeout } from '@/lib/http/fetch-with-timeout'
 
 const DEFAULT_SHENSUAN_BASE_URL = process.env.SHENSUAN_BASE_URL || 'https://router.shengsuanyun.com/api/v1'
 
@@ -15,7 +16,7 @@ export class ShensuanProvider implements AIProvider {
       content: this.normalizeContent(m.content)
     }))
 
-    const response = await fetch(`${url}/chat/completions`, {
+    const response = await fetchWithTimeout(`${url}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -28,6 +29,7 @@ export class ShensuanProvider implements AIProvider {
         max_tokens: request.maxTokens ?? 2048,
         stream: false,
       }),
+      timeoutMs: 90_000,
     })
 
     if (!response.ok) {
@@ -51,10 +53,11 @@ export class ShensuanProvider implements AIProvider {
 
   async listModels(apiKey: string, baseUrl?: string): Promise<Model[]> {
     const url = baseUrl || DEFAULT_SHENSUAN_BASE_URL
-    const response = await fetch(`${url}/models`, {
+    const response = await fetchWithTimeout(`${url}/models`, {
       headers: {
         Authorization: `Bearer ${apiKey}`,
       },
+      timeoutMs: 30_000,
     })
 
     if (!response.ok) {
@@ -85,7 +88,7 @@ export class ShensuanProvider implements AIProvider {
     const mimeType = this.detectAudioMimeType(options.model || 'audio.mp3')
     const dataUrl = `data:${mimeType};base64,${base64Audio}`
 
-    const response = await fetch(`${url}/audio/transcriptions`, {
+    const response = await fetchWithTimeout(`${url}/audio/transcriptions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -98,6 +101,7 @@ export class ShensuanProvider implements AIProvider {
         prompt: options.prompt,
         response_format: options.responseFormat || 'json',
       }),
+      timeoutMs: 120_000,
     })
 
     if (!response.ok) {
@@ -127,7 +131,7 @@ export class ShensuanProvider implements AIProvider {
   ): Promise<TranscriptionResponse> {
     const url = baseUrl || DEFAULT_SHENSUAN_BASE_URL
 
-    const response = await fetch(`${url}/audio/transcriptions`, {
+    const response = await fetchWithTimeout(`${url}/audio/transcriptions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -140,6 +144,7 @@ export class ShensuanProvider implements AIProvider {
         prompt: options.prompt,
         response_format: options.responseFormat || 'json',
       }),
+      timeoutMs: 120_000,
     })
 
     if (!response.ok) {

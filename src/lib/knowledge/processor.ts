@@ -16,7 +16,6 @@ import type { VectorDocument } from './vector-store'
 import type { AIProvider, DocProcessStatus } from '@prisma/client'
 
 const CONCURRENT_DOCUMENT_LIMIT = 3
-const CONCURRENT_EMBEDDING_BATCH = 10
 
 export interface ProcessDocumentOptions {
   documentId: string

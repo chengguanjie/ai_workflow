@@ -52,12 +52,13 @@ export const workflowUpdateSchema = z.object({
 
 /**
  * Schema for executing a workflow
- * Validates optional input data, timeout configuration, and async mode
+ * Validates optional input data, timeout configuration, async mode, and execution mode
  */
 export const workflowExecuteSchema = z.object({
   input: z.record(z.string(), z.unknown()).optional(),
   timeout: z.number().int().min(1).max(3600).optional(),
   async: z.boolean().optional(),
+  mode: z.enum(['production', 'draft']).optional(), // 执行模式：production 使用已发布配置，draft 使用草稿配置
 })
 
 // Inferred TypeScript types from Zod schemas

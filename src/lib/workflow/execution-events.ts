@@ -10,11 +10,11 @@ import { EventEmitter } from 'events'
 // 执行进度事件类型
 export interface ExecutionProgressEvent {
   executionId: string
-  type: 'node_start' | 'node_complete' | 'node_error' | 'execution_complete' | 'execution_error'
+  type: 'node_start' | 'node_complete' | 'node_error' | 'execution_complete' | 'execution_error' | 'execution_paused'
   nodeId?: string
   nodeName?: string
   nodeType?: string
-  status?: 'pending' | 'running' | 'completed' | 'failed' | 'skipped'
+  status?: 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'paused'
   progress: number // 0-100
   completedNodes: string[]
   totalNodes: number
@@ -22,6 +22,8 @@ export interface ExecutionProgressEvent {
   error?: string
   output?: Record<string, unknown>
   timestamp: Date
+  /** Approval request ID when execution is paused for approval */
+  approvalRequestId?: string
 }
 
 // 节点状态
@@ -41,7 +43,7 @@ export interface NodeStatus {
 export interface ExecutionState {
   executionId: string
   workflowId: string
-  status: 'pending' | 'running' | 'completed' | 'failed'
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'paused'
   progress: number
   totalNodes: number
   completedNodes: string[]
@@ -50,6 +52,8 @@ export interface ExecutionState {
   startedAt: Date
   completedAt?: Date
   error?: string
+  /** Approval request ID when execution is paused */
+  approvalRequestId?: string
 }
 
 class ExecutionEventManager extends EventEmitter {
@@ -282,6 +286,39 @@ class ExecutionEventManager extends EventEmitter {
     setTimeout(() => {
       this.executionStates.delete(executionId)
     }, 60000)
+  }
+
+  /**
+   * 执行暂停（等待人工审批）
+   */
+  executionPaused(executionId: string, nodeId: string, approvalRequestId: string): void {
+    const state = this.executionStates.get(executionId)
+    if (!state) return
+
+    state.status = 'paused'
+    state.currentNodeId = nodeId
+    state.approvalRequestId = approvalRequestId
+
+    const nodeStatus = state.nodeStatuses.get(nodeId)
+
+    const event: ExecutionProgressEvent = {
+      executionId,
+      type: 'execution_paused',
+      nodeId,
+      nodeName: nodeStatus?.nodeName,
+      nodeType: nodeStatus?.nodeType,
+      status: 'paused',
+      progress: state.progress,
+      completedNodes: state.completedNodes,
+      totalNodes: state.totalNodes,
+      currentNodeIndex: state.completedNodes.length,
+      approvalRequestId,
+      timestamp: new Date(),
+    }
+
+    this.emit(`execution:${executionId}`, event)
+
+    // 不清理状态，因为执行将在审批后恢复
   }
 
   /**

@@ -42,7 +42,7 @@ export interface NodeOutput {
   nodeId: string
   nodeName: string
   nodeType: string
-  status: 'success' | 'error' | 'skipped'
+  status: 'success' | 'error' | 'skipped' | 'paused'
   data: Record<string, unknown>
   error?: string
   startedAt: Date
@@ -53,6 +53,8 @@ export interface NodeOutput {
     completionTokens: number
     totalTokens: number
   }
+  /** Approval request ID when node is paused for approval */
+  approvalRequestId?: string
 }
 
 /**
@@ -87,7 +89,7 @@ export interface VariableReference {
 /**
  * 执行状态
  */
-export type ExecutionStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
+export type ExecutionStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'PAUSED'
 
 /**
  * 执行结果

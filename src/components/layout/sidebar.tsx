@@ -19,6 +19,7 @@ import {
   Building2,
   MessageSquarePlus,
   CreditCard,
+  ClipboardCheck,
 } from 'lucide-react'
 import { useSidebarStore } from '@/stores/sidebar-store'
 import { Button } from '@/components/ui/button'
@@ -34,6 +35,7 @@ const navigation = [
   { name: '工作流', href: '/workflows', icon: GitBranch },
   { name: '模板库', href: '/templates', icon: LayoutTemplate },
   { name: '知识库', href: '/knowledge-bases', icon: Database },
+  { name: '审批待办', href: '/approvals', icon: ClipboardCheck },
   { name: '执行历史', href: '/executions', icon: History },
 ]
 

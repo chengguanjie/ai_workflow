@@ -56,6 +56,11 @@ type ExecutionResponse = AsyncExecutionResponse | SyncExecutionResponse
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000
 
 /**
+ * Execution mode type
+ */
+type ExecutionMode = 'production' | 'draft'
+
+/**
  * Execute workflow with timeout control
  */
 async function executeWithTimeout(
@@ -63,7 +68,8 @@ async function executeWithTimeout(
   organizationId: string,
   userId: string,
   input?: Record<string, unknown>,
-  timeoutMs: number = DEFAULT_TIMEOUT_MS
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
+  mode: ExecutionMode = 'production'
 ) {
   const timeoutPromise = new Promise<never>((_, reject) => {
     setTimeout(() => {
@@ -72,7 +78,7 @@ async function executeWithTimeout(
   })
 
   const result = await Promise.race([
-    executeWorkflow(workflowId, organizationId, userId, input),
+    executeWorkflow(workflowId, organizationId, userId, input, { mode }),
     timeoutPromise,
   ])
 
@@ -125,7 +131,7 @@ export const POST = withAuth<ApiSuccessResponse<ExecutionResponse>>(async (reque
 
   // Validate request body
   const body = await validateRequestBody(request, workflowExecuteSchema)
-  const { input, async: asyncExecution, timeout } = body as WorkflowExecuteInput
+  const { input, async: asyncExecution, timeout, mode = 'production' } = body as WorkflowExecuteInput & { mode?: ExecutionMode }
 
   // Verify workflow exists and user has access
   const workflow = await prisma.workflow.findFirst({
@@ -147,7 +153,8 @@ export const POST = withAuth<ApiSuccessResponse<ExecutionResponse>>(async (reque
       workflowId,
       user.organizationId,
       user.id,
-      input
+      input,
+      { mode }
     )
 
     return ApiResponse.success({
@@ -160,13 +167,14 @@ export const POST = withAuth<ApiSuccessResponse<ExecutionResponse>>(async (reque
 
   // Sync execution with timeout control
   const timeoutMs = timeout ? timeout * 1000 : DEFAULT_TIMEOUT_MS
-  
+
   const result = await executeWithTimeout(
     workflowId,
     user.organizationId,
     user.id,
     input,
-    timeoutMs
+    timeoutMs,
+    mode
   )
 
   return ApiResponse.success({

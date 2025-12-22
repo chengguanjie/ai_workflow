@@ -10,70 +10,32 @@ import { useRouter } from 'next/navigation'
 import {
   Search,
   Filter,
-  Brain,
-  BarChart,
-  FileText,
-  PenTool,
-  Image,
-  Globe,
-  Zap,
-  MessageCircle,
-  MoreHorizontal,
   Star,
   Users,
   ChevronRight,
   ChevronLeft,
+  ChevronDown,
   Loader2,
   AlertCircle,
   CheckCircle,
   Sparkles,
   Building2,
   Globe2,
-  TrendingUp,
-  Megaphone,
-  Calculator,
-  Activity,
-  Lightbulb,
-  Building,
-  Scale,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import {
+  CATEGORY_GROUPS,
+  getCategoryName,
+  getCategoryIcon,
+  type Category,
+  type CategoryGroup,
+} from '@/lib/constants/template-categories'
 
 // 模板库类型
 type TemplateLibraryType = 'external' | 'internal'
 
 // 每页显示的模板数量
 const TEMPLATES_PER_PAGE = 9
-
-// 分类图标映射
-const CATEGORY_ICONS: Record<string, React.ElementType> = {
-  // 功能分类
-  'ai-processing': Brain,
-  'data-analysis': BarChart,
-  'document-generation': FileText,
-  'content-creation': PenTool,
-  'image-processing': Image,
-  translation: Globe,
-  automation: Zap,
-  qa: MessageCircle,
-  // 部门分类
-  sales: TrendingUp,
-  marketing: Megaphone,
-  hr: Users,
-  finance: Calculator,
-  operation: Activity,
-  product: Lightbulb,
-  admin: Building,
-  legal: Scale,
-  other: MoreHorizontal,
-}
-
-interface Category {
-  id: string
-  name: string
-  icon: string
-  description: string
-}
 
 interface Template {
   id: string
@@ -92,7 +54,6 @@ interface Template {
 
 export default function TemplatesPage() {
   const router = useRouter()
-  const [categories, setCategories] = useState<Category[]>([])
   const [templates, setTemplates] = useState<Template[]>([])
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -102,18 +63,11 @@ export default function TemplatesPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [libraryType, setLibraryType] = useState<TemplateLibraryType>('external')
   const [currentPage, setCurrentPage] = useState(1)
+  // 分组的折叠状态
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    new Set(CATEGORY_GROUPS.map(g => g.id))
+  )
 
-  // 加载分类
-  useEffect(() => {
-    fetch('/api/templates/categories')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success) {
-          setCategories(data.data.categories)
-        }
-      })
-      .catch(console.error)
-  }, [])
 
   // 加载模板
   const loadTemplates = useCallback(async () => {
@@ -163,6 +117,19 @@ export default function TemplatesPage() {
     setCurrentPage(1)
   }, [selectedCategory, searchQuery, libraryType])
 
+  // 切换分组折叠状态
+  const toggleGroup = (groupId: string) => {
+    setExpandedGroups(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(groupId)) {
+        newSet.delete(groupId)
+      } else {
+        newSet.add(groupId)
+      }
+      return newSet
+    })
+  }
+
   // 分页计算
   const paginationData = useMemo(() => {
     const totalItems = templates.length
@@ -211,11 +178,6 @@ export default function TemplatesPage() {
     }
   }
 
-  // 获取分类名称
-  const getCategoryName = (categoryId: string) => {
-    const category = categories.find((c) => c.id === categoryId)
-    return category?.name || categoryId
-  }
 
   return (
     <div className="h-full bg-gray-50 overflow-hidden flex flex-col">
@@ -244,11 +206,12 @@ export default function TemplatesPage() {
                 分类筛选
               </h2>
 
-              <div className="space-y-0.5 overflow-y-auto flex-1">
+              <div className="space-y-2 overflow-y-auto flex-1">
+                {/* 全部模板 */}
                 <button
                   onClick={() => setSelectedCategory(null)}
                   className={cn(
-                    'w-full px-3 py-1.5 text-left text-sm rounded-md transition-colors',
+                    'w-full px-3 py-2 text-left text-sm rounded-md transition-colors',
                     selectedCategory === null
                       ? 'bg-blue-50 text-blue-700 font-medium'
                       : 'text-gray-600 hover:bg-gray-50'
@@ -257,22 +220,53 @@ export default function TemplatesPage() {
                   全部模板
                 </button>
 
-                {categories.map((category) => {
-                  const Icon = CATEGORY_ICONS[category.id] || MoreHorizontal
+                {/* 分类组 */}
+                {CATEGORY_GROUPS.map((group) => {
+                  const GroupIcon = group.icon
+                  const isExpanded = expandedGroups.has(group.id)
+
                   return (
-                    <button
-                      key={category.id}
-                      onClick={() => setSelectedCategory(category.id)}
-                      className={cn(
-                        'w-full px-3 py-1.5 text-left text-sm rounded-md transition-colors flex items-center gap-2',
-                        selectedCategory === category.id
-                          ? 'bg-blue-50 text-blue-700 font-medium'
-                          : 'text-gray-600 hover:bg-gray-50'
+                    <div key={group.id} className="space-y-0.5">
+                      {/* 分组标题 */}
+                      <button
+                        onClick={() => toggleGroup(group.id)}
+                        className="w-full px-2 py-1.5 text-left text-sm font-medium text-gray-900 rounded-md hover:bg-gray-50 transition-colors flex items-center gap-2"
+                      >
+                        <ChevronDown
+                          className={cn(
+                            'w-3.5 h-3.5 transition-transform',
+                            !isExpanded && '-rotate-90'
+                          )}
+                        />
+                        <GroupIcon className="w-4 h-4" />
+                        {group.name}
+                      </button>
+
+                      {/* 分类项 */}
+                      {isExpanded && (
+                        <div className="ml-6 space-y-0.5">
+                          {group.categories.map((category) => {
+                            const CategoryIcon = getCategoryIcon(category.id)
+                            return (
+                              <button
+                                key={category.id}
+                                onClick={() => setSelectedCategory(category.id)}
+                                className={cn(
+                                  'w-full px-3 py-1.5 text-left text-sm rounded-md transition-colors flex items-center gap-2',
+                                  selectedCategory === category.id
+                                    ? 'bg-blue-50 text-blue-700 font-medium'
+                                    : 'text-gray-600 hover:bg-gray-50'
+                                )}
+                                title={category.description}
+                              >
+                                <CategoryIcon className="w-4 h-4" />
+                                {category.name}
+                              </button>
+                            )
+                          })}
+                        </div>
                       )}
-                    >
-                      <Icon className="w-4 h-4" />
-                      {category.name}
-                    </button>
+                    </div>
                   )
                 })}
               </div>
@@ -364,7 +358,7 @@ export default function TemplatesPage() {
                 {/* 模板网格 */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 content-start">
                   {paginationData.currentTemplates.map((template) => {
-                    const CategoryIcon = CATEGORY_ICONS[template.category] || MoreHorizontal
+                    const CategoryIcon = getCategoryIcon(template.category)
                     return (
                       <div
                         key={template.id}

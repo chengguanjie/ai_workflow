@@ -8,7 +8,7 @@ import type { NodeProcessor, NodeOutput, ExecutionContext, AIConfigCache } from 
 import type { ContentPart, ChatMessage } from '@/lib/ai/types'
 import { replaceVariables } from '../utils'
 import { prisma } from '@/lib/db'
-import { decryptApiKey } from '@/lib/crypto'
+import { safeDecryptApiKey } from '@/lib/crypto'
 
 interface AudioInfo {
   name: string
@@ -338,7 +338,7 @@ ${transcription}`
       id: apiKey.id,
       provider: apiKey.provider as AIConfigCache['provider'],
       baseUrl: apiKey.baseUrl,
-      apiKey: decryptApiKey(apiKey.keyEncrypted),
+      apiKey: safeDecryptApiKey(apiKey.keyEncrypted),
       defaultModel: apiKey.defaultModel,
     }
 

@@ -11,7 +11,7 @@ import { ApiResponse, ApiSuccessResponse } from '@/lib/api/api-response'
 import { NotFoundError, AuthorizationError, ValidationError } from '@/lib/errors'
 import { prisma } from '@/lib/db'
 import { processDocument } from '@/lib/knowledge/processor'
-import { decryptApiKey } from '@/lib/crypto'
+import { safeDecryptApiKey } from '@/lib/crypto'
 import type { KnowledgeDocument } from '@prisma/client'
 
 // 支持的文件类型
@@ -193,7 +193,7 @@ export const POST = withAuth<ApiSuccessResponse<KnowledgeDocument>>(
     let apiKey: string | undefined
     let baseUrl: string | undefined
     if (aiConfig) {
-      apiKey = decryptApiKey(aiConfig.keyEncrypted)
+      apiKey = safeDecryptApiKey(aiConfig.keyEncrypted)
       baseUrl = aiConfig.baseUrl || undefined
     }
 

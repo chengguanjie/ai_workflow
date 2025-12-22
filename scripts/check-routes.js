@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-/* eslint-disable no-console */
-
 /**
  * Detects conflicting App Router routes in `src/app`.
  *
@@ -135,4 +133,3 @@ function main() {
 }
 
 main()
-

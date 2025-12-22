@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
-import { decryptApiKey } from '@/lib/crypto'
+import { safeDecryptApiKey } from '@/lib/crypto'
+import { aiService, type AIProviderType } from '@/lib/ai'
 
 // POST: 测试 AI 连接
 export async function POST(
@@ -31,38 +32,29 @@ export async function POST(
     }
 
     // 解密 API Key
-    const apiKey = decryptApiKey(config.keyEncrypted)
-    const model = config.defaultModel || getDefaultModel(config.provider)
+    const apiKey = safeDecryptApiKey(config.keyEncrypted)
+    const provider = config.provider as AIProviderType
+    const model = config.defaultModel || getDefaultModel(provider, config.defaultModels)
 
     // 使用配置中的 baseUrl，如果没有则使用默认值
-    const baseUrl = config.baseUrl || getDefaultBaseUrl(config.provider)
+    const baseUrl = config.baseUrl || getDefaultBaseUrl(provider)
 
-    // 直接调用 API 进行测试
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
+    const result = await aiService.chat(
+      provider,
+      {
         model,
         messages: [
           { role: 'user', content: 'Hello, this is a test. Please respond with "OK".' }
         ],
-        max_tokens: 10,
-      }),
-    })
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      throw new Error(`API error: ${response.status} - ${errorText}`)
-    }
-
-    const data = await response.json()
+        maxTokens: 10,
+      },
+      apiKey,
+      baseUrl
+    )
 
     return NextResponse.json({
       success: true,
-      model: data.model || model,
+      model: result.model || model,
       message: '连接测试成功',
     })
   } catch (error) {
@@ -73,19 +65,36 @@ export async function POST(
   }
 }
 
-function getDefaultModel(provider: string): string {
+function getDefaultModel(
+  provider: AIProviderType,
+  defaultModels: unknown
+): string {
+  const textDefaultModel =
+    typeof defaultModels === 'object' && defaultModels !== null
+      ? (defaultModels as Record<string, string>).text
+      : undefined
+  if (textDefaultModel) return textDefaultModel
+
   switch (provider) {
+    case 'ANTHROPIC':
+      return 'claude-3-5-sonnet-20241022'
     case 'OPENROUTER':
       return 'anthropic/claude-sonnet-4.5'
     case 'SHENSUAN':
       return 'anthropic/claude-sonnet-4.5'
+    case 'OPENAI':
+      return 'gpt-4o-mini'
     default:
       return 'anthropic/claude-sonnet-4.5'
   }
 }
 
-function getDefaultBaseUrl(provider: string): string {
+function getDefaultBaseUrl(provider: AIProviderType): string {
   switch (provider) {
+    case 'OPENAI':
+      return 'https://api.openai.com/v1'
+    case 'ANTHROPIC':
+      return 'https://api.anthropic.com'
     case 'OPENROUTER':
       return 'https://openrouter.ai/api/v1'
     case 'SHENSUAN':

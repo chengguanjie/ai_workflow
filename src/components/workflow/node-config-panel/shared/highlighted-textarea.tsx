@@ -45,8 +45,6 @@ export const HighlightedTextarea = forwardRef<HighlightedTextareaHandle, Highlig
           return
         }
 
-        const range = selection.getRangeAt(0)
-
         // 获取纯文本和光标位置
         const textContent = editor.innerText || ''
         const { start, end } = getSelectionOffsets(editor)

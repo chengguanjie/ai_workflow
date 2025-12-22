@@ -3,7 +3,6 @@ import { createCipheriv, createDecipheriv, randomBytes, scryptSync, createHash }
 const ALGORITHM = 'aes-256-gcm'
 const KEY_LENGTH = 32
 const IV_LENGTH = 16
-const AUTH_TAG_LENGTH = 16
 
 let cachedKey: Buffer | null = null
 
@@ -68,4 +67,26 @@ export function maskApiKey(apiKey: string): string {
     return '****'
   }
   return `${apiKey.slice(0, 4)}****${apiKey.slice(-4)}`
+}
+
+/**
+ * 安全解密 API Key，提供更好的错误信息
+ */
+export function safeDecryptApiKey(encryptedText: string): string {
+  try {
+    return decryptApiKey(encryptedText)
+  } catch (error: any) {
+    const errorMessage = error?.message || '未知错误'
+
+    if (errorMessage.includes('Unsupported state or unable to authenticate data')) {
+      throw new Error(
+        `无法解密 API Key：加密密钥可能已更改或数据损坏。请检查以下项目：\n` +
+        `1. 确保 ENCRYPTION_KEY 环境变量设置正确且未更改\n` +
+        `2. 如果您更改了 ENCRYPTION_KEY，需要重新配置所有 API Key\n` +
+        `3. 在设置页面重新输入并保存 AI 配置`
+      )
+    }
+
+    throw new Error(`解密 API Key 失败：${errorMessage}`)
+  }
 }

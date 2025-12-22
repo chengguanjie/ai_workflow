@@ -18,7 +18,7 @@ export interface DebugRequest {
 }
 
 export interface DebugResult {
-  status: 'success' | 'error' | 'skipped'
+  status: 'success' | 'error' | 'skipped' | 'paused'
   output: Record<string, unknown>
   error?: string
   duration: number
@@ -28,6 +28,8 @@ export interface DebugResult {
     totalTokens: number
   }
   logs?: string[]
+  /** Approval request ID when node is paused for approval */
+  approvalRequestId?: string
 }
 
 export async function debugNode(request: DebugRequest): Promise<DebugResult> {
@@ -92,6 +94,7 @@ export async function debugNode(request: DebugRequest): Promise<DebugResult> {
       duration: Date.now() - startTime,
       tokenUsage: result.tokenUsage,
       logs,
+      approvalRequestId: result.approvalRequestId,
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)

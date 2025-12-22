@@ -25,7 +25,6 @@ import {
   Sparkles,
   Eye,
   RefreshCw,
-  Maximize2,
   X,
 } from "lucide-react"
 import { toast } from "sonner"

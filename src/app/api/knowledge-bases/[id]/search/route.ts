@@ -10,7 +10,7 @@ import { ApiResponse, ApiSuccessResponse } from '@/lib/api/api-response'
 import { NotFoundError, AuthorizationError, ValidationError } from '@/lib/errors'
 import { prisma } from '@/lib/db'
 import { searchKnowledgeBase } from '@/lib/knowledge/search'
-import { decryptApiKey } from '@/lib/crypto'
+import { safeDecryptApiKey } from '@/lib/crypto'
 import { checkKnowledgeBasePermission } from '@/lib/permissions/knowledge-base'
 
 interface SearchRequest {
@@ -104,7 +104,7 @@ export const POST = withAuth<ApiSuccessResponse<SearchResponse>>(
     let apiKey: string | undefined
     let baseUrl: string | undefined
     if (aiConfig) {
-      apiKey = decryptApiKey(aiConfig.keyEncrypted)
+      apiKey = safeDecryptApiKey(aiConfig.keyEncrypted)
       baseUrl = aiConfig.baseUrl || undefined
     }
 

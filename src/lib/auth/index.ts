@@ -8,7 +8,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     Credentials({
       name: 'credentials',
       credentials: {
-        email: { label: '邮箱', type: 'email' },
+        email: { label: '邮箱/手机号', type: 'text' },
         password: { label: '密码', type: 'password' },
       },
       async authorize(credentials) {
@@ -16,8 +16,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null
         }
 
+        // 支持邮箱或手机号登录
+        const account = credentials.email as string
         const user = await prisma.user.findUnique({
-          where: { email: credentials.email as string },
+          where: { email: account.toLowerCase() },
           include: { organization: true },
         })
 

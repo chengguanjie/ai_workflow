@@ -15,6 +15,26 @@ const eslintConfig = [
     ignores: [".next/**", "out/**", "build/**", "next-env.d.ts"],
   },
   {
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+          destructuredArrayIgnorePattern: "^_",
+          ignoreRestSiblings: true,
+          varsIgnorePattern: "^_",
+        },
+      ],
+    },
+  },
+  {
+    files: ["scripts/**/*.{js,cjs,mjs}"],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
+  {
     files: ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"],
     rules: {
       "@typescript-eslint/no-explicit-any": "off",

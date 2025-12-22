@@ -20,6 +20,7 @@ import {
   Star,
   Filter,
   RefreshCw,
+  ChevronDown,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -74,27 +75,11 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-
-// 分类列表
-const TEMPLATE_CATEGORIES = [
-  { id: 'ai-processing', name: 'AI处理' },
-  { id: 'data-analysis', name: '数据分析' },
-  { id: 'document-generation', name: '文档生成' },
-  { id: 'content-creation', name: '内容创作' },
-  { id: 'image-processing', name: '图像处理' },
-  { id: 'translation', name: '翻译' },
-  { id: 'automation', name: '自动化' },
-  { id: 'qa', name: '问答' },
-  { id: 'sales', name: '销售' },
-  { id: 'marketing', name: '市场' },
-  { id: 'hr', name: '人力资源' },
-  { id: 'finance', name: '财务' },
-  { id: 'operation', name: '运营' },
-  { id: 'product', name: '产品' },
-  { id: 'admin', name: '行政' },
-  { id: 'legal', name: '法务' },
-  { id: 'other', name: '其他' },
-]
+import {
+  CATEGORY_GROUPS,
+  TEMPLATE_CATEGORIES,
+  getCategoryName,
+} from '@/lib/constants/template-categories'
 
 interface Template {
   id: string
@@ -128,6 +113,9 @@ export default function ConsoleTemplatesPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    new Set(CATEGORY_GROUPS.map(g => g.id))
+  )
 
   // 对话框状态
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
@@ -144,6 +132,19 @@ export default function ConsoleTemplatesPage() {
     tags: [] as string[],
     tagInput: '',
   })
+
+  // 切换分组折叠状态
+  const toggleGroup = (groupId: string) => {
+    setExpandedGroups(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(groupId)) {
+        newSet.delete(groupId)
+      } else {
+        newSet.add(groupId)
+      }
+      return newSet
+    })
+  }
 
   // 加载模板列表
   const loadTemplates = useCallback(async () => {
@@ -350,11 +351,6 @@ export default function ConsoleTemplatesPage() {
     })
   }
 
-  // 获取分类名称
-  const getCategoryName = (categoryId: string) => {
-    const category = TEMPLATE_CATEGORIES.find((c) => c.id === categoryId)
-    return category?.name || categoryId
-  }
 
   return (
     <div className="space-y-6">
@@ -398,10 +394,17 @@ export default function ConsoleTemplatesPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">全部分类</SelectItem>
-                {TEMPLATE_CATEGORIES.map((cat) => (
-                  <SelectItem key={cat.id} value={cat.id}>
-                    {cat.name}
-                  </SelectItem>
+                {CATEGORY_GROUPS.map((group) => (
+                  <div key={group.id}>
+                    <div className="px-2 py-1.5 text-xs font-medium text-gray-500">
+                      {group.name}
+                    </div>
+                    {group.categories.map((cat) => (
+                      <SelectItem key={cat.id} value={cat.id}>
+                        <span className="ml-2">{cat.name}</span>
+                      </SelectItem>
+                    ))}
+                  </div>
                 ))}
               </SelectContent>
             </Select>
@@ -623,10 +626,17 @@ export default function ConsoleTemplatesPage() {
                   <SelectValue placeholder="选择分类" />
                 </SelectTrigger>
                 <SelectContent>
-                  {TEMPLATE_CATEGORIES.map((cat) => (
-                    <SelectItem key={cat.id} value={cat.id}>
-                      {cat.name}
-                    </SelectItem>
+                  {CATEGORY_GROUPS.map((group) => (
+                    <div key={group.id}>
+                      <div className="px-2 py-1.5 text-xs font-medium text-gray-500">
+                        {group.name}
+                      </div>
+                      {group.categories.map((cat) => (
+                        <SelectItem key={cat.id} value={cat.id}>
+                          <span className="ml-2">{cat.name}</span>
+                        </SelectItem>
+                      ))}
+                    </div>
                   ))}
                 </SelectContent>
               </Select>
@@ -752,10 +762,17 @@ export default function ConsoleTemplatesPage() {
                   <SelectValue placeholder="选择分类" />
                 </SelectTrigger>
                 <SelectContent>
-                  {TEMPLATE_CATEGORIES.map((cat) => (
-                    <SelectItem key={cat.id} value={cat.id}>
-                      {cat.name}
-                    </SelectItem>
+                  {CATEGORY_GROUPS.map((group) => (
+                    <div key={group.id}>
+                      <div className="px-2 py-1.5 text-xs font-medium text-gray-500">
+                        {group.name}
+                      </div>
+                      {group.categories.map((cat) => (
+                        <SelectItem key={cat.id} value={cat.id}>
+                          <span className="ml-2">{cat.name}</span>
+                        </SelectItem>
+                      ))}
+                    </div>
                   ))}
                 </SelectContent>
               </Select>

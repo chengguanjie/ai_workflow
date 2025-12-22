@@ -1,6 +1,7 @@
 // Anthropic (Claude) API Provider
 
 import type { AIProvider, ChatRequest, ChatResponse, Model } from '../types'
+import { fetchWithTimeout } from '@/lib/http/fetch-with-timeout'
 
 const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
 const ANTHROPIC_VERSION = '2023-06-01'
@@ -15,7 +16,7 @@ export class AnthropicProvider implements AIProvider {
     const systemMessage = request.messages.find(m => m.role === 'system')
     const otherMessages = request.messages.filter(m => m.role !== 'system')
 
-    const response = await fetch(`${url}/v1/messages`, {
+    const response = await fetchWithTimeout(`${url}/v1/messages`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -32,6 +33,7 @@ export class AnthropicProvider implements AIProvider {
         max_tokens: request.maxTokens ?? 2048,
         temperature: request.temperature ?? 0.7,
       }),
+      timeoutMs: 90_000,
     })
 
     if (!response.ok) {

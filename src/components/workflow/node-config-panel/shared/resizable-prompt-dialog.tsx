@@ -39,7 +39,6 @@ export function ResizablePromptDialog({
   const [position, setPosition] = useState({ x: 0, y: 0 })
   const [isResizing, setIsResizing] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
-  const [resizeDirection, setResizeDirection] = useState<string | null>(null)
 
   // 初始化位置到屏幕中央
   useEffect(() => {
@@ -90,7 +89,6 @@ export function ResizablePromptDialog({
     e.preventDefault()
     e.stopPropagation()
     setIsResizing(true)
-    setResizeDirection(direction)
 
     const startX = e.clientX
     const startY = e.clientY
@@ -128,12 +126,11 @@ export function ResizablePromptDialog({
       setPosition({ x: newX, y: newY })
     }
 
-    const handleMouseUp = () => {
-      setIsResizing(false)
-      setResizeDirection(null)
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-    }
+	    const handleMouseUp = () => {
+	      setIsResizing(false)
+	      document.removeEventListener('mousemove', handleMouseMove)
+	      document.removeEventListener('mouseup', handleMouseUp)
+	    }
 
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleMouseUp)

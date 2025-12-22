@@ -79,15 +79,17 @@ interface NodeData {
   [key: string]: unknown // Index signature for compatibility
 }
 
-type ExecutionStatus = 'idle' | 'running' | 'success' | 'error'
+type ExecutionStatus = 'idle' | 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'paused'
 
 function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
   const style = nodeStyles[data.type.toLowerCase()] || nodeStyles.input
   const Icon = style.icon
-  const [executionStatus, setExecutionStatus] = useState<ExecutionStatus>('idle')
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
-  const { deleteNode, duplicateNode, openDebugPanel, groupNodes, nodes } = useWorkflowStore()
+  const { deleteNode, duplicateNode, openDebugPanel, groupNodes, nodes, nodeExecutionStatus } = useWorkflowStore()
+
+  // Get execution status from store
+  const executionStatus = nodeExecutionStatus[id] || 'idle'
 
   // 获取当前选中的节点数量
   const selectedNodes = nodes.filter((n) => n.selected)
@@ -143,39 +145,19 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
     setContextMenu(null)
   }
 
+  // Execution is handled by ExecutionPanel
   const handleExecute = async (e: React.MouseEvent) => {
     e.stopPropagation()
-
-    if (executionStatus === 'running') return
-
-    setExecutionStatus('running')
-
-    try {
-      await new Promise((resolve, reject) => {
-        setTimeout(() => {
-          if (Math.random() > 0.2) {
-            resolve(true)
-          } else {
-            reject(new Error('执行失败'))
-          }
-        }, 1500)
-      })
-
-      setExecutionStatus('success')
-      setTimeout(() => setExecutionStatus('idle'), 3000)
-    } catch {
-      setExecutionStatus('error')
-      setTimeout(() => setExecutionStatus('idle'), 3000)
-    }
+    // No-op - execution is triggered from ExecutionPanel
   }
 
   const getStatusIcon = () => {
     switch (executionStatus) {
       case 'running':
         return <Loader2 className="h-3 w-3 animate-spin" />
-      case 'success':
+      case 'completed':
         return <CheckCircle2 className="h-3 w-3 text-green-600" />
-      case 'error':
+      case 'failed':
         return <XCircle className="h-3 w-3 text-red-600" />
       default:
         return <Play className="h-3 w-3" />
@@ -186,10 +168,16 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
     switch (executionStatus) {
       case 'running':
         return '执行中...'
-      case 'success':
+      case 'completed':
         return '执行成功'
-      case 'error':
+      case 'failed':
         return '执行失败'
+      case 'pending':
+        return '等待执行'
+      case 'skipped':
+        return '已跳过'
+      case 'paused':
+        return '已暂停'
       default:
         return '执行此节点'
     }
@@ -248,9 +236,14 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
     <TooltipProvider delayDuration={0}>
       <div
         className={cn(
-          'min-w-[180px] rounded-lg border-2 shadow-sm transition-shadow',
+          'min-w-[180px] rounded-lg border-2 shadow-sm transition-all duration-300',
           style.bgColor,
-          selected && data.type.toLowerCase() !== 'input' && data.type.toLowerCase() !== 'output' && 'ring-2 ring-primary ring-offset-2'
+          selected && data.type.toLowerCase() !== 'input' && data.type.toLowerCase() !== 'output' && 'ring-2 ring-primary ring-offset-2',
+          // Execution status styling
+          executionStatus === 'running' && 'animate-pulse border-blue-400 shadow-lg shadow-blue-500/20',
+          executionStatus === 'completed' && 'border-green-400 shadow-green-500/20',
+          executionStatus === 'failed' && 'border-red-400 shadow-red-500/20',
+          executionStatus === 'pending' && 'opacity-70'
         )}
         onContextMenu={handleContextMenu}
       >
@@ -285,8 +278,8 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
                   className={cn(
                     'h-7 w-7 shrink-0',
                     executionStatus === 'running' && 'cursor-not-allowed opacity-70',
-                    executionStatus === 'success' && 'bg-green-100',
-                    executionStatus === 'error' && 'bg-red-100'
+                    executionStatus === 'completed' && 'bg-green-100',
+                    executionStatus === 'failed' && 'bg-red-100'
                   )}
                   onClick={handleExecute}
                   disabled={executionStatus === 'running'}

@@ -7,7 +7,7 @@ import type { NodeConfig, ImageGenNodeConfig } from '@/types/workflow'
 import type { NodeProcessor, NodeOutput, ExecutionContext } from '../types'
 import { replaceVariables } from '../utils'
 import { prisma } from '@/lib/db'
-import { decryptApiKey } from '@/lib/crypto'
+import { safeDecryptApiKey } from '@/lib/crypto'
 
 interface ImageGenerationResult {
   url: string
@@ -143,7 +143,7 @@ export class ImageGenNodeProcessor implements NodeProcessor {
       if (apiKey) {
         return {
           provider: apiKey.provider,
-          apiKey: decryptApiKey(apiKey.keyEncrypted),
+          apiKey: safeDecryptApiKey(apiKey.keyEncrypted),
           baseUrl: apiKey.baseUrl,
           defaultModel: apiKey.defaultModel,
         }
@@ -164,7 +164,7 @@ export class ImageGenNodeProcessor implements NodeProcessor {
     if (apiKey && supportedProviders.includes(apiKey.provider)) {
       return {
         provider: apiKey.provider,
-        apiKey: decryptApiKey(apiKey.keyEncrypted),
+        apiKey: safeDecryptApiKey(apiKey.keyEncrypted),
         baseUrl: apiKey.baseUrl,
         defaultModel: apiKey.defaultModel,
       }

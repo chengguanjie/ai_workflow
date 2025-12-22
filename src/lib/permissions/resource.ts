@@ -364,7 +364,7 @@ async function calculateUserPermission(
  */
 function getDefaultPermission(
   role: Role,
-  resourceType: ResourceType
+  _resourceType: ResourceType
 ): ResourcePermission | null {
   // 默认权限规则
   switch (role) {

@@ -37,7 +37,7 @@ export class DataNodeProcessor implements NodeProcessor {
 
   async process(
     node: NodeConfig,
-    context: ExecutionContext
+    _context: ExecutionContext
   ): Promise<NodeOutput> {
     const startedAt = new Date()
     const dataNode = node as DataNodeConfig

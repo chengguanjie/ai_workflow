@@ -33,7 +33,7 @@ function LoginForm() {
       })
 
       if (result?.error) {
-        setError('邮箱或密码错误')
+        setError('邮箱/手机号或密码错误')
       } else {
         // 检查是否需要修改密码
         const session = await getSession()
@@ -57,7 +57,7 @@ function LoginForm() {
           <GitBranch className="h-6 w-6 text-primary-foreground" />
         </div>
         <CardTitle className="text-2xl">登录 AI Workflow</CardTitle>
-        <CardDescription>输入您的邮箱和密码登录</CardDescription>
+        <CardDescription>输入您的邮箱或手机号登录</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -68,11 +68,11 @@ function LoginForm() {
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="email">邮箱</Label>
+            <Label htmlFor="email">邮箱/手机号</Label>
             <Input
               id="email"
-              type="email"
-              placeholder="your@email.com"
+              type="text"
+              placeholder="邮箱或手机号"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -116,7 +116,7 @@ function LoginFormSkeleton() {
           <GitBranch className="h-6 w-6 text-primary-foreground" />
         </div>
         <CardTitle className="text-2xl">登录 AI Workflow</CardTitle>
-        <CardDescription>输入您的邮箱和密码登录</CardDescription>
+        <CardDescription>输入您的邮箱或手机号登录</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">

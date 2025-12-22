@@ -9,6 +9,11 @@ const nextConfig: NextConfig = {
     ignoreDuringBuilds: true,
   },
 
+  // Next.js 15.0.3 在部分环境下开启 build worker 会触发 diagnostics JSON 并发写入导致构建失败
+  experimental: {
+    webpackBuildWorker: false,
+  },
+
   // 允许加载 Pyodide CDN 资源
   async headers() {
     return [
@@ -28,8 +33,13 @@ const nextConfig: NextConfig = {
     ]
   },
 
-  // 外部包配置
-  serverExternalPackages: ['better-sqlite3'],
+  // 外部包配置 - 这些包只能在服务端使用
+  serverExternalPackages: [
+    'better-sqlite3',
+    'isolated-vm',
+    'dockerode',
+    'bullmq',
+  ],
 }
 
 export default nextConfig

@@ -336,7 +336,7 @@ export async function processNotificationNode(
   context: ExecutionContext
 ): Promise<NodeOutput> {
   const startedAt = new Date()
-  const { platform, webhookUrl, messageType, content, title, atMobiles, atAll } = node.config
+  const { platform, webhookUrl, messageType, content, title } = node.config
 
   if (!webhookUrl) {
     return {

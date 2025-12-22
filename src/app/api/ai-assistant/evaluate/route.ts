@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
-import { decryptApiKey } from '@/lib/crypto'
+import { safeDecryptApiKey } from '@/lib/crypto'
 import { aiService } from '@/lib/ai'
 
 const AES_EVALUATION_PROMPT = `你是一个专业的 AI 工作流审计师。请基于 AES 评估体系对用户的工作流进行深度评估。
@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
         temperature: 0.3, // 评估需要客观，降低温度
         maxTokens: 4000,
       },
-      decryptApiKey(apiKey.keyEncrypted),
+      safeDecryptApiKey(apiKey.keyEncrypted),
       apiKey.baseUrl || undefined
     )
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
-import { decryptApiKey } from '@/lib/crypto'
+import { safeDecryptApiKey } from '@/lib/crypto'
 import { aiService } from '@/lib/ai'
 
 // 字段类型中文映射
@@ -167,7 +167,7 @@ ${stylePrompt}
           temperature: 0.8,
           maxTokens: 4000,
         },
-        decryptApiKey(apiKey.keyEncrypted),
+        safeDecryptApiKey(apiKey.keyEncrypted),
         apiKey.baseUrl || undefined
       )
     } catch (aiError) {

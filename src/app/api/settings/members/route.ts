@@ -96,7 +96,10 @@ export async function GET() {
     }
 
     const members = await prisma.user.findMany({
-      where: whereCondition,
+      where: {
+        ...whereCondition,
+        isActive: true, // 只获取活跃成员
+      },
       select: {
         id: true,
         email: true,

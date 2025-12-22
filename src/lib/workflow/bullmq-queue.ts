@@ -17,6 +17,11 @@ import { executeWorkflow } from './engine'
 import { prisma } from '@/lib/db'
 
 /**
+ * 执行模式类型
+ */
+export type ExecutionMode = 'production' | 'draft'
+
+/**
  * 任务数据
  */
 export interface WorkflowJobData {
@@ -25,6 +30,7 @@ export interface WorkflowJobData {
   userId: string
   input?: Record<string, unknown>
   triggerId?: string // 关联的触发器 ID
+  mode?: ExecutionMode // 执行模式：production 使用已发布配置，draft 使用草稿配置
 }
 
 /**
@@ -134,17 +140,17 @@ class BullMQQueueManager {
    * 处理任务
    */
   private async processJob(job: Job<WorkflowJobData, WorkflowJobResult>): Promise<WorkflowJobResult> {
-    const { workflowId, organizationId, userId, input, triggerId } = job.data
+    const { workflowId, organizationId, userId, input, triggerId, mode = 'production' } = job.data
     const startTime = Date.now()
 
-    console.log(`[BullMQ] Processing job ${job.id}: workflow=${workflowId}`)
+    console.log(`[BullMQ] Processing job ${job.id}: workflow=${workflowId}, mode=${mode}`)
 
     try {
       // 更新任务进度
       await job.updateProgress(10)
 
-      // 执行工作流
-      const result = await executeWorkflow(workflowId, organizationId, userId, input)
+      // 执行工作流（根据模式选择配置）
+      const result = await executeWorkflow(workflowId, organizationId, userId, input, { mode })
 
       await job.updateProgress(100)
 
@@ -198,6 +204,7 @@ class BullMQQueueManager {
       triggerId?: string
       priority?: number
       delay?: number
+      mode?: ExecutionMode
     }
   ): Promise<string> {
     if (!this.queue) {
@@ -206,7 +213,14 @@ class BullMQQueueManager {
 
     const job = await this.queue.add(
       'execute',
-      { workflowId, organizationId, userId, input, triggerId: options?.triggerId },
+      {
+        workflowId,
+        organizationId,
+        userId,
+        input,
+        triggerId: options?.triggerId,
+        mode: options?.mode ?? 'production',
+      },
       {
         priority: options?.priority,
         delay: options?.delay,

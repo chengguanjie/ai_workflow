@@ -224,6 +224,13 @@ export function InputNodeConfigPanel({
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium">输入字段</span>
+        <Button variant="outline" size="sm" onClick={addField}>
+          <Plus className="mr-2 h-4 w-4" />
+          添加字段
+        </Button>
+      </div>
       {fields.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-4">
           暂无输入字段，点击上方按钮添加

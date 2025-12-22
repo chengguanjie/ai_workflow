@@ -57,6 +57,7 @@ import { useAIAssistantStore, type AIMessage, type NodeAction, type Conversation
 import { useWorkflowStore } from '@/stores/workflow-store'
 import type { NodeConfig } from '@/types/workflow'
 import { cn } from '@/lib/utils'
+import { fetchWithTimeout } from '@/lib/http/fetch-with-timeout'
 
 interface AIAssistantPanelProps {
   workflowId: string
@@ -243,7 +244,9 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
     setIsLoadingModels(true)
     try {
       // AI 助手使用文本模态
-      const response = await fetch('/api/ai/providers?modality=text')
+      const response = await fetchWithTimeout('/api/ai/providers?modality=text', {
+        timeoutMs: 15_000,
+      })
       if (!response.ok) {
         throw new Error('获取服务商配置失败')
       }
@@ -280,7 +283,9 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
     } catch (error) {
       console.error('Failed to fetch AI providers:', error)
       const errorMsg = error instanceof Error ? error.message : '未知错误'
-      if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
+      if (errorMsg.includes('请求超时')) {
+        toast.error('加载模型配置超时，请检查后端服务/数据库连接')
+      } else if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
         toast.error('网络请求失败，请检查网络连接')
       } else {
         toast.error(`获取AI服务商配置失败: ${errorMsg}`)
@@ -448,7 +453,7 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
     abortControllerRef.current = new AbortController()
 
     try {
-      const response = await fetch('/api/ai-assistant/chat', {
+      const response = await fetchWithTimeout('/api/ai-assistant/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -462,6 +467,7 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
           })),
         }),
         signal: abortControllerRef.current.signal,
+        timeoutMs: 120_000,
       })
 
       if (!response.ok) {
@@ -487,7 +493,10 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
       if (error instanceof Error && error.name === 'AbortError') {
         return
       }
-      const errorMessage = error instanceof Error ? error.message : 'AI请求失败'
+      let errorMessage = error instanceof Error ? error.message : 'AI请求失败'
+      if (errorMessage.includes('请求超时')) {
+        errorMessage = '请求超时，请检查 AI Base URL / 网络连接 / 代理设置'
+      }
       toast.error(errorMessage)
       addMessage({
         role: 'assistant',
@@ -523,7 +532,7 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
     })
 
     try {
-      const response = await fetch('/api/ai-assistant/test', {
+      const response = await fetchWithTimeout('/api/ai-assistant/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -531,6 +540,7 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
           testInput,
           timeout: 120,
         }),
+        timeoutMs: 180_000,
       })
 
       const result = await response.json()
@@ -607,13 +617,14 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
     })
 
     try {
-      const response = await fetch('/api/ai-assistant/evaluate', {
+      const response = await fetchWithTimeout('/api/ai-assistant/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workflowContext,
           model: selectedModel,
         }),
+        timeoutMs: 120_000,
       })
 
       const data = await response.json()
@@ -690,7 +701,7 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
     })
 
     try {
-      const body: any = {
+      const body: Record<string, unknown> = {
         workflowId,
         targetCriteria,
         model: selectedModel,
@@ -703,10 +714,11 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
         body.testResult = lastTestResult
       }
 
-      const response = await fetch('/api/ai-assistant/optimize', {
+      const response = await fetchWithTimeout('/api/ai-assistant/optimize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        timeoutMs: 120_000,
       })
 
       const data = await response.json()

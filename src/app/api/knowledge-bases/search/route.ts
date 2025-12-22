@@ -13,7 +13,7 @@ import {
   searchAcrossKnowledgeBases,
   type CrossKnowledgeBaseSearchResponse,
 } from '@/lib/knowledge/search'
-import { decryptApiKey } from '@/lib/crypto'
+import { safeDecryptApiKey } from '@/lib/crypto'
 import type { AIProvider } from '@prisma/client'
 
 interface CrossSearchRequest {
@@ -107,7 +107,7 @@ export const POST = withAuth<ApiSuccessResponse<CrossKnowledgeBaseSearchResponse
     let defaultEmbeddingProvider: AIProvider | undefined
 
     if (defaultAiConfig) {
-      apiKey = decryptApiKey(defaultAiConfig.keyEncrypted)
+      apiKey = safeDecryptApiKey(defaultAiConfig.keyEncrypted)
       baseUrl = defaultAiConfig.baseUrl || undefined
       defaultEmbeddingProvider = defaultAiConfig.provider
     }

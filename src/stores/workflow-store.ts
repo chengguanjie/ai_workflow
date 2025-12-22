@@ -65,6 +65,9 @@ interface WorkflowState {
   lastSavedAt: number | null
   isDirty: boolean
 
+  // 节点执行状态
+  nodeExecutionStatus: Record<string, 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'paused'>
+
   // 操作方法
   setWorkflow: (config: WorkflowConfig & { id?: string; name?: string; description?: string }) => void
   setName: (name: string) => void
@@ -100,6 +103,10 @@ interface WorkflowState {
   // Viewport 操作
   setViewport: (viewport: Viewport) => void
 
+  // 执行状态操作
+  updateNodeExecutionStatus: (nodeId: string, status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'paused') => void
+  clearNodeExecutionStatus: () => void
+
   // 自动布局
   autoLayout: (direction?: 'TB' | 'LR') => void
 
@@ -126,6 +133,7 @@ const initialState = {
   isDebugPanelOpen: false,
   lastSavedAt: null as number | null,
   isDirty: false,
+  nodeExecutionStatus: {} as Record<string, 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'paused'>,
 }
 
 export const useWorkflowStore = create<WorkflowState>()(
@@ -647,7 +655,7 @@ export const useWorkflowStore = create<WorkflowState>()(
 
         // 处理边：恢复指向组节点的边回原始子节点
         const updatedEdges = edges
-          .filter((edge) => {
+          .filter((_edge) => {
             // 过滤掉组内部的隐藏边（如果组是折叠状态）
             // 这些边在展开后会显示
             return true
@@ -871,6 +879,20 @@ export const useWorkflowStore = create<WorkflowState>()(
 
       setViewport: (viewport) => set({ viewport }),
 
+      // 执行状态操作
+      updateNodeExecutionStatus: (nodeId, status) => {
+        set({
+          nodeExecutionStatus: {
+            ...get().nodeExecutionStatus,
+            [nodeId]: status,
+          },
+        })
+      },
+
+      clearNodeExecutionStatus: () => {
+        set({ nodeExecutionStatus: {} })
+      },
+
       // 自动布局 - 使用 dagre 算法
       autoLayout: (direction = 'LR') => {
         const { nodes, edges } = get()
@@ -898,7 +920,7 @@ export const useWorkflowStore = create<WorkflowState>()(
         // 分离组节点和普通节点
         const groupNodes = nodes.filter((n) => n.type === 'group')
         const regularNodes = nodes.filter((n) => n.type !== 'group' && !n.parentId)
-        const childNodes = nodes.filter((n) => n.parentId)
+        const _childNodes = nodes.filter((n) => n.parentId)
 
         // 只对非组内节点进行布局
         regularNodes.forEach((node) => {

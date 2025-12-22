@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -14,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   ArrowLeft,
   Loader2,
@@ -23,8 +24,20 @@ import {
   Check,
   X,
   BarChart3,
+  TrendingUp,
+  Settings,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import dynamic from 'next/dynamic'
+
+// 动态导入增强的分析页面组件
+const EnhancedAnalytics = dynamic(() => import('./enhanced-page'), {
+  loading: () => (
+    <div className="flex items-center justify-center py-12">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  ),
+})
 
 interface AnalyticsData {
   summary: {
@@ -190,7 +203,7 @@ export default function WorkflowAnalyticsPage() {
                   工作流统计分析
                 </h1>
                 <p className="text-sm text-muted-foreground">
-                  查看执行统计、用户反馈和优化建议
+                  查看执行统计、用户反馈、数据趋势和优化建议
                 </p>
               </div>
             </div>
@@ -211,10 +224,24 @@ export default function WorkflowAnalyticsPage() {
 
       {/* 内容 */}
       <div className="container mx-auto px-6 py-6">
-        {analytics && (
-          <div className="space-y-6">
-            {/* 汇总卡片 */}
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+        <Tabs defaultValue="execution" className="space-y-6">
+          <TabsList className="grid w-full max-w-md grid-cols-2">
+            <TabsTrigger value="execution" className="flex items-center gap-2">
+              <BarChart3 className="h-4 w-4" />
+              执行统计
+            </TabsTrigger>
+            <TabsTrigger value="analytics" className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4" />
+              数据分析
+            </TabsTrigger>
+          </TabsList>
+
+          {/* 执行统计标签页 */}
+          <TabsContent value="execution">
+            {analytics && (
+              <div className="space-y-6">
+                {/* 汇总卡片 */}
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
               <Card>
                 <CardContent className="pt-6">
                   <div className="text-center">
@@ -488,8 +515,15 @@ export default function WorkflowAnalyticsPage() {
                 </CardContent>
               </Card>
             )}
-          </div>
-        )}
+              </div>
+            )}
+          </TabsContent>
+
+          {/* 数据分析标签页 */}
+          <TabsContent value="analytics">
+            <EnhancedAnalytics />
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   )

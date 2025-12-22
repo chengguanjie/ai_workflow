@@ -7,7 +7,7 @@ import type { NodeProcessor, NodeOutput, ExecutionContext, AIConfigCache } from 
 import { replaceVariables } from '../utils'
 import { aiService } from '@/lib/ai'
 import { prisma } from '@/lib/db'
-import { decryptApiKey } from '@/lib/crypto'
+import { safeDecryptApiKey } from '@/lib/crypto'
 import { getRelevantContext } from '@/lib/knowledge/search'
 
 export class ProcessNodeProcessor implements NodeProcessor {
@@ -185,11 +185,13 @@ export class ProcessNodeProcessor implements NodeProcessor {
       return null
     }
 
+    const decryptedKey = safeDecryptApiKey(apiKey.keyEncrypted)
+
     const config: AIConfigCache = {
       id: apiKey.id,
       provider: apiKey.provider,
       baseUrl: apiKey.baseUrl,
-      apiKey: decryptApiKey(apiKey.keyEncrypted),
+      apiKey: decryptedKey,
       defaultModel: apiKey.defaultModel,
     }
 

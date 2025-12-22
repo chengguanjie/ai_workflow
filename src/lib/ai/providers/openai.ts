@@ -1,6 +1,7 @@
 // OpenAI API Provider
 
 import type { AIProvider, ChatRequest, ChatResponse, Model } from '../types'
+import { fetchWithTimeout } from '@/lib/http/fetch-with-timeout'
 
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 
@@ -9,7 +10,7 @@ export class OpenAIProvider implements AIProvider {
 
   async chat(request: ChatRequest, apiKey: string, baseUrl?: string): Promise<ChatResponse> {
     const url = baseUrl || DEFAULT_OPENAI_BASE_URL
-    const response = await fetch(`${url}/chat/completions`, {
+    const response = await fetchWithTimeout(`${url}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -22,6 +23,7 @@ export class OpenAIProvider implements AIProvider {
         max_tokens: request.maxTokens ?? 2048,
         stream: false,
       }),
+      timeoutMs: 90_000,
     })
 
     if (!response.ok) {
@@ -45,10 +47,11 @@ export class OpenAIProvider implements AIProvider {
 
   async listModels(apiKey: string, baseUrl?: string): Promise<Model[]> {
     const url = baseUrl || DEFAULT_OPENAI_BASE_URL
-    const response = await fetch(`${url}/models`, {
+    const response = await fetchWithTimeout(`${url}/models`, {
       headers: {
         Authorization: `Bearer ${apiKey}`,
       },
+      timeoutMs: 30_000,
     })
 
     if (!response.ok) {

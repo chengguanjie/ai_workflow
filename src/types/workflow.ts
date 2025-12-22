@@ -11,7 +11,7 @@
 // Basic Types
 // ============================================
 
-export type NodeType = 'TRIGGER' | 'INPUT' | 'PROCESS' | 'CODE' | 'OUTPUT' | 'DATA' | 'IMAGE' | 'VIDEO' | 'AUDIO' | 'CONDITION' | 'LOOP' | 'HTTP' | 'MERGE' | 'IMAGE_GEN' | 'NOTIFICATION' | 'SWITCH' | 'GROUP'
+export type NodeType = 'TRIGGER' | 'INPUT' | 'PROCESS' | 'CODE' | 'OUTPUT' | 'DATA' | 'IMAGE' | 'VIDEO' | 'AUDIO' | 'CONDITION' | 'LOOP' | 'HTTP' | 'MERGE' | 'IMAGE_GEN' | 'NOTIFICATION' | 'SWITCH' | 'GROUP' | 'APPROVAL'
 
 /**
  * Trigger type for TRIGGER nodes
@@ -300,6 +300,12 @@ export interface CodeNodeConfigData extends NodeAIConfig {
   code?: string
   /** Last execution result */
   executionResult?: CodeExecutionResult
+  /** Execution timeout in milliseconds (default: 30000) */
+  timeout?: number
+  /** Maximum memory usage in MB (default: 128) */
+  maxMemory?: number
+  /** Maximum output size in bytes (default: 1MB) */
+  maxOutputSize?: number
 }
 
 export interface CodeNodeConfig extends BaseNodeConfig {
@@ -859,6 +865,92 @@ export interface GroupNodeConfig extends BaseNodeConfig {
   config: GroupNodeConfigData
 }
 
+// ============================================
+// APPROVAL Node Configuration (Human-in-the-Loop)
+// ============================================
+
+/**
+ * Approver configuration - who can approve this request
+ */
+export interface ApproverConfig {
+  /** Approver type */
+  type: 'USER' | 'ROLE' | 'DEPARTMENT'
+  /** Target ID (userId, roleId, or departmentId) */
+  targetId: string
+  /** Display name for the approver */
+  displayName?: string
+}
+
+/**
+ * Custom field for approval form
+ */
+export interface ApprovalCustomField {
+  /** Unique field key */
+  key: string
+  /** Field display label */
+  label: string
+  /** Field type */
+  type: 'TEXT' | 'TEXTAREA' | 'NUMBER' | 'SELECT' | 'CHECKBOX' | 'DATE'
+  /** Whether the field is required */
+  required?: boolean
+  /** Options for SELECT type */
+  options?: { label: string; value: string }[]
+  /** Default value */
+  defaultValue?: string | number | boolean
+  /** Placeholder text */
+  placeholder?: string
+}
+
+/**
+ * Action to take when approval times out
+ */
+export type ApprovalTimeoutAction = 'APPROVE' | 'REJECT' | 'ESCALATE'
+
+/**
+ * Notification channels for approval
+ */
+export type ApprovalNotificationChannel = 'EMAIL' | 'IN_APP' | 'WEBHOOK'
+
+/**
+ * APPROVAL node configuration data - Human-in-the-Loop approval workflow
+ */
+export interface ApprovalNodeConfigData {
+  /** Approval request title */
+  title: string
+  /** Description of what needs to be approved */
+  description?: string
+  /** List of approvers */
+  approvers: ApproverConfig[]
+  /** Timeout in milliseconds (default: 86400000 = 24 hours) */
+  timeout: number
+  /** Action to take on timeout */
+  timeoutAction: ApprovalTimeoutAction
+  /** Notification channels to use */
+  notificationChannels: ApprovalNotificationChannel[]
+  /** Number of required approvals (default: 1) */
+  requiredApprovals: number
+  /** Whether to allow approvers to add comments */
+  allowComments: boolean
+  /** Custom fields for the approval form */
+  customFields: ApprovalCustomField[]
+  /** Webhook URL for external notifications */
+  webhookUrl?: string
+  /** Reminder settings */
+  reminder?: {
+    /** Whether to send reminders */
+    enabled: boolean
+    /** Interval between reminders in milliseconds */
+    interval: number
+    /** Maximum number of reminders */
+    maxReminders: number
+  }
+}
+
+export interface ApprovalNodeConfig extends BaseNodeConfig {
+  type: 'APPROVAL'
+  config: ApprovalNodeConfigData
+}
+
 /**
  * Union type of all node configurations
  */
@@ -880,6 +972,7 @@ export type NodeConfig =
   | ImageGenNodeConfig
   | NotificationNodeConfig
   | GroupNodeConfig
+  | ApprovalNodeConfig
 
 /**
  * Union type of all node config data types
@@ -902,6 +995,7 @@ export type NodeConfigData =
   | ImageGenNodeConfigData
   | NotificationNodeConfigData
   | GroupNodeConfigData
+  | ApprovalNodeConfigData
 
 // ============================================
 // Edge Configuration
@@ -1200,6 +1294,13 @@ export function isNotificationNode(node: NodeConfig): node is NotificationNodeCo
  */
 export function isGroupNode(node: NodeConfig): node is GroupNodeConfig {
   return node.type === 'GROUP'
+}
+
+/**
+ * Type guard to check if a node is an APPROVAL node
+ */
+export function isApprovalNode(node: NodeConfig): node is ApprovalNodeConfig {
+  return node.type === 'APPROVAL'
 }
 
 /**

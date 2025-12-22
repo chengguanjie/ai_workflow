@@ -2,12 +2,18 @@
   "name": "ai-workflow",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@10.23.0",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "scripts": {
     "dev": "next dev",
+    "check:node": "node scripts/check-node-version.js",
     "check:routes": "node scripts/check-routes.js",
     "build": "pnpm check:routes && prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
+    "pretest": "pnpm check:node",
     "test": "vitest --run",
     "test:watch": "vitest",
     "test:coverage": "vitest --run --coverage",
@@ -69,6 +75,7 @@
     "prisma": "^6.19.1",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
+    "recharts": "^3.6.0",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
     "xlsx": "^0.18.5",

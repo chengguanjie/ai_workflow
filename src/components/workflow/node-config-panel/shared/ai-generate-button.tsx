@@ -58,7 +58,6 @@ export function AIGenerateButton({
     const references: string[] = []
 
     // 找到当前节点的前置节点
-    const incomingEdges = edges.filter(e => e.target === selectedNodeId)
     const predecessorIds = new Set<string>()
 
     // 递归获取所有前置节点

@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { useSession } from 'next-auth/react'
 import {
   CreditCard,
   Check,
@@ -159,9 +158,8 @@ const mockInvoices = [
 ]
 
 export default function BillingPage() {
-  const { data: session } = useSession()
   const [isYearly, setIsYearly] = useState(false)
-  const [selectedPlan, setSelectedPlan] = useState<string | null>(null)
+  const [_selectedPlan, setSelectedPlan] = useState<string | null>(null)
 
   // 当前套餐（从session或API获取）
   const currentPlan = 'FREE' // 模拟数据

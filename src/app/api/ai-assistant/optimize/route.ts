@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
-import { decryptApiKey } from '@/lib/crypto'
+import { safeDecryptApiKey } from '@/lib/crypto'
 import { aiService } from '@/lib/ai'
 import type { WorkflowConfig, NodeConfig } from '@/types/workflow'
 
@@ -298,7 +298,7 @@ ${JSON.stringify(testResult, null, 2)}
     }
 
     const messages: Array<{ role: 'system' | 'user'; content: string }> = [
-      { role: 'system', content: OPTIMIZATION_SYSTEM_PROMPT },
+      { role: 'system', content: systemPrompt },
       { role: 'user', content: userContent },
     ]
 
@@ -311,7 +311,7 @@ ${JSON.stringify(testResult, null, 2)}
         temperature: 0.3,
         maxTokens: 4096,
       },
-      decryptApiKey(apiKey.keyEncrypted),
+      safeDecryptApiKey(apiKey.keyEncrypted),
       apiKey.baseUrl || undefined
     )
 

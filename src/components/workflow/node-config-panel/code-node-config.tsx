@@ -11,7 +11,7 @@ import {
   executePythonInBrowser,
   initPyodide,
   getPyodideStatus,
-} from '@/lib/code-executor'
+} from '@/lib/code-executor/pyodide-executor'
 
 type CodeTabType = 'code' | 'generate' | 'output'
 

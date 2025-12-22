@@ -13,6 +13,11 @@ import { prisma } from '@/lib/db'
 import { bullmqManager, isRedisConfigured } from './bullmq-queue'
 
 /**
+ * 执行模式类型
+ */
+export type ExecutionMode = 'production' | 'draft'
+
+/**
  * 队列任务
  */
 export interface QueueTask {
@@ -21,6 +26,7 @@ export interface QueueTask {
   organizationId: string
   userId: string
   input?: Record<string, unknown>
+  mode?: ExecutionMode // 执行模式：production 使用已发布配置，draft 使用草稿配置
   status: 'pending' | 'running' | 'completed' | 'failed'
   result?: ExecutionResult
   error?: string
@@ -64,7 +70,8 @@ class InMemoryQueue {
     workflowId: string,
     organizationId: string,
     userId: string,
-    input?: Record<string, unknown>
+    input?: Record<string, unknown>,
+    options?: { mode?: ExecutionMode }
   ): Promise<string> {
     const taskId = `task_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
 
@@ -74,6 +81,7 @@ class InMemoryQueue {
       organizationId,
       userId,
       input,
+      mode: options?.mode ?? 'production',
       status: 'pending',
       createdAt: new Date(),
     }
@@ -189,7 +197,8 @@ class InMemoryQueue {
         task.workflowId,
         task.organizationId,
         task.userId,
-        task.input
+        task.input,
+        { mode: task.mode ?? 'production' }
       )
 
       const result = await Promise.race([resultPromise, timeoutPromise])
@@ -312,6 +321,7 @@ class ExecutionQueue {
       triggerId?: string
       priority?: number
       delay?: number
+      mode?: ExecutionMode
     }
   ): Promise<string> {
     // 确保已初始化
@@ -323,7 +333,7 @@ class ExecutionQueue {
       return bullmqManager.enqueue(workflowId, organizationId, userId, input, options)
     }
 
-    return this.memoryQueue.enqueue(workflowId, organizationId, userId, input)
+    return this.memoryQueue.enqueue(workflowId, organizationId, userId, input, { mode: options?.mode })
   }
 
   /**

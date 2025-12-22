@@ -160,7 +160,7 @@ export function aggregateToParentDocuments(
   childResults: SearchResult[],
   twoLevelData: TwoLevelChunkResult
 ): ParentDocumentSearchResult[] {
-  const { parents, children, mapping } = twoLevelData
+  const { parents, children } = twoLevelData
 
   // 按父块聚合结果
   const parentResultMap = new Map<string, {

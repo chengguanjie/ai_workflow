@@ -335,7 +335,7 @@ export class DiagnosisService {
   /**
    * 生成详细分析
    */
-  private generateDetails(context: DiagnosisContext, issues: IssueCategory[]): string[] {
+  private generateDetails(context: DiagnosisContext, _issues: IssueCategory[]): string[] {
     const details: string[] = []
 
     details.push(`用户评分: ${context.feedback.rating}/5`)

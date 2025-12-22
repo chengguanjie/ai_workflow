@@ -272,7 +272,7 @@ function VersionHistoryPanel({
       if (!response.ok) throw new Error('加载失败')
       const result = await response.json()
       setVersions(result.data.versions || [])
-    } catch (error) {
+    } catch (_error) {
       toast.error('加载版本历史失败')
     } finally {
       setIsLoading(false)
@@ -480,7 +480,7 @@ function VersionCompareDialog({
     }
     summaryText: string
   } | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
+  const [_isLoading, setIsLoading] = useState(false)
   const [isComparing, setIsComparing] = useState(false)
 
   // 加载版本列表
@@ -491,7 +491,7 @@ function VersionCompareDialog({
       if (!response.ok) throw new Error('加载失败')
       const result = await response.json()
       setVersions(result.data.versions || [])
-    } catch (error) {
+    } catch (_error) {
       toast.error('加载版本列表失败')
     } finally {
       setIsLoading(false)
@@ -520,7 +520,7 @@ function VersionCompareDialog({
       if (!response.ok) throw new Error('对比失败')
       const result = await response.json()
       setComparison(result.data)
-    } catch (error) {
+    } catch (_error) {
       toast.error('版本对比失败')
     } finally {
       setIsComparing(false)

@@ -8,7 +8,7 @@
  */
 
 import { prisma } from '@/lib/db'
-import { NotFoundError, ValidationError, BusinessError } from '@/lib/errors'
+import { NotFoundError, ValidationError } from '@/lib/errors'
 import { Prisma } from '@prisma/client'
 import type { Workflow, TriggerType } from '@prisma/client'
 import type { WorkflowConfig, TriggerNodeConfig, TriggerNodeConfigData } from '@/types/workflow'
@@ -50,6 +50,14 @@ export interface WorkflowUpdateParams {
   isActive?: boolean
   category?: string
   tags?: string[]
+}
+
+/**
+ * Parameters for publishing a workflow
+ */
+export interface WorkflowPublishParams {
+  commitMessage?: string
+  createVersion?: boolean
 }
 
 /**
@@ -248,14 +256,14 @@ export class WorkflowService {
   }
 
   /**
-   * Update an existing workflow
-   * 
+   * Update an existing workflow (saves to draftConfig)
+   *
    * @param id - Workflow ID
    * @param organizationId - Organization ID for access control
    * @param data - Fields to update
    * @returns Updated workflow
    * @throws NotFoundError if workflow doesn't exist
-   * 
+   *
    * Requirements: 3.1
    */
   async update(
@@ -288,7 +296,19 @@ export class WorkflowService {
       updateData.name = data.name.trim()
     }
     if (data.description !== undefined) updateData.description = data.description
-    if (data.config !== undefined) updateData.config = data.config
+
+    // Config updates go to draftConfig (Draft/Published mechanism)
+    if (data.config !== undefined) {
+      // Update both config (for backward compatibility) and draftConfig
+      updateData.config = data.config
+      updateData.draftConfig = data.config
+
+      // Update publish status: if already published, mark as modified
+      if (existing.publishStatus === 'PUBLISHED') {
+        updateData.publishStatus = 'DRAFT_MODIFIED'
+      }
+    }
+
     if (data.isActive !== undefined) updateData.isActive = data.isActive
     if (data.category !== undefined) updateData.category = data.category
     if (data.tags !== undefined) updateData.tags = data.tags
@@ -304,6 +324,352 @@ export class WorkflowService {
     }
 
     return workflow
+  }
+
+  /**
+   * Publish a workflow (copy draftConfig to publishedConfig)
+   *
+   * @param id - Workflow ID
+   * @param organizationId - Organization ID for access control
+   * @param userId - User ID of the publisher
+   * @param params - Publish parameters
+   * @returns Updated workflow
+   * @throws NotFoundError if workflow doesn't exist
+   * @throws ValidationError if no draft config exists
+   */
+  async publish(
+    id: string,
+    organizationId: string,
+    userId: string,
+    params: WorkflowPublishParams = {}
+  ): Promise<Workflow> {
+    const existing = await prisma.workflow.findFirst({
+      where: {
+        id,
+        organizationId,
+        deletedAt: null,
+      },
+    })
+
+    if (!existing) {
+      throw new NotFoundError('工作流不存在')
+    }
+
+    // Use draftConfig if exists, otherwise use config
+    const configToPublish = existing.draftConfig || existing.config
+
+    if (!configToPublish) {
+      throw new ValidationError('没有可发布的配置')
+    }
+
+    // Update workflow with published config
+    const workflow = await prisma.workflow.update({
+      where: { id },
+      data: {
+        publishedConfig: configToPublish as Prisma.InputJsonValue,
+        publishedAt: new Date(),
+        publishedBy: userId,
+        publishStatus: 'PUBLISHED',
+        version: { increment: 1 },
+      },
+    })
+
+    // Optionally create a version record
+    if (params.createVersion !== false) {
+      const latestVersion = await prisma.workflowVersion.findFirst({
+        where: { workflowId: id },
+        orderBy: { versionNumber: 'desc' },
+      })
+
+      await prisma.workflowVersion.create({
+        data: {
+          workflowId: id,
+          versionNumber: (latestVersion?.versionNumber || 0) + 1,
+          versionTag: `v${workflow.version}`,
+          commitMessage: params.commitMessage || '发布工作流',
+          config: configToPublish as Prisma.InputJsonValue,
+          versionType: 'MANUAL',
+          isPublished: true,
+          isActive: true,
+          createdById: userId,
+        },
+      })
+    }
+
+    return workflow
+  }
+
+  /**
+   * Get effective config for execution (published for production, draft for testing)
+   *
+   * @param id - Workflow ID
+   * @param organizationId - Organization ID
+   * @param mode - 'production' uses publishedConfig, 'draft' uses draftConfig
+   * @returns Workflow config to execute
+   */
+  async getConfigForExecution(
+    id: string,
+    organizationId: string,
+    mode: 'production' | 'draft' = 'production'
+  ): Promise<WorkflowConfig | null> {
+    const workflow = await prisma.workflow.findFirst({
+      where: {
+        id,
+        organizationId,
+        deletedAt: null,
+      },
+      select: {
+        config: true,
+        draftConfig: true,
+        publishedConfig: true,
+        publishStatus: true,
+      },
+    })
+
+    if (!workflow) {
+      return null
+    }
+
+    if (mode === 'production') {
+      // For production: prefer publishedConfig, fallback to config
+      return (workflow.publishedConfig || workflow.config) as unknown as WorkflowConfig
+    } else {
+      // For draft/testing: prefer draftConfig, fallback to config
+      return (workflow.draftConfig || workflow.config) as unknown as WorkflowConfig
+    }
+  }
+
+  /**
+   * Check if workflow has unpublished changes
+   *
+   * @param id - Workflow ID
+   * @param organizationId - Organization ID
+   * @returns Whether there are unpublished changes
+   */
+  async hasUnpublishedChanges(id: string, organizationId: string): Promise<boolean> {
+    const workflow = await prisma.workflow.findFirst({
+      where: {
+        id,
+        organizationId,
+        deletedAt: null,
+      },
+      select: {
+        publishStatus: true,
+      },
+    })
+
+    return workflow?.publishStatus === 'DRAFT_MODIFIED'
+  }
+
+  /**
+   * Discard draft changes and revert to published config
+   *
+   * @param id - Workflow ID
+   * @param organizationId - Organization ID
+   * @returns Updated workflow
+   */
+  async discardDraft(id: string, organizationId: string): Promise<Workflow> {
+    const existing = await prisma.workflow.findFirst({
+      where: {
+        id,
+        organizationId,
+        deletedAt: null,
+      },
+    })
+
+    if (!existing) {
+      throw new NotFoundError('工作流不存在')
+    }
+
+    if (!existing.publishedConfig) {
+      throw new ValidationError('没有已发布的版本可以恢复')
+    }
+
+    const workflow = await prisma.workflow.update({
+      where: { id },
+      data: {
+        config: existing.publishedConfig as Prisma.InputJsonValue,
+        draftConfig: existing.publishedConfig as Prisma.InputJsonValue,
+        publishStatus: 'PUBLISHED',
+      },
+    })
+
+    return workflow
+  }
+
+  /**
+   * Get comparison between draft and published configs
+   *
+   * @param id - Workflow ID
+   * @param organizationId - Organization ID
+   * @returns Comparison result with added, removed, and modified items
+   */
+  async getVersionComparison(
+    id: string,
+    organizationId: string
+  ): Promise<{
+    draftConfig: WorkflowConfig | null
+    publishedConfig: WorkflowConfig | null
+    changes: {
+      nodes: {
+        added: Array<{ id: string; name: string; type: string }>
+        removed: Array<{ id: string; name: string; type: string }>
+        modified: Array<{ id: string; name: string; type: string; changes: string[] }>
+      }
+      edges: {
+        added: Array<{ id: string; source: string; target: string }>
+        removed: Array<{ id: string; source: string; target: string }>
+      }
+      settings: {
+        changed: boolean
+        oldValue?: Record<string, unknown>
+        newValue?: Record<string, unknown>
+      }
+    }
+    summary: {
+      totalChanges: number
+      hasChanges: boolean
+    }
+  }> {
+    const workflow = await prisma.workflow.findFirst({
+      where: {
+        id,
+        organizationId,
+        deletedAt: null,
+      },
+      select: {
+        draftConfig: true,
+        publishedConfig: true,
+        config: true,
+        publishStatus: true,
+      },
+    })
+
+    if (!workflow) {
+      throw new NotFoundError('工作流不存在')
+    }
+
+    const draftConfig = (workflow.draftConfig || workflow.config) as unknown as WorkflowConfig | null
+    const publishedConfig = workflow.publishedConfig as unknown as WorkflowConfig | null
+
+    // If no published config, return draft only
+    if (!publishedConfig) {
+      const nodeCount = draftConfig?.nodes?.length || 0
+      const edgeCount = draftConfig?.edges?.length || 0
+      return {
+        draftConfig,
+        publishedConfig: null,
+        changes: {
+          nodes: {
+            added: draftConfig?.nodes?.map(n => ({ id: n.id, name: n.name, type: n.type })) || [],
+            removed: [],
+            modified: [],
+          },
+          edges: {
+            added: draftConfig?.edges?.map(e => ({ id: e.id, source: e.source, target: e.target })) || [],
+            removed: [],
+          },
+          settings: {
+            changed: false,
+          },
+        },
+        summary: {
+          totalChanges: nodeCount + edgeCount,
+          hasChanges: nodeCount > 0 || edgeCount > 0,
+        },
+      }
+    }
+
+    // Compare nodes
+    const draftNodes = new Map((draftConfig?.nodes || []).map(n => [n.id, n]))
+    const publishedNodes = new Map((publishedConfig?.nodes || []).map(n => [n.id, n]))
+
+    const addedNodes: Array<{ id: string; name: string; type: string }> = []
+    const removedNodes: Array<{ id: string; name: string; type: string }> = []
+    const modifiedNodes: Array<{ id: string; name: string; type: string; changes: string[] }> = []
+
+    // Find added and modified nodes
+    for (const [nodeId, draftNode] of draftNodes) {
+      const publishedNode = publishedNodes.get(nodeId)
+      if (!publishedNode) {
+        addedNodes.push({ id: nodeId, name: draftNode.name, type: draftNode.type })
+      } else {
+        // Check for modifications
+        const changes: string[] = []
+        if (draftNode.name !== publishedNode.name) {
+          changes.push(`名称: "${publishedNode.name}" → "${draftNode.name}"`)
+        }
+        if (JSON.stringify(draftNode.position) !== JSON.stringify(publishedNode.position)) {
+          changes.push('位置已更改')
+        }
+        if (JSON.stringify(draftNode.config) !== JSON.stringify(publishedNode.config)) {
+          changes.push('配置已更改')
+        }
+        if (draftNode.comment !== publishedNode.comment) {
+          changes.push('备注已更改')
+        }
+        if (changes.length > 0) {
+          modifiedNodes.push({ id: nodeId, name: draftNode.name, type: draftNode.type, changes })
+        }
+      }
+    }
+
+    // Find removed nodes
+    for (const [nodeId, publishedNode] of publishedNodes) {
+      if (!draftNodes.has(nodeId)) {
+        removedNodes.push({ id: nodeId, name: publishedNode.name, type: publishedNode.type })
+      }
+    }
+
+    // Compare edges
+    const draftEdges = new Map((draftConfig?.edges || []).map(e => [e.id, e]))
+    const publishedEdges = new Map((publishedConfig?.edges || []).map(e => [e.id, e]))
+
+    const addedEdges: Array<{ id: string; source: string; target: string }> = []
+    const removedEdges: Array<{ id: string; source: string; target: string }> = []
+
+    for (const [edgeId, draftEdge] of draftEdges) {
+      if (!publishedEdges.has(edgeId)) {
+        addedEdges.push({ id: edgeId, source: draftEdge.source, target: draftEdge.target })
+      }
+    }
+
+    for (const [edgeId, publishedEdge] of publishedEdges) {
+      if (!draftEdges.has(edgeId)) {
+        removedEdges.push({ id: edgeId, source: publishedEdge.source, target: publishedEdge.target })
+      }
+    }
+
+    // Compare settings
+    const settingsChanged = JSON.stringify(draftConfig?.settings) !== JSON.stringify(publishedConfig?.settings)
+
+    const totalChanges = addedNodes.length + removedNodes.length + modifiedNodes.length +
+      addedEdges.length + removedEdges.length + (settingsChanged ? 1 : 0)
+
+    return {
+      draftConfig,
+      publishedConfig,
+      changes: {
+        nodes: {
+          added: addedNodes,
+          removed: removedNodes,
+          modified: modifiedNodes,
+        },
+        edges: {
+          added: addedEdges,
+          removed: removedEdges,
+        },
+        settings: {
+          changed: settingsChanged,
+          oldValue: settingsChanged ? (publishedConfig?.settings as Record<string, unknown>) : undefined,
+          newValue: settingsChanged ? (draftConfig?.settings as Record<string, unknown>) : undefined,
+        },
+      },
+      summary: {
+        totalChanges,
+        hasChanges: totalChanges > 0,
+      },
+    }
   }
 
   /**

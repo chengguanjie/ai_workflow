@@ -33,7 +33,7 @@ async function waitForDatabase() {
             });
             log('Database connection successful!');
             return true;
-        } catch (error) {
+        } catch (_error) {
             log(`Database connection attempt ${i}/${MAX_RETRIES} failed`);
             if (i < MAX_RETRIES) {
                 log(`Retrying in ${RETRY_DELAY / 1000} seconds...`);

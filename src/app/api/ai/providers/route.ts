@@ -91,6 +91,8 @@ function getProviderDisplayName(provider: string): string {
   const names: Record<string, string> = {
     OPENROUTER: 'OpenRouter',
     SHENSUAN: '胜算云',
+    OPENAI: 'OpenAI兼容',
+    ANTHROPIC: 'Anthropic',
   }
   return names[provider] || provider
 }

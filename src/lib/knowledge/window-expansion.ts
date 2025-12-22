@@ -347,7 +347,7 @@ export async function getDocumentChunksOrdered(
  */
 export function mergeAdjacentResults(
   results: ExpandedSearchResult[],
-  maxGap: number = 1
+  _maxGap: number = 1
 ): ExpandedSearchResult[] {
   if (results.length <= 1) return results
 

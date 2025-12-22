@@ -8,7 +8,7 @@ import type { NodeProcessor, NodeOutput, ExecutionContext, AIConfigCache } from 
 import { replaceVariables, replaceFileNameVariables } from '../utils'
 import { aiService } from '@/lib/ai'
 import { prisma } from '@/lib/db'
-import { decryptApiKey } from '@/lib/crypto'
+import { safeDecryptApiKey } from '@/lib/crypto'
 import { storageService, FORMAT_MIME_TYPES, FORMAT_EXTENSIONS } from '@/lib/storage'
 
 export class OutputNodeProcessor implements NodeProcessor {
@@ -523,7 +523,7 @@ ${content}
       id: apiKey.id,
       provider: apiKey.provider,
       baseUrl: apiKey.baseUrl,
-      apiKey: decryptApiKey(apiKey.keyEncrypted),
+      apiKey: safeDecryptApiKey(apiKey.keyEncrypted),
       defaultModel: apiKey.defaultModel,
     }
 
