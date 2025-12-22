@@ -8,7 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { checkResourcePermission } from '@/lib/permissions/resource'
 import { startOfDay, endOfDay, subDays } from 'date-fns'
@@ -18,8 +18,8 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const { userId } = await auth()
-    if (!userId) {
+    const session = await auth()
+    if (!session?.user) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 

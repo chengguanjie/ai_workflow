@@ -8,7 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { checkResourcePermission } from '@/lib/permissions/resource'
 import { z } from 'zod'
