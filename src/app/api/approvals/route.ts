@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
       workflow: {
         organizationId: session.user.organizationId,
       },
-      ...(status ? { status: status as 'PENDING' | 'APPROVED' | 'REJECTED' | 'TIMEOUT' } : {}),
+      ...(status ? { status: status as 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'CANCELLED' } : {}),
       ...(workflowId ? { workflowId } : {}),
     }
 

@@ -32,10 +32,14 @@ const analyticsConfigSchema = z.object({
   isActive: z.boolean().default(true),
 })
 
+interface RouteParams {
+  params: Promise<{ id: string }>
+}
+
 // GET: 获取工作流的分析配置
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: RouteParams
 ) {
   try {
     const session = await auth()
@@ -43,7 +47,7 @@ export async function GET(
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const workflowId = params.id
+    const { id: workflowId } = await params
 
     // 检查权限
     const canRead = await checkResourcePermission({
@@ -76,7 +80,7 @@ export async function GET(
 // POST: 创建新的分析配置
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: RouteParams
 ) {
   try {
     const session = await auth()
@@ -84,7 +88,7 @@ export async function POST(
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const workflowId = params.id
+    const { id: workflowId } = await params
 
     // 检查权限
     const canUpdate = await checkResourcePermission({
@@ -147,7 +151,7 @@ export async function POST(
 // PUT: 批量更新分析配置
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: RouteParams
 ) {
   try {
     const session = await auth()
@@ -155,7 +159,7 @@ export async function PUT(
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const workflowId = params.id
+    const { id: workflowId } = await params
 
     // 检查权限
     const canUpdate = await checkResourcePermission({
@@ -216,7 +220,7 @@ export async function PUT(
 // DELETE: 删除分析配置
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: RouteParams
 ) {
   try {
     const session = await auth()
@@ -224,7 +228,7 @@ export async function DELETE(
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const workflowId = params.id
+    const { id: workflowId } = await params
 
     // 检查权限
     const canUpdate = await checkResourcePermission({

@@ -41,22 +41,26 @@ const dashboardSchema = z.object({
   isPublic: z.boolean().default(false),
 })
 
+interface RouteParams {
+  params: Promise<{ id: string }>
+}
+
 // GET: 获取工作流的分析仪表板
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: RouteParams
 ) {
   try {
-    const { userId } = await auth()
-    if (!userId) {
+    const session = await auth()
+    if (!session?.user) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const workflowId = params.id
+    const { id: workflowId } = await params
 
     // 检查权限
     const canRead = await checkResourcePermission({
-      userId,
+      userId: session.user.id,
       resourceType: 'workflow',
       resourceId: workflowId,
       action: 'read',
@@ -71,7 +75,7 @@ export async function GET(
       where: {
         workflowId,
         OR: [
-          { createdById: userId },
+          { createdById: session.user.id },
           { isPublic: true },
         ],
       },
@@ -103,19 +107,19 @@ export async function GET(
 // POST: 创建新的分析仪表板
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: RouteParams
 ) {
   try {
-    const { userId } = await auth()
-    if (!userId) {
+    const session = await auth()
+    if (!session?.user) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const workflowId = params.id
+    const { id: workflowId } = await params
 
     // 检查权限
     const canUpdate = await checkResourcePermission({
-      userId,
+      userId: session.user.id,
       resourceType: 'workflow',
       resourceId: workflowId,
       action: 'update',
@@ -142,7 +146,7 @@ export async function POST(
       data: {
         ...validatedData,
         workflowId,
-        createdById: userId,
+        createdById: session.user.id,
       },
       include: {
         createdBy: {
@@ -175,15 +179,15 @@ export async function POST(
 // PUT: 更新分析仪表板
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: RouteParams
 ) {
   try {
-    const { userId } = await auth()
-    if (!userId) {
+    const session = await auth()
+    if (!session?.user) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const workflowId = params.id
+    const { id: workflowId } = await params
 
     // 获取仪表板ID
     const searchParams = request.nextUrl.searchParams
@@ -206,9 +210,9 @@ export async function PUT(
     }
 
     // 只有创建者或有更新权限的用户可以修改
-    const canUpdate = dashboard.createdById === userId ||
+    const canUpdate = dashboard.createdById === session.user.id ||
       await checkResourcePermission({
-        userId,
+        userId: session.user.id,
         resourceType: 'workflow',
         resourceId: workflowId,
         action: 'update',
@@ -269,15 +273,15 @@ export async function PUT(
 // DELETE: 删除分析仪表板
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: RouteParams
 ) {
   try {
-    const { userId } = await auth()
-    if (!userId) {
+    const session = await auth()
+    if (!session?.user) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const workflowId = params.id
+    const { id: workflowId } = await params
 
     // 获取仪表板ID
     const searchParams = request.nextUrl.searchParams
@@ -300,9 +304,9 @@ export async function DELETE(
     }
 
     // 只有创建者或有更新权限的用户可以删除
-    const canDelete = dashboard.createdById === userId ||
+    const canDelete = dashboard.createdById === session.user.id ||
       await checkResourcePermission({
-        userId,
+        userId: session.user.id,
         resourceType: 'workflow',
         resourceId: workflowId,
         action: 'update',

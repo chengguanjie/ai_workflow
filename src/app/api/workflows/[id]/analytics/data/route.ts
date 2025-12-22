@@ -13,9 +13,13 @@ import { prisma } from '@/lib/db'
 import { checkResourcePermission } from '@/lib/permissions/resource'
 import { startOfDay, endOfDay, subDays } from 'date-fns'
 
+interface RouteParams {
+  params: Promise<{ id: string }>
+}
+
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: RouteParams
 ) {
   try {
     const session = await auth()
@@ -23,11 +27,11 @@ export async function GET(
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const workflowId = params.id
+    const { id: workflowId } = await params
 
     // 检查权限
     const canRead = await checkResourcePermission({
-      userId,
+      userId: session.user.id,
       resourceType: 'workflow',
       resourceId: workflowId,
       action: 'read',

@@ -10,6 +10,10 @@ import { prisma } from '@/lib/db'
 import { z } from 'zod'
 import { createAnalyticsCollector } from '@/lib/workflow/analytics-collector'
 
+interface RouteParams {
+  params: Promise<{ id: string }>
+}
+
 // 反馈数据验证模式
 const feedbackSchema = z.object({
   executionId: z.string(),
@@ -22,15 +26,15 @@ const feedbackSchema = z.object({
 // POST: 提交执行反馈
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: RouteParams
 ) {
   try {
-    const { userId } = await auth()
-    if (!userId) {
+    const session = await auth()
+    if (!session?.user) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const workflowId = params.id
+    const { id: workflowId } = await params
 
     // 验证请求体
     const body = await request.json()
