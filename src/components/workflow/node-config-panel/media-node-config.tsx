@@ -68,20 +68,22 @@ export function MediaNodeConfigPanel({
         const modality = getModalityForNodeType(nodeType)
         const res = await fetch(`/api/ai/providers?modality=${modality}`)
         if (res.ok) {
-          const data = await res.json()
-          const providerList = data.providers || []
-          setProviders(providerList)
+          const resData = await res.json()
+          if (resData.success && resData.data) {
+            const providerList = resData.data.providers || []
+            setProviders(providerList)
 
-          // 如果节点没有选择配置，或者当前配置已不存在，使用默认配置
-          const currentConfigExists = mediaConfig.aiConfigId &&
-            providerList.some((p: AIProviderConfig) => p.id === mediaConfig.aiConfigId)
+            // 如果节点没有选择配置，或者当前配置已不存在，使用默认配置
+            const currentConfigExists = mediaConfig.aiConfigId &&
+              providerList.some((p: AIProviderConfig) => p.id === mediaConfig.aiConfigId)
 
-          if (!currentConfigExists && data.defaultProvider) {
-            onUpdate({
-              ...mediaConfig,
-              aiConfigId: data.defaultProvider.id,
-              model: data.defaultProvider.defaultModel,
-            })
+            if (!currentConfigExists && resData.data.defaultProvider) {
+              onUpdate({
+                ...mediaConfig,
+                aiConfigId: resData.data.defaultProvider.id,
+                model: resData.data.defaultProvider.defaultModel,
+              })
+            }
           }
         }
       } catch (error) {
@@ -91,7 +93,7 @@ export function MediaNodeConfigPanel({
       }
     }
     loadProviders()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodeType])
 
   const files = mediaConfig.files || []
@@ -106,11 +108,11 @@ export function MediaNodeConfigPanel({
 
     setUploading(true)
     const newFiles: ImportedFile[] = []
-    
+
     try {
       for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i]
-        
+
         const formData = new FormData()
         formData.append('file', file)
         formData.append('fieldType', nodeType)
@@ -174,18 +176,16 @@ export function MediaNodeConfigPanel({
         {tabs.map((tab) => (
           <button
             key={tab.key}
-            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${
-              activeTab === tab.key
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${activeTab === tab.key
                 ? 'border-primary text-primary'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
+              }`}
             onClick={() => setActiveTab(tab.key)}
           >
             {tab.label}
             {tab.badge !== undefined && (
-              <span className={`px-1.5 py-0.5 text-xs rounded-full ${
-                activeTab === tab.key ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
-              }`}>
+              <span className={`px-1.5 py-0.5 text-xs rounded-full ${activeTab === tab.key ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+                }`}>
                 {tab.badge}
               </span>
             )}
@@ -207,11 +207,10 @@ export function MediaNodeConfigPanel({
 
           {/* 文件上传区域 */}
           <div
-            className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
-              uploading 
-                ? 'cursor-not-allowed bg-muted/30' 
+            className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${uploading
+                ? 'cursor-not-allowed bg-muted/30'
                 : 'cursor-pointer hover:bg-muted/50'
-            }`}
+              }`}
             onClick={() => !uploading && fileInputRef.current?.click()}
           >
             <input

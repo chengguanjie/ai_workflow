@@ -144,9 +144,10 @@ export function AIGenerateButton({
         throw new Error(data.error || '生成失败')
       }
 
-      const data = await response.json()
-      setGeneratedContent(data.content)
-      setIsOptimization(data.isOptimization)
+      const resData = await response.json()
+      const data = resData.success ? resData.data : {}
+      setGeneratedContent(data.content || '')
+      setIsOptimization(data.isOptimization || false)
       setIsDialogOpen(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : '生成失败')

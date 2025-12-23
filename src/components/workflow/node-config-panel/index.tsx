@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, memo } from 'react'
+import { useState, useCallback, memo, useRef } from 'react'
 import { useWorkflowStore } from '@/stores/workflow-store'
 import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
@@ -44,40 +44,59 @@ function NodeConfigPanelInner() {
     }))
   )
   const [panelWidth, setPanelWidth] = useState(576)
+  const panelWidthRef = useRef(panelWidth)
+
+  // Update ref when panelWidth changes
+  panelWidthRef.current = panelWidth
 
   // 处理配置面板宽度拖拽
   const handlePanelResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     const startX = e.clientX
-    const startWidth = panelWidth
-    let animationFrameId: number
+    const startWidth = panelWidthRef.current
+    let animationFrameId: number | null = null
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
-      // Capture currentX immediately to ensure accuracy within the frame
-      const currentX = moveEvent.clientX
+      try {
+        // Capture currentX immediately to ensure accuracy within the frame
+        const currentX = moveEvent.clientX
 
-      // Prevent stacking animation frames
-      if (animationFrameId) return
+        // Prevent stacking animation frames
+        if (animationFrameId !== null) return
 
-      animationFrameId = requestAnimationFrame(() => {
-        const deltaX = startX - currentX // 向左拖变宽
-        const newWidth = Math.max(400, Math.min(900, startWidth + deltaX))
-        setPanelWidth(newWidth)
-        animationFrameId = 0
-      })
+        animationFrameId = requestAnimationFrame(() => {
+          try {
+            const deltaX = startX - currentX // 向左拖变宽
+            const newWidth = Math.max(400, Math.min(900, startWidth + deltaX))
+            setPanelWidth(newWidth)
+            panelWidthRef.current = newWidth
+          } catch (error) {
+            console.error('Error during panel resize:', error)
+          } finally {
+            animationFrameId = null
+          }
+        })
+      } catch (error) {
+        console.error('Error in resize mouse move:', error)
+      }
     }
 
     const handleMouseUp = () => {
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId)
+      try {
+        if (animationFrameId !== null) {
+          cancelAnimationFrame(animationFrameId)
+          animationFrameId = null
+        }
+        document.removeEventListener('mousemove', handleMouseMove)
+        document.removeEventListener('mouseup', handleMouseUp)
+      } catch (error) {
+        console.error('Error in resize mouse up:', error)
       }
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
     }
 
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleMouseUp)
-  }, [panelWidth])
+  }, [])
 
 
   if (!selectedNode) return null

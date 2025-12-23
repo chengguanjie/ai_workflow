@@ -50,20 +50,22 @@ export function AIProviderSelect({
           : '/api/ai/providers'
         const res = await fetch(url)
         if (res.ok) {
-          const data = await res.json()
-          const providerList = data.providers || []
-          setProviders(providerList)
+          const resData = await res.json()
+          if (resData.success && resData.data) {
+            const providerList = resData.data.providers || []
+            setProviders(providerList)
 
-          // 如果节点没有选择配置，使用默认配置
-          if (!aiConfigId && data.defaultProvider) {
-            onProviderChange(data.defaultProvider.id)
-            // 始终设置默认模型，确保 model 字段有值
-            onModelChange(data.defaultProvider.defaultModel)
-          } else if (aiConfigId && !model) {
-            // 配置存在但 model 为空，使用当前服务商的默认模型
-            const currentProvider = providerList.find((p: { id: string }) => p.id === aiConfigId)
-            if (currentProvider?.defaultModel) {
-              onModelChange(currentProvider.defaultModel)
+            // 如果节点没有选择配置，使用默认配置
+            if (!aiConfigId && resData.data.defaultProvider) {
+              onProviderChange(resData.data.defaultProvider.id)
+              // 始终设置默认模型，确保 model 字段有值
+              onModelChange(resData.data.defaultProvider.defaultModel)
+            } else if (aiConfigId && !model) {
+              // 配置存在但 model 为空，使用当前服务商的默认模型
+              const currentProvider = providerList.find((p: { id: string }) => p.id === aiConfigId)
+              if (currentProvider?.defaultModel) {
+                onModelChange(currentProvider.defaultModel)
+              }
             }
           }
         }
@@ -74,7 +76,7 @@ export function AIProviderSelect({
       }
     }
     loadProviders()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modality])
 
   const handleProviderChange = (configId: string) => {
@@ -196,9 +198,11 @@ export function useAIProviders(modality?: ModelModality) {
           : '/api/ai/providers'
         const res = await fetch(url)
         if (res.ok) {
-          const data = await res.json()
-          setProviders(data.providers || [])
-          setDefaultProvider(data.defaultProvider || null)
+          const resData = await res.json()
+          if (resData.success && resData.data) {
+            setProviders(resData.data.providers || [])
+            setDefaultProvider(resData.data.defaultProvider || null)
+          }
         }
       } catch (error) {
         console.error('Failed to load providers:', error)

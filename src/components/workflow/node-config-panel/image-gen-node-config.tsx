@@ -71,7 +71,7 @@ export function ImageGenNodeConfigPanel({
         if (res.ok) {
           const data = await res.json()
           // 过滤支持图像生成的服务商
-          const imageProviders = (data.providers || []).filter((p: AIProviderConfig) =>
+          const imageProviders = (data.data?.providers || []).filter((p: AIProviderConfig) =>
             ['OPENAI', 'STABILITYAI', 'ALIYUN_TONGYI', 'SHENSUAN'].includes(p.provider)
           )
           setProviders(imageProviders)

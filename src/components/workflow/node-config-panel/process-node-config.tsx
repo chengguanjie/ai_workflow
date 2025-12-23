@@ -62,19 +62,19 @@ export function ProcessNodeConfigPanel({
         const res = await fetch('/api/ai/providers?modality=text')
         if (res.ok) {
           const data = await res.json()
-          const providerList = data.providers || []
+          const providerList = data.data?.providers || []
           setProviders(providerList)
 
           // 如果节点没有选择配置，或者当前配置已不存在，使用默认配置
           const currentConfigExists = processConfig.aiConfigId &&
             providerList.some((p: AIProviderConfig) => p.id === processConfig.aiConfigId)
 
-          if (!currentConfigExists && data.defaultProvider) {
+          if (!currentConfigExists && data.data?.defaultProvider) {
             // 使用默认服务商配置
             onUpdate({
               ...processConfig,
-              aiConfigId: data.defaultProvider.id,
-              model: data.defaultProvider.defaultModel, // 始终使用服务商的默认模型
+              aiConfigId: data.data.defaultProvider.id,
+              model: data.data.defaultProvider.defaultModel, // 始终使用服务商的默认模型
             })
           } else if (currentConfigExists && !processConfig.model) {
             // 配置存在但 model 为空，使用当前服务商的默认模型

@@ -245,7 +245,8 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
       if (!response.ok) {
         throw new Error('获取服务商配置失败')
       }
-      const data = await response.json()
+      const resData = await response.json()
+      const data = resData.success ? resData.data : {}
       const providers: AIProviderConfig[] = data.providers || []
       setProviderConfigs(providers)
 
