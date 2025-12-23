@@ -29,6 +29,19 @@ import {
   clearCheckpoint,
 } from './checkpoint'
 import { createAnalyticsCollector, type AnalyticsCollector } from './analytics-collector'
+import { ExecutionHooks } from './execution-hooks'
+
+// 导入模块化的引擎组件
+import {
+  handleConditionBranching as moduleBranchingHandler,
+  markDependentNodesForSkipping as moduleMarkDependentNodes,
+} from './engine/branching'
+import { saveNodeLog as moduleSaveNodeLog } from './engine/logger'
+import {
+  executeNode as moduleExecuteNode,
+  applyInitialInput as moduleApplyInput,
+  createPlaceholderOutput,
+} from './engine/executor'
 
 /**
  * 检查节点是否为 MERGE 节点
@@ -174,6 +187,7 @@ export class WorkflowEngine {
         input: initialInput ? JSON.parse(JSON.stringify(initialInput)) : {},
         workflowId: this.workflowId,
         userId: this.userId,
+        organizationId: this.organizationId,
         resumedFromId: resumeFromExecutionId || null,
       },
     })
@@ -365,6 +379,17 @@ export class WorkflowEngine {
       // 发送执行完成事件
       executionEvents.executionComplete(execution.id)
 
+      // 触发执行完成钩子
+      const hookContext = {
+        execution: await prisma.execution.findUnique({ where: { id: execution.id } }),
+        workflowId: this.workflowId,
+        userId: this.userId,
+        departmentId: user?.departmentId
+      }
+      if (hookContext.execution) {
+        await ExecutionHooks.onExecutionComplete(hookContext)
+      }
+
       return {
         executionId: execution.id,
         status: 'COMPLETED',
@@ -411,6 +436,17 @@ export class WorkflowEngine {
       // 发送执行失败事件
       executionEvents.executionError(execution.id, errorMessage)
 
+      // 触发执行完成钩子（失败也要触发）
+      const hookContext = {
+        execution: await prisma.execution.findUnique({ where: { id: execution.id } }),
+        workflowId: this.workflowId,
+        userId: this.userId,
+        departmentId: user?.departmentId
+      }
+      if (hookContext.execution) {
+        await ExecutionHooks.onExecutionComplete(hookContext)
+      }
+
       return {
         executionId: execution.id,
         status: 'FAILED',
@@ -432,54 +468,8 @@ export class WorkflowEngine {
     conditionNode: NodeConfig,
     result: NodeOutput
   ): void {
-    const conditionResult = result.data?.result === true || result.data?.conditionsMet === true
-    
-    // 获取要跳过的分支
-    const branchToSkip = conditionResult ? 'false' : 'true'
-    const nodesToSkip = getConditionBranchNodes(
-      conditionNode.id,
-      this.config.edges,
-      branchToSkip as 'true' | 'false'
-    )
-
-    // 递归标记所有需要跳过的节点
-    this.markNodesForSkipping(nodesToSkip, conditionNode.id)
-  }
-
-  /**
-   * 递归标记需要跳过的节点
-   */
-  private markNodesForSkipping(nodeIds: string[], conditionNodeId: string): void {
-    const queue = [...nodeIds]
-    const visited = new Set<string>()
-
-    while (queue.length > 0) {
-      const nodeId = queue.shift()!
-      if (visited.has(nodeId)) continue
-      visited.add(nodeId)
-
-      // 检查这个节点是否只有来自被跳过分支的入边
-      // 如果有其他有效的入边，则不应该跳过
-      const incomingEdges = this.config.edges.filter(e => e.target === nodeId)
-      const hasValidIncomingEdge = incomingEdges.some(e => {
-        if (e.source === conditionNodeId) {
-          return false // 来自条件节点的边
-        }
-        return !this.skippedNodes.has(e.source) // 来自非跳过节点的边
-      })
-
-      if (!hasValidIncomingEdge) {
-        this.skippedNodes.add(nodeId)
-
-        // 继续标记下游节点
-        const outgoingEdges = this.config.edges.filter(e => e.source === nodeId)
-        for (const edge of outgoingEdges) {
-          if (!visited.has(edge.target)) {
-            queue.push(edge.target)
-          }
-        }
-      }
-    }
+    // 使用模块化的分支处理函数
+    moduleBranchingHandler(conditionNode, result, this.config.edges, this.skippedNodes)
   }
 
   /**
@@ -495,24 +485,24 @@ export class WorkflowEngine {
     const bodyNodes = this.config.nodes.filter(n => bodyNodeIds.includes(n.id))
     const bodyExecutionOrder = getExecutionOrder(bodyNodes, this.config.edges.filter(
       e => bodyNodeIds.includes(e.source) && bodyNodeIds.includes(e.target)
-	    ))
-	    
-	    let state: LoopState
-	    const { loopType, whileConfig } = loopNode.config
-	    
-	    if (loopType === 'FOR') {
-	      state = initializeForLoop(loopNode, context)
-	    } else {
-	      state = initializeWhileLoop(loopNode, context)
-	    }
-    
+    ))
+
+    let state: LoopState
+    const { loopType, whileConfig } = loopNode.config
+
+    if (loopType === 'FOR') {
+      state = initializeForLoop(loopNode, context)
+    } else {
+      state = initializeWhileLoop(loopNode, context)
+    }
+
     this.loopStates.set(loopNode.id, state)
     this.loopIterationResults.set(loopNode.id, [])
-    
+
     let totalTokens = 0
     let promptTokens = 0
     let completionTokens = 0
-    
+
     while (shouldLoopContinue(state)) {
       const loopVars = getLoopContextVariables(state)
       context.nodeOutputs.set('loop', {
@@ -525,9 +515,9 @@ export class WorkflowEngine {
         completedAt: new Date(),
         duration: 0,
       })
-      
+
       const iterationOutputs: Record<string, unknown> = {}
-      
+
       for (const bodyNode of bodyExecutionOrder) {
         // 发送循环体节点开始事件
         executionEvents.nodeStart(executionId, bodyNode.id, bodyNode.name, bodyNode.type)
@@ -552,25 +542,25 @@ export class WorkflowEngine {
         // 发送循环体节点完成事件
         executionEvents.nodeComplete(executionId, bodyNode.id, bodyNode.name, bodyNode.type, result.data)
       }
-      
+
       this.loopIterationResults.get(loopNode.id)!.push({
         iteration: state.iterationsCompleted + 1,
         outputs: iterationOutputs,
         success: true,
       })
-	      
-	      if (loopType === 'FOR') {
-	        state = advanceForLoop(state)
-	      } else {
-	        if (!whileConfig) {
-	          throw new Error('WHILE 循环缺少 whileConfig 配置')
-	        }
-	        state = advanceWhileLoop(state, whileConfig.condition, context)
-	      }
-	      
-	      this.loopStates.set(loopNode.id, state)
-	    }
-    
+
+      if (loopType === 'FOR') {
+        state = advanceForLoop(state)
+      } else {
+        if (!whileConfig) {
+          throw new Error('WHILE 循环缺少 whileConfig 配置')
+        }
+        state = advanceWhileLoop(state, whileConfig.condition, context)
+      }
+
+      this.loopStates.set(loopNode.id, state)
+    }
+
     const iterationResults = this.loopIterationResults.get(loopNode.id) || []
     context.nodeOutputs.set(loopNode.id, {
       nodeId: loopNode.id,
@@ -586,11 +576,11 @@ export class WorkflowEngine {
       completedAt: new Date(),
       duration: 0,
     })
-    
+
     for (const bodyNodeId of bodyNodeIds) {
       this.skippedNodes.add(bodyNodeId)
     }
-    
+
     return { totalTokens, promptTokens, completionTokens }
   }
 
@@ -601,41 +591,8 @@ export class WorkflowEngine {
     node: NodeConfig,
     context: ExecutionContext
   ): Promise<NodeOutput> {
-    const processor = getProcessor(node.type)
-
-    if (!processor) {
-      // 对于不支持的节点类型，返回跳过状态
-      console.warn(`未找到节点处理器: ${node.type}`)
-      const output: NodeOutput = {
-        nodeId: node.id,
-        nodeName: node.name,
-        nodeType: node.type,
-        status: 'skipped',
-        data: {},
-        startedAt: new Date(),
-        completedAt: new Date(),
-        duration: 0,
-      }
-      context.nodeOutputs.set(node.id, output)
-      return output
-    }
-
-    // 执行节点
-    const result = await processor.process(node, context)
-
-    // 保存到上下文
-    context.nodeOutputs.set(node.id, result)
-
-    // 收集节点输出数据用于分析（仅在成功时）
-    if (this.analyticsCollector && result.status === 'success' && result.data) {
-      await this.analyticsCollector.collectNodeOutput(
-        node.id,
-        node.name,
-        result.data
-      )
-    }
-
-    return result
+    // 使用模块化执行器
+    return moduleExecuteNode(node, context, this.analyticsCollector)
   }
 
   /**
@@ -645,67 +602,21 @@ export class WorkflowEngine {
     nodes: NodeConfig[],
     input: Record<string, unknown>
   ): void {
-    for (const node of nodes) {
-      if (node.type === 'INPUT' && node.config?.fields) {
-        const fields = node.config.fields as Array<{
-          id: string
-          name: string
-          value: string
-        }>
-
-        for (const field of fields) {
-          if (input[field.name] !== undefined) {
-            field.value = String(input[field.name])
-          }
-        }
-      }
-    }
+    // 使用模块化函数
+    moduleApplyInput(nodes, input)
   }
 
   /**
    * 保存节点执行日志
+   * @deprecated 使用模块化的 saveNodeLog 函数
    */
   private async saveNodeLog(
     executionId: string,
     node: NodeConfig,
     result: NodeOutput
   ): Promise<void> {
-    // 确定节点类型（映射到数据库枚举）
-    const nodeTypeMap: Record<string, 'TRIGGER' | 'INPUT' | 'PROCESS' | 'CODE' | 'OUTPUT'> = {
-      TRIGGER: 'TRIGGER',
-      INPUT: 'INPUT',
-      PROCESS: 'PROCESS',
-      CODE: 'CODE',
-      OUTPUT: 'OUTPUT',
-      DATA: 'INPUT',
-      IMAGE: 'INPUT',
-      VIDEO: 'INPUT',
-      AUDIO: 'INPUT',
-      CONDITION: 'PROCESS',
-      LOOP: 'PROCESS',
-      HTTP: 'PROCESS',
-      MERGE: 'PROCESS',
-    }
-
-    const dbNodeType = nodeTypeMap[node.type] || 'PROCESS'
-
-    await prisma.executionLog.create({
-      data: {
-        executionId,
-        nodeId: node.id,
-        nodeName: node.name,
-        nodeType: dbNodeType,
-        input: node.config ? JSON.parse(JSON.stringify(node.config)) : {},
-        output: result.data ? JSON.parse(JSON.stringify(result.data)) : undefined,
-        status: result.status === 'success' ? 'COMPLETED' : 'FAILED',
-        promptTokens: result.tokenUsage?.promptTokens,
-        completionTokens: result.tokenUsage?.completionTokens,
-        startedAt: result.startedAt,
-        completedAt: result.completedAt,
-        duration: result.duration,
-        error: result.error,
-      },
-    })
+    // 委托给模块化函数
+    await moduleSaveNodeLog(executionId, node, result)
   }
 
   /**
@@ -950,9 +861,9 @@ export class WorkflowEngine {
           completionTokens += result.tokenUsage.completionTokens
         }
 
-      if (isConditionNode(node)) {
+        if (isConditionNode(node)) {
           this.handleConditionBranching(node, result)
-      }
+        }
 
         if (node.type === 'OUTPUT') {
           lastOutput = result.data || {}
@@ -976,39 +887,16 @@ export class WorkflowEngine {
    * 标记依赖于失败节点的下游节点为跳过
    */
   private markDependentNodesForSkipping(failedNodeId: string): void {
-    const queue = [failedNodeId]
-    const visited = new Set<string>()
-
-    while (queue.length > 0) {
-      const nodeId = queue.shift()!
-      if (visited.has(nodeId)) continue
-      visited.add(nodeId)
-
-      // 获取所有下游节点
-      const successors = this.config.edges
-        .filter(e => e.source === nodeId)
-        .map(e => e.target)
-
-      for (const successorId of successors) {
-        const successorNode = this.config.nodes.find(n => n.id === successorId)
-
-        // MERGE 节点不跳过，它可以处理部分分支失败的情况
-        if (successorNode && isMergeNode(successorNode)) {
-          continue
-        }
-
-        // 检查该节点是否还有其他有效的前置节点
-        const predecessorIds = getPredecessorIds(successorId, this.config.edges)
-        const hasValidPredecessor = predecessorIds.some(
-          id => !this.failedNodes.has(id) && !this.skippedNodes.has(id) && id !== failedNodeId
-        )
-
-        if (!hasValidPredecessor) {
-          this.skippedNodes.add(successorId)
-          queue.push(successorId)
-        }
-      }
-    }
+    // 使用模块化函数
+    moduleMarkDependentNodes(
+      failedNodeId,
+      this.config.nodes,
+      this.config.edges,
+      this.failedNodes,
+      this.skippedNodes,
+      isMergeNode,
+      getPredecessorIds
+    )
   }
 }
 

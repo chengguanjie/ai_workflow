@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 import {
   SHENSUAN_MODELS,
   SHENSUAN_DEFAULT_MODELS,
@@ -14,7 +15,7 @@ export async function GET(request: NextRequest) {
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 获取模态过滤参数
@@ -76,14 +77,13 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    return NextResponse.json({
+    return ApiResponse.success({
       providers,
-      // 默认配置（如果有）
       defaultProvider: providers.find(p => p.isDefault) || providers[0] || null,
     })
   } catch (error) {
     console.error('Failed to get AI providers:', error)
-    return NextResponse.json({ error: '获取服务商列表失败' }, { status: 500 })
+    return ApiResponse.error('获取服务商列表失败', 500)
   }
 }
 

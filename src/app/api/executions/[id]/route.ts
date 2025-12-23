@@ -4,9 +4,10 @@
  * GET /api/executions/[id] - 获取执行记录详情
  */
 
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -20,7 +21,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const session = await auth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未登录' }, { status: 401 })
+      return ApiResponse.error('未登录', 401)
     }
 
     const { id } = await params
@@ -84,13 +85,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     })
 
     if (!execution) {
-      return NextResponse.json(
-        { error: '执行记录不存在或无权访问' },
-        { status: 404 }
-      )
+      return ApiResponse.error('执行记录不存在或无权访问', 404)
     }
 
-    return NextResponse.json({
+    return ApiResponse.success({
       execution: {
         id: execution.id,
         status: execution.status,
@@ -114,9 +112,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     })
   } catch (error) {
     console.error('Get execution error:', error)
-    return NextResponse.json(
-      { error: '获取执行记录失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('获取执行记录失败', 500)
   }
 }

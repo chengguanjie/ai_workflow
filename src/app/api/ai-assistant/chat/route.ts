@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { safeDecryptApiKey } from '@/lib/crypto'
 import { aiService } from '@/lib/ai'
+import { ApiResponse } from '@/lib/api/api-response'
 
 const NODE_TYPE_DESCRIPTIONS = `
 ## 可用节点类型详解
@@ -31,7 +32,7 @@ const NODE_TYPE_DESCRIPTIONS = `
 ### 3. PROCESS - AI文本处理节点（最重要的节点）
 - 作用：使用AI模型处理文本，支持知识库
 - 配置项：
-  - systemPrompt: 系统提示词（定义AI的角色和行为）
+  - systemPrompt: 系统提示词（定义AI的角色 and 行为）
   - userPrompt: 用户提示词（支持变量引用，如{{输入.问题}}）
   - model: 模型名称
   - temperature: 温度(0-2，默认0.7)
@@ -48,7 +49,7 @@ const NODE_TYPE_DESCRIPTIONS = `
   - prompt: AI生成代码的提示词
 
 ### 5. OUTPUT - 输出节点
-- 作用：格式化和输出最终结果
+- 作用：格式化 and 输出最终结果
 - 配置项：
   - prompt: 输出格式提示词
   - format: 'text' | 'json' | 'markdown' | 'html' | 'word' | 'excel' | 'pdf'
@@ -62,7 +63,7 @@ const NODE_TYPE_DESCRIPTIONS = `
     - operator: 'equals' | 'notEquals' | 'contains' | 'greaterThan' 等
     - value: 比较值
   - evaluationMode: 'all' | 'any'
-- 输出：两个分支（true分支和false分支），使用sourceHandle: 'true' 或 'false'
+- 输出：两个分支（true分支 and false分支），使用sourceHandle: 'true' 或 'false'
 
 ### 7. SWITCH - 多路分支节点
 - 作用：根据变量值选择多个分支之一
@@ -291,7 +292,7 @@ ${NODE_TYPE_DESCRIPTIONS}
 ## 重要说明
 - 使用 "new_1", "new_2" 等表示新添加的节点（按添加顺序编号）
 - position建议：x间隔200，y间隔150
-- 为PROCESS节点编写专业的系统提示词和用户提示词
+- 为PROCESS节点编写专业的系统提示词 and 用户提示词
 - 变量引用格式：{{节点名.字段名}}
 
 请用中文与用户交流。`
@@ -424,14 +425,14 @@ export async function POST(request: NextRequest) {
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const body = await request.json()
-    const { 
-      message, 
-      model, 
-      workflowContext, 
+    const {
+      message,
+      model,
+      workflowContext,
       history,
       mode = 'normal',
       testResult,
@@ -439,7 +440,7 @@ export async function POST(request: NextRequest) {
     } = body
 
     if (!message && mode !== 'optimization') {
-      return NextResponse.json({ error: '消息不能为空' }, { status: 400 })
+      return ApiResponse.error('消息不能为空', 400)
     }
 
     let configId: string | null = null
@@ -475,11 +476,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (!apiKey) {
-      return NextResponse.json({ error: '未配置AI服务，请先在设置中配置AI服务商' }, { status: 400 })
+      return ApiResponse.error('未配置AI服务，请先在设置中配置AI服务商', 400)
     }
 
     let systemPrompt = REQUIREMENT_GATHERING_PROMPT
-    
+
     if (mode === 'optimization') {
       systemPrompt = OPTIMIZATION_PROMPT
     }
@@ -510,9 +511,9 @@ export async function POST(request: NextRequest) {
     }
 
     if (mode === 'optimization') {
-      messages.push({ 
-        role: 'user', 
-        content: `请分析上面的测试执行结果，找出问题并提出具体的优化建议。如果有需要修改的节点配置，请直接给出修改方案。${targetCriteria ? `\n\n用户期望达到的目标：${targetCriteria}` : ''}` 
+      messages.push({
+        role: 'user',
+        content: `请分析上面的测试执行结果，找出问题并提出具体的优化建议。如果有需要修改的节点配置，请直接给出修改方案。${targetCriteria ? `\n\n用户期望达到的目标：${targetCriteria}` : ''}`
       })
     } else {
       messages.push({ role: 'user', content: message })
@@ -533,7 +534,7 @@ export async function POST(request: NextRequest) {
 
     const { cleanContent, nodeActions, phase, analysis, questionOptions } = parseAIResponse(response.content)
 
-    return NextResponse.json({
+    return ApiResponse.success({
       content: cleanContent,
       nodeActions,
       phase,
@@ -544,9 +545,6 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('AI Assistant error:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'AI请求失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error(error instanceof Error ? error.message : 'AI请求失败', 500)
   }
 }

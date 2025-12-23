@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 
 // GET: 获取审计日志
 export async function GET(request: NextRequest) {
@@ -8,12 +9,12 @@ export async function GET(request: NextRequest) {
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 只有 OWNER 和 ADMIN 可以查看审计日志
     if (!['OWNER', 'ADMIN'].includes(session.user.role)) {
-      return NextResponse.json({ error: '权限不足' }, { status: 403 })
+      return ApiResponse.error('权限不足', 403)
     }
 
     const searchParams = request.nextUrl.searchParams
@@ -78,7 +79,7 @@ export async function GET(request: NextRequest) {
       user: log.userId ? userMap.get(log.userId) : null,
     }))
 
-    return NextResponse.json({
+    return ApiResponse.success({
       logs: logsWithUsers,
       pagination: {
         page,
@@ -89,6 +90,6 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error('Failed to get audit logs:', error)
-    return NextResponse.json({ error: '获取审计日志失败' }, { status: 500 })
+    return ApiResponse.error('获取审计日志失败', 500)
   }
 }

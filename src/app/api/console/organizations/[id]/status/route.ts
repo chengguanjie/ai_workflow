@@ -3,6 +3,7 @@ import { consoleAuth } from '@/lib/console-auth'
 import { hasPermission } from '@/lib/console-auth/permissions'
 import { prisma } from '@/lib/db'
 import type { PlatformRole, OrgStatus } from '@prisma/client'
+import { ApiResponse } from '@/lib/api/api-response'
 
 // PUT - 更改企业状态
 export async function PUT(
@@ -12,11 +13,11 @@ export async function PUT(
   const session = await consoleAuth()
 
   if (!session?.user) {
-    return NextResponse.json({ error: '未登录' }, { status: 401 })
+    return ApiResponse.error('未登录', 401)
   }
 
   if (!hasPermission(session.user.role as PlatformRole, 'organization:status')) {
-    return NextResponse.json({ error: '权限不足' }, { status: 403 })
+    return ApiResponse.error('权限不足', 403)
   }
 
   const { id } = await params
@@ -31,10 +32,7 @@ export async function PUT(
     // 验证状态值
     const validStatuses: OrgStatus[] = ['PENDING', 'ACTIVE', 'SUSPENDED', 'DISABLED']
     if (!validStatuses.includes(status)) {
-      return NextResponse.json(
-        { error: '无效的状态值' },
-        { status: 400 }
-      )
+      return ApiResponse.error('无效的状态值', 400)
     }
 
     // 检查企业是否存在
@@ -43,7 +41,7 @@ export async function PUT(
     })
 
     if (!existing) {
-      return NextResponse.json({ error: '企业不存在' }, { status: 404 })
+      return ApiResponse.error('企业不存在', 404)
     }
 
     // 更新状态
@@ -71,16 +69,13 @@ export async function PUT(
       },
     })
 
-    return NextResponse.json({
+    return ApiResponse.success({
       id: organization.id,
       status: organization.status,
       statusReason: organization.statusReason,
     })
   } catch (error) {
     console.error('更改企业状态失败:', error)
-    return NextResponse.json(
-      { error: '更改企业状态失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('更改企业状态失败', 500)
   }
 }

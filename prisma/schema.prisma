@@ -37,6 +37,7 @@ model Organization {
   knowledgeBases    KnowledgeBase[]
   departments       Department[]
   platformFeedbacks PlatformFeedback[]
+  executions        Execution[]
 
   @@map("organizations")
 }
@@ -367,8 +368,10 @@ model Execution {
   lastCheckpoint      DateTime?
   resumedFromId       String?
   workflowVersionId   String?
+  organizationId      String
   workflow            Workflow             @relation(fields: [workflowId], references: [id], onDelete: Cascade)
   user                User                 @relation(fields: [userId], references: [id])
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   logs                ExecutionLog[]
   outputFiles         OutputFile[]
   feedbacks           ExecutionFeedback[]
@@ -379,6 +382,8 @@ model Execution {
   @@index([status])
   @@index([createdAt])
   @@index([workflowVersionId])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, status, createdAt])
   @@map("executions")
 }
 

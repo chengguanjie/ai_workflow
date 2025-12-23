@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { consoleAuth } from '@/lib/console-auth'
 import { hasPermission } from '@/lib/console-auth/permissions'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 import type { PlatformRole } from '@prisma/client'
 
 // GET - 获取企业详情
@@ -12,11 +13,11 @@ export async function GET(
   const session = await consoleAuth()
 
   if (!session?.user) {
-    return NextResponse.json({ error: '未登录' }, { status: 401 })
+    return ApiResponse.error('未登录', 401)
   }
 
   if (!hasPermission(session.user.role as PlatformRole, 'organization:read')) {
-    return NextResponse.json({ error: '权限不足' }, { status: 403 })
+    return ApiResponse.error('权限不足', 403)
   }
 
   const { id } = await params
@@ -51,7 +52,7 @@ export async function GET(
   })
 
   if (!organization) {
-    return NextResponse.json({ error: '企业不存在' }, { status: 404 })
+    return ApiResponse.error('企业不存在', 404)
   }
 
   // 获取最近的执行统计
@@ -77,7 +78,7 @@ export async function GET(
     },
   })
 
-  return NextResponse.json({
+  return ApiResponse.success({
     ...organization,
     stats: {
       workflowCount: organization._count.workflows,
@@ -104,11 +105,11 @@ export async function PUT(
   const session = await consoleAuth()
 
   if (!session?.user) {
-    return NextResponse.json({ error: '未登录' }, { status: 401 })
+    return ApiResponse.error('未登录', 401)
   }
 
   if (!hasPermission(session.user.role as PlatformRole, 'organization:update')) {
-    return NextResponse.json({ error: '权限不足' }, { status: 403 })
+    return ApiResponse.error('权限不足', 403)
   }
 
   const { id } = await params
@@ -137,7 +138,7 @@ export async function PUT(
     })
 
     if (!existing) {
-      return NextResponse.json({ error: '企业不存在' }, { status: 404 })
+      return ApiResponse.error('企业不存在', 404)
     }
 
     // 构建更新数据
@@ -180,13 +181,10 @@ export async function PUT(
       },
     })
 
-    return NextResponse.json(organization)
+    return ApiResponse.success(organization)
   } catch (error) {
     console.error('更新企业失败:', error)
-    return NextResponse.json(
-      { error: '更新企业失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('更新企业失败', 500)
   }
 }
 
@@ -198,11 +196,11 @@ export async function DELETE(
   const session = await consoleAuth()
 
   if (!session?.user) {
-    return NextResponse.json({ error: '未登录' }, { status: 401 })
+    return ApiResponse.error('未登录', 401)
   }
 
   if (!hasPermission(session.user.role as PlatformRole, 'organization:delete')) {
-    return NextResponse.json({ error: '权限不足' }, { status: 403 })
+    return ApiResponse.error('权限不足', 403)
   }
 
   const { id } = await params
@@ -222,7 +220,7 @@ export async function DELETE(
     })
 
     if (!existing) {
-      return NextResponse.json({ error: '企业不存在' }, { status: 404 })
+      return ApiResponse.error('企业不存在', 404)
     }
 
     // 记录审计日志（在删除前记录）
@@ -245,12 +243,9 @@ export async function DELETE(
       where: { id },
     })
 
-    return NextResponse.json({ success: true })
+    return ApiResponse.success({ success: true })
   } catch (error) {
     console.error('删除企业失败:', error)
-    return NextResponse.json(
-      { error: '删除企业失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('删除企业失败', 500)
   }
 }

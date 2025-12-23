@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
 import { consoleAuth } from '@/lib/console-auth'
 import { hash } from 'bcryptjs'
+import { ApiResponse } from '@/lib/api/api-response'
 import { PlatformRole } from '@prisma/client'
 
 // 获取管理员列表
@@ -9,12 +10,12 @@ export async function GET(request: NextRequest) {
   try {
     const session = await consoleAuth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 只有超管和管理员可以查看管理员列表
     if (!['SUPER_ADMIN', 'ADMIN'].includes(session.user.role as string)) {
-      return NextResponse.json({ error: '权限不足' }, { status: 403 })
+      return ApiResponse.error('权限不足', 403)
     }
 
     const { searchParams } = new URL(request.url)
@@ -56,18 +57,14 @@ export async function GET(request: NextRequest) {
       prisma.platformAdmin.count({ where }),
     ])
 
-    return NextResponse.json({
-      admins,
-      pagination: {
-        page,
-        pageSize,
-        total,
-        totalPages: Math.ceil(total / pageSize),
-      },
+    return ApiResponse.paginated(admins, {
+      page,
+      pageSize,
+      total,
     })
   } catch (error) {
     console.error('获取管理员列表失败:', error)
-    return NextResponse.json({ error: '获取失败' }, { status: 500 })
+    return ApiResponse.error('获取失败', 500)
   }
 }
 
@@ -76,19 +73,19 @@ export async function POST(request: NextRequest) {
   try {
     const session = await consoleAuth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 只有超管可以创建管理员
     if (session.user.role !== 'SUPER_ADMIN') {
-      return NextResponse.json({ error: '只有超级管理员可以创建管理员' }, { status: 403 })
+      return ApiResponse.error('只有超级管理员可以创建管理员', 403)
     }
 
     const body = await request.json()
     const { email, name, password, role } = body
 
     if (!email || !password) {
-      return NextResponse.json({ error: '邮箱和密码为必填' }, { status: 400 })
+      return ApiResponse.error('邮箱和密码为必填', 400)
     }
 
     // 检查邮箱是否已存在
@@ -96,13 +93,13 @@ export async function POST(request: NextRequest) {
       where: { email },
     })
     if (existing) {
-      return NextResponse.json({ error: '该邮箱已被使用' }, { status: 400 })
+      return ApiResponse.error('该邮箱已被使用', 400)
     }
 
     // 验证角色
     const validRoles: PlatformRole[] = ['SUPER_ADMIN', 'ADMIN', 'OPERATOR', 'SUPPORT']
     if (role && !validRoles.includes(role)) {
-      return NextResponse.json({ error: '无效的角色' }, { status: 400 })
+      return ApiResponse.error('无效的角色', 400)
     }
 
     const passwordHash = await hash(password, 12)
@@ -136,9 +133,9 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    return NextResponse.json(admin)
+    return ApiResponse.created(admin)
   } catch (error) {
     console.error('创建管理员失败:', error)
-    return NextResponse.json({ error: '创建失败' }, { status: 500 })
+    return ApiResponse.error('创建失败', 500)
   }
 }

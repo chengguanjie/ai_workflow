@@ -4,16 +4,17 @@
  * GET /api/console/accuracy - 获取各企业工作流执行准确率统计
  */
 
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
 import { consoleAuth } from '@/lib/console-auth'
+import { ApiResponse } from '@/lib/api/api-response'
 
 // 获取执行准确率统计
 export async function GET(request: NextRequest) {
   try {
     const session = await consoleAuth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const { searchParams } = new URL(request.url)
@@ -126,7 +127,7 @@ export async function GET(request: NextRequest) {
     // 计算平台整体统计
     const platformStats = await getPlatformStats(startDate)
 
-    return NextResponse.json({
+    return ApiResponse.success({
       organizations: orgStats,
       pagination: {
         page,
@@ -139,7 +140,7 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error('获取准确率统计失败:', error)
-    return NextResponse.json({ error: '获取失败' }, { status: 500 })
+    return ApiResponse.error('获取失败', 500)
   }
 }
 

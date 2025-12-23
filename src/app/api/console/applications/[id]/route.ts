@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { consoleAuth } from '@/lib/console-auth'
 import { hasPermission } from '@/lib/console-auth/permissions'
 import { prisma } from '@/lib/db'
 import { hash } from 'bcryptjs'
+import { ApiResponse } from '@/lib/api/api-response'
 import type { PlatformRole } from '@prisma/client'
 
 // 生成随机密码
@@ -24,11 +25,11 @@ export async function GET(
   const session = await consoleAuth()
 
   if (!session?.user) {
-    return NextResponse.json({ error: '未登录' }, { status: 401 })
+    return ApiResponse.error('未登录', 401)
   }
 
   if (!hasPermission(session.user.role as PlatformRole, 'organization:read')) {
-    return NextResponse.json({ error: '权限不足' }, { status: 403 })
+    return ApiResponse.error('权限不足', 403)
   }
 
   const { id } = await params
@@ -38,10 +39,10 @@ export async function GET(
   })
 
   if (!application) {
-    return NextResponse.json({ error: '申请不存在' }, { status: 404 })
+    return ApiResponse.error('申请不存在', 404)
   }
 
-  return NextResponse.json(application)
+  return ApiResponse.success(application)
 }
 
 // PUT - 审批申请
@@ -52,11 +53,11 @@ export async function PUT(
   const session = await consoleAuth()
 
   if (!session?.user) {
-    return NextResponse.json({ error: '未登录' }, { status: 401 })
+    return ApiResponse.error('未登录', 401)
   }
 
   if (!hasPermission(session.user.role as PlatformRole, 'organization:create')) {
-    return NextResponse.json({ error: '权限不足' }, { status: 403 })
+    return ApiResponse.error('权限不足', 403)
   }
 
   const { id } = await params
@@ -76,23 +77,17 @@ export async function PUT(
     })
 
     if (!application) {
-      return NextResponse.json({ error: '申请不存在' }, { status: 404 })
+      return ApiResponse.error('申请不存在', 404)
     }
 
     if (application.status !== 'PENDING') {
-      return NextResponse.json(
-        { error: '该申请已处理' },
-        { status: 400 }
-      )
+      return ApiResponse.error('该申请已处理', 400)
     }
 
     if (action === 'reject') {
       // 拒绝申请
       if (!rejectReason) {
-        return NextResponse.json(
-          { error: '请填写拒绝原因' },
-          { status: 400 }
-        )
+        return ApiResponse.error('请填写拒绝原因', 400)
       }
 
       await prisma.orgApplication.update({
@@ -120,7 +115,7 @@ export async function PUT(
         },
       })
 
-      return NextResponse.json({
+      return ApiResponse.success({
         status: 'REJECTED',
         message: '已拒绝申请',
       })
@@ -133,10 +128,7 @@ export async function PUT(
       })
 
       if (existingUser) {
-        return NextResponse.json(
-          { error: '该邮箱已被使用' },
-          { status: 400 }
-        )
+        return ApiResponse.error('该邮箱已被使用', 400)
       }
 
       // 生成密码
@@ -156,6 +148,16 @@ export async function PUT(
           apiQuota,
           status: 'ACTIVE',
           createdByAdminId: session.user.id,
+          securitySettings: {
+            passwordMinLength: 8,
+            passwordRequireUppercase: false,
+            passwordRequireNumber: false,
+            passwordRequireSymbol: false,
+            sessionTimeout: 10080, // 7天
+            maxLoginAttempts: 5,
+            ipWhitelist: [],
+            twoFactorRequired: false,
+          },
           users: {
             create: {
               email: application.contactEmail,
@@ -205,7 +207,7 @@ export async function PUT(
         },
       })
 
-      return NextResponse.json({
+      return ApiResponse.success({
         status: 'APPROVED',
         message: '已通过申请',
         organization: {
@@ -220,16 +222,10 @@ export async function PUT(
         },
       })
     } else {
-      return NextResponse.json(
-        { error: '无效的操作' },
-        { status: 400 }
-      )
+      return ApiResponse.error('无效的操作', 400)
     }
   } catch (error) {
     console.error('审批申请失败:', error)
-    return NextResponse.json(
-      { error: '审批失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('审批失败', 500)
   }
 }

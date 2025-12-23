@@ -1,13 +1,15 @@
-/**
- * 临时文件上传 API
- *
- * POST /api/files/temp - 上传临时文件（用于输入节点的文件字段）
- */
-
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { storageService, FORMAT_MIME_TYPES } from '@/lib/storage'
 import type { OutputFormat } from '@/lib/storage'
+import { ApiResponse } from '@/lib/api/api-response'
+import {
+  validateSize,
+  validateMimeType,
+  sanitizeFilename,
+  containsPathTraversal,
+  getExtension,
+} from '@/lib/security/file-validator'
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB
 
@@ -57,7 +59,7 @@ export async function POST(request: NextRequest) {
   try {
     const session = await auth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未登录' }, { status: 401 })
+      return ApiResponse.error('未登录', 401)
     }
 
     const formData = await request.formData()
@@ -65,31 +67,40 @@ export async function POST(request: NextRequest) {
     const fieldType = formData.get('fieldType') as string | null
 
     if (!file) {
-      return NextResponse.json({ error: '缺少文件' }, { status: 400 })
+      return ApiResponse.error('缺少文件', 400)
     }
 
     if (!fieldType) {
-      return NextResponse.json({ error: '缺少字段类型' }, { status: 400 })
+      return ApiResponse.error('缺少字段类型', 400)
     }
 
-    if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json(
-        { error: `文件大小超过限制 (最大 ${MAX_FILE_SIZE / 1024 / 1024}MB)` },
-        { status: 400 }
-      )
+    // Check for path traversal in filename
+    if (containsPathTraversal(file.name)) {
+      return ApiResponse.error('文件名包含非法字符', 400)
+    }
+
+    // Validate file size using File Validator
+    const sizeResult = validateSize(file.size, MAX_FILE_SIZE)
+    if (!sizeResult.valid) {
+      return ApiResponse.error(sizeResult.error || `文件大小超过限制 (最大 ${MAX_FILE_SIZE / 1024 / 1024}MB)`, 400)
     }
 
     // 验证文件类型
     const allowedMimeTypes = FIELD_TYPE_MIME_TYPES[fieldType]
-    if (allowedMimeTypes && file.type && !allowedMimeTypes.has(file.type)) {
-      return NextResponse.json(
-        { error: `不支持的文件格式，请上传${fieldType}类型的文件` },
-        { status: 400 }
-      )
+    if (allowedMimeTypes && file.type) {
+      // Validate MIME type using File Validator
+      const ext = getExtension(file.name)
+      const mimeResult = validateMimeType(file.type, ext, allowedMimeTypes)
+      if (!mimeResult.valid) {
+        return ApiResponse.error(`不支持的文件格式，请上传${fieldType}类型的文件`, 400)
+      }
     }
 
     // 确定文件格式
     const format = detectFormat(file.name, file.type, fieldType)
+
+    // Sanitize filename before storage
+    const safeFileName = sanitizeFilename(file.name)
 
     // 读取文件内容
     const buffer = Buffer.from(await file.arrayBuffer())
@@ -97,7 +108,7 @@ export async function POST(request: NextRequest) {
     // 上传到存储（临时文件，24小时后过期）
     const result = await storageService.uploadAndSave({
       file: buffer,
-      fileName: file.name,
+      fileName: safeFileName,
       mimeType: file.type || FORMAT_MIME_TYPES[format],
       format: format,
       organizationId: session.user.organizationId,
@@ -107,24 +118,20 @@ export async function POST(request: NextRequest) {
       expiresIn: 24 * 60 * 60, // 24小时后过期
     })
 
-    return NextResponse.json({
-      success: true,
+    return ApiResponse.success({
       data: {
         id: result.id,
         fileKey: result.fileKey,
         url: result.url,
         size: result.size,
-        fileName: file.name,
+        fileName: safeFileName,
         format: format,
         mimeType: file.type,
       },
     })
   } catch (error) {
     console.error('Upload temp file error:', error)
-    return NextResponse.json(
-      { error: '上传文件失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('上传文件失败', 500)
   }
 }
 

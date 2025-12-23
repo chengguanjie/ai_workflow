@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback, useRef } from "react"
+import { useEffect, useState, useCallback, useRef, useMemo } from "react"
 import { useParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Loader2, CheckCircle, AlertCircle, Upload, X, FileIcon, Download } from "lucide-react"
+import { sanitizeHtml, sanitizeCss } from "@/lib/security/xss-sanitizer"
 
 // 输入字段类型
 interface InputField {
@@ -648,20 +649,28 @@ export default function PublicFormPage() {
 
   if (!formInfo) return null
 
+  // Sanitize HTML and CSS for AI page mode to prevent XSS attacks
+  const sanitizedHtmlTemplate = formInfo.form.htmlTemplate 
+    ? sanitizeHtml(formInfo.form.htmlTemplate)
+    : null
+  const sanitizedCssStyles = formInfo.form.cssStyles 
+    ? sanitizeCss(formInfo.form.cssStyles)
+    : null
+
   // AI 网页模式渲染
-  if (formInfo.form.mode === 'ai_page' && formInfo.form.htmlTemplate) {
+  if (formInfo.form.mode === 'ai_page' && sanitizedHtmlTemplate) {
     return (
       <div className="min-h-screen">
-        {/* 注入 CSS 样式 */}
-        {formInfo.form.cssStyles && (
-          <style dangerouslySetInnerHTML={{ __html: formInfo.form.cssStyles }} />
+        {/* 注入 CSS 样式 (sanitized) */}
+        {sanitizedCssStyles && (
+          <style dangerouslySetInnerHTML={{ __html: sanitizedCssStyles }} />
         )}
 
-        {/* AI 生成的表单内容 */}
+        {/* AI 生成的表单内容 (sanitized) */}
         <div
           ref={aiFormContainerRef}
           className="ai-form-container"
-          dangerouslySetInnerHTML={{ __html: formInfo.form.htmlTemplate }}
+          dangerouslySetInnerHTML={{ __html: sanitizedHtmlTemplate }}
         />
 
         {/* 提交状态覆盖层 */}

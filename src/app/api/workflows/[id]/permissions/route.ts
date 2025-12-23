@@ -1,12 +1,13 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { PermissionLevel, PermissionTargetType } from '@prisma/client'
 import { invalidateWorkflowPermissionCache } from '@/lib/permissions/workflow'
+import { ApiResponse } from '@/lib/api/api-response'
 
 // GET: 获取工作流权限列表
 export async function GET(
-  request: Request,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -14,7 +15,7 @@ export async function GET(
     const { id: workflowId } = await params
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 检查工作流是否存在且属于当前组织
@@ -27,7 +28,7 @@ export async function GET(
     })
 
     if (!workflow) {
-      return NextResponse.json({ error: '工作流不存在' }, { status: 404 })
+      return ApiResponse.error('工作流不存在', 404)
     }
 
     // 只有 OWNER、ADMIN 或工作流创建者可以查看权限设置
@@ -37,7 +38,7 @@ export async function GET(
       workflow.creatorId === session.user.id
 
     if (!canManagePermissions) {
-      return NextResponse.json({ error: '权限不足' }, { status: 403 })
+      return ApiResponse.error('权限不足', 403)
     }
 
     const permissions = await prisma.workflowPermission.findMany({
@@ -58,9 +59,9 @@ export async function GET(
     const users =
       userIds.length > 0
         ? await prisma.user.findMany({
-            where: { id: { in: userIds } },
-            select: { id: true, name: true, email: true, avatar: true },
-          })
+          where: { id: { in: userIds } },
+          select: { id: true, name: true, email: true, avatar: true },
+        })
         : []
 
     const userMap = new Map(users.map((u) => [u.id, u]))
@@ -70,16 +71,16 @@ export async function GET(
       user: p.targetType === 'USER' && p.targetId ? userMap.get(p.targetId) || null : null,
     }))
 
-    return NextResponse.json({ permissions: enrichedPermissions })
+    return ApiResponse.success({ permissions: enrichedPermissions })
   } catch (error) {
     console.error('Failed to get workflow permissions:', error)
-    return NextResponse.json({ error: '获取权限列表失败' }, { status: 500 })
+    return ApiResponse.error('获取权限列表失败', 500)
   }
 }
 
 // POST: 添加工作流权限
 export async function POST(
-  request: Request,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -87,7 +88,7 @@ export async function POST(
     const { id: workflowId } = await params
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 检查工作流是否存在
@@ -100,7 +101,7 @@ export async function POST(
     })
 
     if (!workflow) {
-      return NextResponse.json({ error: '工作流不存在' }, { status: 404 })
+      return ApiResponse.error('工作流不存在', 404)
     }
 
     // 只有 OWNER、ADMIN 或工作流创建者可以设置权限
@@ -110,25 +111,25 @@ export async function POST(
       workflow.creatorId === session.user.id
 
     if (!canManagePermissions) {
-      return NextResponse.json({ error: '权限不足' }, { status: 403 })
+      return ApiResponse.error('权限不足', 403)
     }
 
     const body = await request.json()
     const { targetType, targetId, permission } = body
 
     // 验证参数
-    if (!Object.values(PermissionTargetType).includes(targetType)) {
-      return NextResponse.json({ error: '无效的目标类型' }, { status: 400 })
+    if (!Object.values(PermissionTargetType).includes(targetType as any)) {
+      return ApiResponse.error('无效的目标类型', 400)
     }
 
-    if (!Object.values(PermissionLevel).includes(permission)) {
-      return NextResponse.json({ error: '无效的权限级别' }, { status: 400 })
+    if (!Object.values(PermissionLevel).includes(permission as any)) {
+      return ApiResponse.error('无效的权限级别', 400)
     }
 
     // 验证目标存在
     if (targetType === 'USER') {
       if (!targetId) {
-        return NextResponse.json({ error: '请指定用户' }, { status: 400 })
+        return ApiResponse.error('请指定用户', 400)
       }
       const user = await prisma.user.findFirst({
         where: {
@@ -137,11 +138,11 @@ export async function POST(
         },
       })
       if (!user) {
-        return NextResponse.json({ error: '用户不存在' }, { status: 400 })
+        return ApiResponse.error('用户不存在', 400)
       }
     } else if (targetType === 'DEPARTMENT') {
       if (!targetId) {
-        return NextResponse.json({ error: '请指定部门' }, { status: 400 })
+        return ApiResponse.error('请指定部门', 400)
       }
       const department = await prisma.department.findFirst({
         where: {
@@ -150,7 +151,7 @@ export async function POST(
         },
       })
       if (!department) {
-        return NextResponse.json({ error: '部门不存在' }, { status: 400 })
+        return ApiResponse.error('部门不存在', 400)
       }
     }
 
@@ -175,7 +176,7 @@ export async function POST(
         },
       })
       await invalidateWorkflowPermissionCache(workflowId)
-      return NextResponse.json({ permission: updatedPermission })
+      return ApiResponse.success({ permission: updatedPermission })
     }
 
     // 创建新权限
@@ -196,16 +197,16 @@ export async function POST(
     })
 
     await invalidateWorkflowPermissionCache(workflowId)
-    return NextResponse.json({ permission: newPermission }, { status: 201 })
+    return ApiResponse.created({ permission: newPermission })
   } catch (error) {
     console.error('Failed to create workflow permission:', error)
-    return NextResponse.json({ error: '添加权限失败' }, { status: 500 })
+    return ApiResponse.error('添加权限失败', 500)
   }
 }
 
 // DELETE: 删除工作流权限
 export async function DELETE(
-  request: Request,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -213,14 +214,14 @@ export async function DELETE(
     const { id: workflowId } = await params
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const { searchParams } = new URL(request.url)
     const permissionId = searchParams.get('permissionId')
 
     if (!permissionId) {
-      return NextResponse.json({ error: '请指定权限ID' }, { status: 400 })
+      return ApiResponse.error('请指定权限ID', 400)
     }
 
     // 检查工作流是否存在
@@ -233,7 +234,7 @@ export async function DELETE(
     })
 
     if (!workflow) {
-      return NextResponse.json({ error: '工作流不存在' }, { status: 404 })
+      return ApiResponse.error('工作流不存在', 404)
     }
 
     // 只有 OWNER、ADMIN 或工作流创建者可以删除权限
@@ -243,7 +244,7 @@ export async function DELETE(
       workflow.creatorId === session.user.id
 
     if (!canManagePermissions) {
-      return NextResponse.json({ error: '权限不足' }, { status: 403 })
+      return ApiResponse.error('权限不足', 403)
     }
 
     // 检查权限是否存在
@@ -255,7 +256,7 @@ export async function DELETE(
     })
 
     if (!permission) {
-      return NextResponse.json({ error: '权限不存在' }, { status: 404 })
+      return ApiResponse.error('权限不存在', 404)
     }
 
     await prisma.workflowPermission.delete({
@@ -263,9 +264,9 @@ export async function DELETE(
     })
 
     await invalidateWorkflowPermissionCache(workflowId)
-    return NextResponse.json({ success: true })
+    return ApiResponse.success({ success: true })
   } catch (error) {
     console.error('Failed to delete workflow permission:', error)
-    return NextResponse.json({ error: '删除权限失败' }, { status: 500 })
+    return ApiResponse.error('删除权限失败', 500)
   }
 }

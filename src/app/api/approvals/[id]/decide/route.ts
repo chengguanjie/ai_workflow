@@ -4,8 +4,9 @@
  * POST /api/approvals/[id]/decide - 提交审批决定
  */
 
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
+import { ApiResponse } from '@/lib/api/api-response'
 import {
   processApprovalDecision,
   resumeApprovalNode,
@@ -29,17 +30,14 @@ export async function POST(
   try {
     const session = await auth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未登录' }, { status: 401 })
+      return ApiResponse.error('未登录', 401)
     }
 
     const { id: approvalRequestId } = await params
     const body = (await request.json()) as DecideRequest
 
     if (!body.decision || !['APPROVE', 'REJECT'].includes(body.decision)) {
-      return NextResponse.json(
-        { error: '无效的审批决定' },
-        { status: 400 }
-      )
+      return ApiResponse.error('无效的审批决定', 400)
     }
 
     // Process the approval decision
@@ -53,10 +51,7 @@ export async function POST(
     )
 
     if (!result.success) {
-      return NextResponse.json(
-        { error: result.error || '处理审批决定失败' },
-        { status: 400 }
-      )
+      return ApiResponse.error(result.error || '处理审批决定失败', 400)
     }
 
     // If the approval is completed, get the final result and resume workflow
@@ -77,7 +72,7 @@ export async function POST(
       }
     }
 
-    return NextResponse.json({
+    return ApiResponse.success({
       success: true,
       completed: result.completed,
       finalDecision: result.finalDecision,
@@ -87,9 +82,6 @@ export async function POST(
     })
   } catch (error) {
     console.error('Process approval decision error:', error)
-    return NextResponse.json(
-      { error: '处理审批决定失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('处理审批决定失败', 500)
   }
 }

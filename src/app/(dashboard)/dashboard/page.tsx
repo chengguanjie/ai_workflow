@@ -27,9 +27,7 @@ async function getDashboardStats(organizationId: string) {
     // 今日执行次数
     prisma.execution.count({
       where: {
-        workflow: {
-          organizationId,
-        },
+        organizationId,
         createdAt: {
           gte: todayStart,
         },
@@ -38,9 +36,7 @@ async function getDashboardStats(organizationId: string) {
     // 本月 Token 消耗
     prisma.execution.aggregate({
       where: {
-        workflow: {
-          organizationId,
-        },
+        organizationId,
         createdAt: {
           gte: monthStart,
         },
@@ -52,9 +48,7 @@ async function getDashboardStats(organizationId: string) {
     // 平均执行耗时（毫秒）
     prisma.execution.aggregate({
       where: {
-        workflow: {
-          organizationId,
-        },
+        organizationId,
         status: 'COMPLETED',
         duration: {
           not: null,
@@ -67,9 +61,7 @@ async function getDashboardStats(organizationId: string) {
     // 最近执行记录
     prisma.execution.findMany({
       where: {
-        workflow: {
-          organizationId,
-        },
+        organizationId,
       },
       orderBy: { createdAt: 'desc' },
       take: 5,

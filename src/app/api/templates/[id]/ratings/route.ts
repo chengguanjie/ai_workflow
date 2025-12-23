@@ -1,4 +1,3 @@
-import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import {
@@ -8,6 +7,7 @@ import {
   getUserRating,
   deleteRating,
 } from '@/lib/services/template-rating'
+import { ApiResponse } from '@/lib/api/api-response'
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -20,7 +20,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     const { id } = await params
 
     if (!session?.user?.id || !session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const { searchParams } = new URL(request.url)
@@ -45,12 +45,12 @@ export async function GET(request: Request, { params }: RouteParams) {
     })
 
     if (!template) {
-      return NextResponse.json({ error: '模板不存在' }, { status: 404 })
+      return ApiResponse.error('模板不存在', 404)
     }
 
     // 公域模板不支持评分
     if (template.isOfficial || template.templateType === 'PUBLIC') {
-      return NextResponse.json({ error: '公域模板不支持评分' }, { status: 400 })
+      return ApiResponse.error('公域模板不支持评分', 400)
     }
 
     // 获取评分统计
@@ -62,7 +62,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     // 获取当前用户的评分
     const myRating = await getUserRating(id, session.user.id)
 
-    return NextResponse.json({
+    return ApiResponse.success({
       stats,
       data: ratings,
       myRating,
@@ -75,7 +75,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     })
   } catch (error) {
     console.error('Failed to get template ratings:', error)
-    return NextResponse.json({ error: '获取评分失败' }, { status: 500 })
+    return ApiResponse.error('获取评分失败', 500)
   }
 }
 
@@ -86,7 +86,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     const { id } = await params
 
     if (!session?.user?.id || !session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const body = await request.json()
@@ -94,7 +94,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     // 验证参数
     if (!score || score < 1 || score > 5 || !Number.isInteger(score)) {
-      return NextResponse.json({ error: '评分必须是 1-5 之间的整数' }, { status: 400 })
+      return ApiResponse.error('评分必须是 1-5 之间的整数', 400)
     }
 
     // 检查模板是否存在且属于同一组织
@@ -108,7 +108,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     })
 
     if (!template) {
-      return NextResponse.json({ error: '模板不存在或不支持评分' }, { status: 404 })
+      return ApiResponse.error('模板不存在或不支持评分', 404)
     }
 
     // 提交评分
@@ -124,14 +124,14 @@ export async function POST(request: Request, { params }: RouteParams) {
     const stats = await getTemplateRatingStats(id)
     const myRating = await getUserRating(id, session.user.id)
 
-    return NextResponse.json({
+    return ApiResponse.success({
       success: true,
       stats,
       myRating,
     })
   } catch (error) {
     console.error('Failed to submit rating:', error)
-    return NextResponse.json({ error: '提交评分失败' }, { status: 500 })
+    return ApiResponse.error('提交评分失败', 500)
   }
 }
 
@@ -142,7 +142,7 @@ export async function DELETE(request: Request, { params }: RouteParams) {
     const { id } = await params
 
     if (!session?.user?.id || !session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 删除评分
@@ -151,12 +151,12 @@ export async function DELETE(request: Request, { params }: RouteParams) {
     // 获取更新后的统计
     const stats = await getTemplateRatingStats(id)
 
-    return NextResponse.json({
+    return ApiResponse.success({
       success: true,
       stats,
     })
   } catch (error) {
     console.error('Failed to delete rating:', error)
-    return NextResponse.json({ error: '删除评分失败' }, { status: 500 })
+    return ApiResponse.error('删除评分失败', 500)
   }
 }

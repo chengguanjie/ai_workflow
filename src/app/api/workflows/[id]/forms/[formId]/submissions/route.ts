@@ -1,12 +1,7 @@
-/**
- * 表单提交记录 API
- *
- * GET /api/workflows/[id]/forms/[formId]/submissions - 获取提交记录列表
- */
-
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 
 interface RouteParams {
   params: Promise<{ id: string; formId: string }>
@@ -17,7 +12,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const session = await auth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const { id: workflowId, formId } = await params
@@ -32,7 +27,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     })
 
     if (!workflow) {
-      return NextResponse.json({ error: '工作流不存在' }, { status: 404 })
+      return ApiResponse.error('工作流不存在', 404)
     }
 
     // 验证表单存在
@@ -44,7 +39,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     })
 
     if (!form) {
-      return NextResponse.json({ error: '表单不存在' }, { status: 404 })
+      return ApiResponse.error('表单不存在', 404)
     }
 
     // 解析查询参数
@@ -80,14 +75,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const executions = executionIds.length > 0
       ? await prisma.execution.findMany({
-          where: { id: { in: executionIds } },
-          select: {
-            id: true,
-            status: true,
-            completedAt: true,
-            duration: true,
-          },
-        })
+        where: { id: { in: executionIds } },
+        select: {
+          id: true,
+          status: true,
+          completedAt: true,
+          duration: true,
+        },
+      })
       : []
 
     const executionMap = new Map(executions.map((e) => [e.id, e]))
@@ -98,20 +93,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       execution: s.executionId ? executionMap.get(s.executionId) || null : null,
     }))
 
-    return NextResponse.json({
-      submissions: submissionsWithExecution,
-      pagination: {
-        page,
-        pageSize,
-        total,
-        totalPages: Math.ceil(total / pageSize),
-      },
+    return ApiResponse.paginated(submissionsWithExecution, {
+      page,
+      pageSize,
+      total,
     })
   } catch (error) {
     console.error('Get form submissions error:', error)
-    return NextResponse.json(
-      { error: '获取提交记录失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('获取提交记录失败', 500)
   }
 }

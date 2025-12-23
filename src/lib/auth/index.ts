@@ -3,6 +3,13 @@ import Credentials from 'next-auth/providers/credentials'
 import { compare } from 'bcryptjs'
 import { prisma } from '@/lib/db'
 
+// Session security configuration from environment variables
+// Default: 7 days (604800 seconds)
+const SESSION_MAX_AGE = parseInt(process.env.SESSION_MAX_AGE || '604800', 10)
+
+// Determine if we're in production for secure cookie settings
+const isProduction = process.env.NODE_ENV === 'production'
+
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
     Credentials({
@@ -108,7 +115,36 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   },
   session: {
     strategy: 'jwt',
-    maxAge: 7 * 24 * 60 * 60, // 7 days
+    maxAge: SESSION_MAX_AGE, // Configurable via SESSION_MAX_AGE env var
+  },
+  cookies: {
+    sessionToken: {
+      name: isProduction ? '__Secure-authjs.session-token' : 'authjs.session-token',
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: isProduction, // Only secure in production (requires HTTPS)
+      },
+    },
+    callbackUrl: {
+      name: isProduction ? '__Secure-authjs.callback-url' : 'authjs.callback-url',
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: isProduction,
+      },
+    },
+    csrfToken: {
+      name: isProduction ? '__Host-authjs.csrf-token' : 'authjs.csrf-token',
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: isProduction,
+      },
+    },
   },
 })
 

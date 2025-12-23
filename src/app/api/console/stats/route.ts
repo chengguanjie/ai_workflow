@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { consoleAuth } from '@/lib/console-auth'
 import { hasPermission } from '@/lib/console-auth/permissions'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 import type { PlatformRole } from '@prisma/client'
 
 // GET - 获取平台统计数据
@@ -9,11 +10,11 @@ export async function GET() {
   const session = await consoleAuth()
 
   if (!session?.user) {
-    return NextResponse.json({ error: '未登录' }, { status: 401 })
+    return ApiResponse.error('未登录', 401)
   }
 
   if (!hasPermission(session.user.role as PlatformRole, 'stats:read')) {
-    return NextResponse.json({ error: '权限不足' }, { status: 403 })
+    return ApiResponse.error('权限不足', 403)
   }
 
   // 获取各类统计数据
@@ -112,7 +113,7 @@ export async function GET() {
     }),
   ])
 
-  return NextResponse.json({
+  return ApiResponse.success({
     overview: {
       totalOrganizations: orgStats,
       totalUsers,

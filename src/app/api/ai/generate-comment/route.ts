@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { safeDecryptApiKey } from '@/lib/crypto'
 import { aiService } from '@/lib/ai'
+import { ApiResponse } from '@/lib/api/api-response'
 
 // 节点类型中文名称映射
 const NODE_TYPE_NAMES: Record<string, string> = {
@@ -46,14 +47,14 @@ export async function POST(request: NextRequest) {
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const body = await request.json()
     const { nodeId, nodeName, nodeType, nodeConfig } = body
 
     if (!nodeId || !nodeType) {
-      return NextResponse.json({ error: '节点信息不完整' }, { status: 400 })
+      return ApiResponse.error('节点信息不完整', 400)
     }
 
     // 获取AI配置
@@ -66,7 +67,7 @@ export async function POST(request: NextRequest) {
     })
 
     if (!apiKey) {
-      return NextResponse.json({ error: '未配置AI服务，请先在设置中配置AI服务商' }, { status: 400 })
+      return ApiResponse.error('未配置AI服务，请先在设置中配置AI服务商', 400)
     }
 
     // 构建节点描述
@@ -151,14 +152,11 @@ export async function POST(request: NextRequest) {
       apiKey.baseUrl || undefined
     )
 
-    return NextResponse.json({
+    return ApiResponse.success({
       comment: response.content.trim(),
     })
   } catch (error) {
     console.error('Generate comment error:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : '生成注释失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error(error instanceof Error ? error.message : '生成注释失败', 500)
   }
 }

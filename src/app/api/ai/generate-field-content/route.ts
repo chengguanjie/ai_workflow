@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { safeDecryptApiKey } from '@/lib/crypto'
 import { aiService } from '@/lib/ai'
+import { ApiResponse } from '@/lib/api/api-response'
 
 // 节点类型中文名称映射
 const NODE_TYPE_NAMES: Record<string, string> = {
@@ -27,7 +28,7 @@ const NODE_TYPE_NAMES: Record<string, string> = {
 
 // 字段类型描述映射
 const FIELD_TYPE_DESCRIPTIONS: Record<string, string> = {
-  systemPrompt: '系统提示词 - 用于设定AI的角色和行为方式',
+  systemPrompt: '系统提示词 - 用于设定AI的角色 and 行为方式',
   userPrompt: '用户提示词 - AI处理的具体指令，可引用其他节点的输出',
   prompt: '提示词 - 指导AI生成内容的指令',
   imagePrompt: '图像描述提示词 - 用于AI图像生成的详细描述',
@@ -183,7 +184,7 @@ export async function POST(request: NextRequest) {
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const body = await request.json()
@@ -195,7 +196,7 @@ export async function POST(request: NextRequest) {
     } = body
 
     if (!fieldType) {
-      return NextResponse.json({ error: '缺少字段类型' }, { status: 400 })
+      return ApiResponse.error('缺少字段类型', 400)
     }
 
     // 获取AI配置
@@ -208,7 +209,7 @@ export async function POST(request: NextRequest) {
     })
 
     if (!apiKey) {
-      return NextResponse.json({ error: '未配置AI服务，请先在设置中配置AI服务商' }, { status: 400 })
+      return ApiResponse.error('未配置AI服务，请先在设置中配置AI服务商', 400)
     }
 
     // 构建工作流上下文描述
@@ -241,15 +242,12 @@ export async function POST(request: NextRequest) {
       apiKey.baseUrl || undefined
     )
 
-    return NextResponse.json({
+    return ApiResponse.success({
       content: response.content.trim(),
       isOptimization: Boolean(currentContent && currentContent.trim()),
     })
   } catch (error) {
     console.error('Generate field content error:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : '生成内容失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error(error instanceof Error ? error.message : '生成内容失败', 500)
   }
 }

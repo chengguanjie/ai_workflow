@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { hash } from 'bcryptjs'
 import { z } from 'zod'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 
 const changePasswordSchema = z.object({
   newPassword: z.string().min(6, '密码至少6位'),
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest) {
     const session = await auth()
 
     if (!session?.user?.id) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const body = await request.json()
@@ -49,19 +50,16 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    return NextResponse.json({
+    return ApiResponse.success({
       message: '密码修改成功',
     })
   } catch (error) {
     if (error instanceof z.ZodError) {
       const issues = error.issues
-      return NextResponse.json(
-        { error: issues[0]?.message || '输入验证失败' },
-        { status: 400 }
-      )
+      return ApiResponse.error(issues[0]?.message || '输入验证失败', 400)
     }
 
     console.error('Change password error:', error)
-    return NextResponse.json({ error: '修改密码失败' }, { status: 500 })
+    return ApiResponse.error('修改密码失败', 500)
   }
 }

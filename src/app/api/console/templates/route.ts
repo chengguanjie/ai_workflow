@@ -1,15 +1,9 @@
-/**
- * 平台管理后台 - 公域模板管理 API
- *
- * GET /api/console/templates - 获取公域模板列表
- * POST /api/console/templates - 创建公域模板
- */
-
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { consoleAuth } from '@/lib/console-auth'
 import { hasPermission, Permission } from '@/lib/console-auth/permissions'
 import type { PlatformRole } from '@prisma/client'
+import { ApiResponse } from '@/lib/api/api-response'
 
 // 权限检查装饰器
 async function checkPermission(permission: Permission) {
@@ -30,7 +24,7 @@ async function checkPermission(permission: Permission) {
 export async function GET(request: NextRequest) {
   const check = await checkPermission('template:read')
   if (check.error) {
-    return NextResponse.json({ error: check.error }, { status: check.status })
+    return ApiResponse.error(check.error, check.status as any)
   }
 
   const { searchParams } = new URL(request.url)
@@ -65,14 +59,10 @@ export async function GET(request: NextRequest) {
     prisma.workflowTemplate.count({ where }),
   ])
 
-  return NextResponse.json({
-    data: templates,
-    pagination: {
-      page,
-      pageSize,
-      total,
-      totalPages: Math.ceil(total / pageSize),
-    },
+  return ApiResponse.paginated(templates, {
+    page,
+    pageSize,
+    total,
   })
 }
 
@@ -80,7 +70,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const check = await checkPermission('template:create')
   if (check.error) {
-    return NextResponse.json({ error: check.error }, { status: check.status })
+    return ApiResponse.error(check.error, check.status as any)
   }
 
   try {
@@ -88,15 +78,15 @@ export async function POST(request: NextRequest) {
     const { name, description, category, tags, thumbnail, config } = body
 
     if (!name?.trim()) {
-      return NextResponse.json({ error: '模板名称不能为空' }, { status: 400 })
+      return ApiResponse.error('模板名称不能为空', 400)
     }
 
     if (!category?.trim()) {
-      return NextResponse.json({ error: '模板分类不能为空' }, { status: 400 })
+      return ApiResponse.error('模板分类不能为空', 400)
     }
 
     if (!config || typeof config !== 'object') {
-      return NextResponse.json({ error: '模板配置无效' }, { status: 400 })
+      return ApiResponse.error('模板配置无效', 400)
     }
 
     const template = await prisma.workflowTemplate.create({
@@ -117,9 +107,9 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    return NextResponse.json({ data: template }, { status: 201 })
+    return ApiResponse.created({ data: template })
   } catch (error) {
     console.error('Failed to create template:', error)
-    return NextResponse.json({ error: '创建模板失败' }, { status: 500 })
+    return ApiResponse.error('创建模板失败', 500)
   }
 }

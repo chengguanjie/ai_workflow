@@ -166,7 +166,9 @@ export default function AnalyticsConfigPage() {
     queryFn: async () => {
       const res = await fetch(`/api/workflows/${workflowId}/analytics/config`)
       if (!res.ok) throw new Error('加载配置失败')
-      return res.json()
+      const result = await res.json()
+      // API 返回格式: { success: true, data: [...] }
+      return result.data || []
     },
   })
 

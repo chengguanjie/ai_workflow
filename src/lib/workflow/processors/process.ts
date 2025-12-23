@@ -28,7 +28,17 @@ export class ProcessNodeProcessor implements NodeProcessor {
       )
 
       if (!aiConfig) {
-        throw new Error('未配置 AI 服务商')
+        // 提供更详细的错误信息
+        if (processNode.config?.aiConfigId) {
+          throw new Error(
+            `找不到指定的 AI 服务商配置 (ID: ${processNode.config.aiConfigId})。` +
+            `请检查配置是否已被删除或禁用，或者重新选择一个有效的配置。`
+          )
+        } else {
+          throw new Error(
+            `未找到默认的 AI 服务商配置。请在"设置 → AI 配置"中添加并设置默认的 AI 服务商。`
+          )
+        }
       }
 
       // 构建系统提示词
@@ -182,6 +192,36 @@ export class ProcessNodeProcessor implements NodeProcessor {
     const apiKey = await prisma.apiKey.findFirst({ where })
 
     if (!apiKey) {
+      // 添加详细的错误日志，帮助诊断问题
+      if (configId) {
+        // 尝试查找配置，忽略组织和激活状态，看看是否存在
+        const anyConfig = await prisma.apiKey.findFirst({
+          where: { id: configId },
+          select: {
+            id: true,
+            organizationId: true,
+            isActive: true,
+            isDefault: true,
+            name: true,
+          },
+        })
+
+        if (anyConfig) {
+          console.error('[ProcessNode] AI 配置查找失败，配置详情:', {
+            configId,
+            configExists: true,
+            configOrganizationId: anyConfig.organizationId,
+            expectedOrganizationId: context.organizationId,
+            isActive: anyConfig.isActive,
+            isDefault: anyConfig.isDefault,
+            configName: anyConfig.name,
+          })
+        } else {
+          console.error('[ProcessNode] AI 配置不存在:', configId)
+        }
+      } else {
+        console.error('[ProcessNode] 未找到默认 AI 配置，organizationId:', context.organizationId)
+      }
       return null
     }
 

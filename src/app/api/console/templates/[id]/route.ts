@@ -1,16 +1,9 @@
-/**
- * 平台管理后台 - 单个模板管理 API
- *
- * GET /api/console/templates/[id] - 获取模板详情
- * PATCH /api/console/templates/[id] - 更新模板
- * DELETE /api/console/templates/[id] - 删除模板
- */
-
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { consoleAuth } from '@/lib/console-auth'
 import { hasPermission, Permission } from '@/lib/console-auth/permissions'
 import type { PlatformRole } from '@prisma/client'
+import { ApiResponse } from '@/lib/api/api-response'
 
 // 权限检查装饰器
 async function checkPermission(permission: Permission) {
@@ -34,7 +27,7 @@ export async function GET(
 ) {
   const check = await checkPermission('template:read')
   if (check.error) {
-    return NextResponse.json({ error: check.error }, { status: check.status })
+    return ApiResponse.error(check.error, check.status as any)
   }
 
   const { id } = await params
@@ -44,10 +37,10 @@ export async function GET(
   })
 
   if (!template) {
-    return NextResponse.json({ error: '模板不存在' }, { status: 404 })
+    return ApiResponse.error('模板不存在', 404)
   }
 
-  return NextResponse.json({ data: template })
+  return ApiResponse.success({ data: template })
 }
 
 // PATCH: 更新模板
@@ -57,7 +50,7 @@ export async function PATCH(
 ) {
   const check = await checkPermission('template:update')
   if (check.error) {
-    return NextResponse.json({ error: check.error }, { status: check.status })
+    return ApiResponse.error(check.error, check.status as any)
   }
 
   const { id } = await params
@@ -72,12 +65,12 @@ export async function PATCH(
     })
 
     if (!existingTemplate) {
-      return NextResponse.json({ error: '模板不存在' }, { status: 404 })
+      return ApiResponse.error('模板不存在', 404)
     }
 
     // 只能编辑公域模板
     if (existingTemplate.templateType !== 'PUBLIC' || !existingTemplate.isOfficial) {
-      return NextResponse.json({ error: '只能编辑公域模板' }, { status: 403 })
+      return ApiResponse.error('只能编辑公域模板', 403)
     }
 
     // 构建更新数据
@@ -85,7 +78,7 @@ export async function PATCH(
 
     if (name !== undefined) {
       if (!name?.trim()) {
-        return NextResponse.json({ error: '模板名称不能为空' }, { status: 400 })
+        return ApiResponse.error('模板名称不能为空', 400)
       }
       updateData.name = name.trim()
     }
@@ -96,7 +89,7 @@ export async function PATCH(
 
     if (category !== undefined) {
       if (!category?.trim()) {
-        return NextResponse.json({ error: '模板分类不能为空' }, { status: 400 })
+        return ApiResponse.error('模板分类不能为空', 400)
       }
       updateData.category = category.trim()
     }
@@ -122,10 +115,10 @@ export async function PATCH(
       data: updateData,
     })
 
-    return NextResponse.json({ data: template })
+    return ApiResponse.success({ data: template })
   } catch (error) {
     console.error('Failed to update template:', error)
-    return NextResponse.json({ error: '更新模板失败' }, { status: 500 })
+    return ApiResponse.error('更新模板失败', 500)
   }
 }
 
@@ -136,7 +129,7 @@ export async function DELETE(
 ) {
   const check = await checkPermission('template:delete')
   if (check.error) {
-    return NextResponse.json({ error: check.error }, { status: check.status })
+    return ApiResponse.error(check.error, check.status as any)
   }
 
   const { id } = await params
@@ -148,21 +141,21 @@ export async function DELETE(
     })
 
     if (!existingTemplate) {
-      return NextResponse.json({ error: '模板不存在' }, { status: 404 })
+      return ApiResponse.error('模板不存在', 404)
     }
 
     // 只能删除公域模板
     if (existingTemplate.templateType !== 'PUBLIC' || !existingTemplate.isOfficial) {
-      return NextResponse.json({ error: '只能删除公域模板' }, { status: 403 })
+      return ApiResponse.error('只能删除公域模板', 403)
     }
 
     await prisma.workflowTemplate.delete({
       where: { id },
     })
 
-    return NextResponse.json({ success: true })
+    return ApiResponse.success({ success: true })
   } catch (error) {
     console.error('Failed to delete template:', error)
-    return NextResponse.json({ error: '删除模板失败' }, { status: 500 })
+    return ApiResponse.error('删除模板失败', 500)
   }
 }

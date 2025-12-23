@@ -33,8 +33,7 @@ import { ExecutionPanel } from '@/components/workflow/execution-panel'
 import { ExecutionHistoryPanel } from '@/components/workflow/execution-history-panel'
 import { NodeDebugPanel } from '@/components/workflow/node-debug-panel'
 import { AIAssistantPanel } from '@/components/workflow/ai-assistant-panel'
-import { VersionManagement } from '@/components/workflow/version-management'
-import { PublishStatusIndicator } from '@/components/workflow/publish-status-indicator'
+import { UnifiedVersionControl } from '@/components/workflow/unified-version-control'
 import { SaveStatusIndicator } from '@/components/workflow/save-status-indicator'
 import { WorkflowImportExportDialog } from '@/components/workflow/workflow-import-export-dialog'
 import { NodeCommentDialog } from '@/components/workflow/node-comment-dialog'
@@ -488,24 +487,16 @@ function WorkflowEditor() {
               onResolveConflict={resolveConflict}
             />
 
-            {/* 发布状态指示器 */}
-            <PublishStatusIndicator
-              workflowId={workflowId}
-              onPublish={() => {
-                // 发布后可以刷新状态
-              }}
-              onTestExecute={() => {
-                // 测试执行使用草稿配置
-                setShowExecutionPanel(true)
-              }}
-            />
-
-            {/* 版本管理 */}
-            <VersionManagement
+            {/* 统一版本管理 */}
+            <UnifiedVersionControl
               workflowId={workflowId}
               onVersionChange={() => {
                 // 版本变更后可以刷新页面或重新加载数据
                 window.location.reload()
+              }}
+              onTestExecute={() => {
+                // 测试执行使用草稿配置
+                setShowExecutionPanel(true)
               }}
             />
 

@@ -1,36 +1,246 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AI Workflow
 
-## Getting Started
+> 🚀 企业级 AI 工作流自动化平台
 
-First, run the development server:
+AI Workflow 是一个功能强大的工作流自动化平台，支持可视化编排 AI 处理流程、知识库 RAG 检索、多模态处理等能力，帮助企业快速构建智能化工作流。
+
+---
+
+## ✨ 功能特性
+
+### 核心能力
+
+- **🎨 可视化工作流编辑器** - 拖拽式节点编排，实时预览执行结果
+- **🤖 多 AI 提供商支持** - OpenAI、Anthropic、通义千问、文心一言等 8+ 个 AI 服务商
+- **📚 知识库 RAG** - 文档向量化存储与智能检索，增强 AI 回答准确性
+- **🔄 灵活的控制流** - 条件分支、循环、并行执行、合并等高级流程控制
+- **📊 多模态处理** - 支持文本、图片、视频、音频等多种数据格式
+- **🔗 外部集成** - HTTP 请求、Webhook 触发、飞书/钉钉通知
+
+### 企业特性
+
+- **👥 多租户架构** - 企业隔离、部门管理、角色权限控制
+- **📝 模板市场** - 官方模板库 + 企业内部模板共享
+- **📈 执行统计** - 工作流执行分析、AI 反馈优化
+- **✅ 人工审批** - Human-in-the-Loop 审批节点
+- **⏰ 定时触发** - Cron 表达式定时执行
+
+---
+
+## 🛠️ 技术栈
+
+| 类别 | 技术 |
+|------|------|
+| **前端框架** | Next.js 15 + React 19 |
+| **状态管理** | Zustand + React Query |
+| **UI 组件** | Radix UI + Tailwind CSS |
+| **工作流画布** | XY Flow (@xyflow/react) |
+| **后端** | Next.js API Routes |
+| **数据库** | MySQL + Prisma ORM |
+| **缓存/队列** | Redis + BullMQ |
+| **测试** | Vitest + Testing Library + Fast-check |
+| **部署** | Docker / Zeabur |
+
+---
+
+## 🚀 快速开始
+
+### 环境要求
+
+- **Node.js** >= 20.19.0
+- **pnpm** >= 10.23.0
+- **MySQL** >= 8.0
+- **Redis** >= 6.0
+
+### 安装步骤
+
+1. **克隆项目**
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone https://github.com/your-org/ai-workflow.git
+cd ai-workflow
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. **安装依赖**
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+pnpm install
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+3. **配置环境变量**
 
-## Learn More
+```bash
+cp .env.example .env
+# 编辑 .env 文件，配置数据库连接和 API 密钥
+```
 
-To learn more about Next.js, take a look at the following resources:
+4. **初始化数据库**
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+pnpm db:generate
+pnpm db:push
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+5. **创建管理员账号**
 
-## Deploy on Vercel
+```bash
+pnpm init:admin
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+6. **启动开发服务器**
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+pnpm dev
+```
+
+访问 <http://localhost:3000> 开始使用。
+
+---
+
+## 📁 项目结构
+
+```
+ai-workflow/
+├── src/
+│   ├── app/                    # Next.js App Router 页面
+│   │   ├── (auth)/             # 认证相关页面
+│   │   ├── (dashboard)/        # 仪表盘页面
+│   │   ├── (editor)/           # 工作流编辑器
+│   │   └── api/                # API 路由
+│   ├── components/             # React 组件
+│   │   ├── ui/                 # 基础 UI 组件
+│   │   └── workflow/           # 工作流相关组件
+│   ├── lib/                    # 核心库
+│   │   ├── workflow/           # 工作流引擎
+│   │   │   ├── engine.ts       # 执行引擎
+│   │   │   └── processors/     # 节点处理器
+│   │   ├── ai/                 # AI 服务集成
+│   │   ├── knowledge/          # 知识库 RAG
+│   │   └── api/                # API 工具
+│   ├── stores/                 # Zustand 状态存储
+│   └── types/                  # TypeScript 类型定义
+├── prisma/                     # Prisma Schema
+├── docs/                       # 项目文档
+└── scripts/                    # 工具脚本
+```
+
+---
+
+## 📜 可用脚本
+
+```bash
+# 开发
+pnpm dev                # 启动开发服务器
+pnpm build              # 构建生产版本
+pnpm start              # 启动生产服务器
+
+# 测试
+pnpm test               # 运行测试
+pnpm test:watch         # 监听模式运行测试
+pnpm test:coverage      # 运行测试并生成覆盖率报告
+
+# 数据库
+pnpm db:generate        # 生成 Prisma Client
+pnpm db:push            # 推送 Schema 到数据库
+pnpm db:migrate         # 运行数据库迁移
+pnpm db:studio          # 启动 Prisma Studio
+
+# 代码质量
+pnpm lint               # 运行 ESLint 检查
+```
+
+---
+
+## 🔧 节点类型
+
+| 类别 | 节点 | 描述 |
+|------|------|------|
+| **基础** | INPUT | 定义工作流输入字段 |
+| | PROCESS | AI 文本处理，支持知识库 |
+| | OUTPUT | 定义输出格式和内容 |
+| | CODE | AI 生成代码执行 |
+| **控制流** | CONDITION | 条件分支 |
+| | LOOP | 循环执行 |
+| | SWITCH | 多路分支路由 |
+| | MERGE | 合并多个分支 |
+| **媒体** | IMAGE | 图片处理 |
+| | VIDEO | 视频处理 |
+| | AUDIO | 音频处理 |
+| | DATA | 结构化数据处理 |
+| **集成** | HTTP | HTTP 请求 |
+| | NOTIFICATION | 通知消息 |
+| | TRIGGER | 工作流触发器 |
+| **高级** | IMAGE_GEN | AI 图像生成 |
+| | APPROVAL | 人工审批 |
+
+---
+
+## 📚 文档
+
+- [功能迭代路线图](./ROADMAP.md)
+- [优化执行计划](./docs/OPTIMIZATION_PLAN.md)
+- [权限系统设计](./docs/permission-system-design.md)
+- [知识库优化方案](./docs/knowledge-base-optimization-plan.md)
+- [部署指南](./docs/zeabur-deployment.md)
+
+---
+
+## 🧪 测试
+
+项目使用 Vitest 进行测试，包括单元测试和属性测试（Property-based testing）。
+
+```bash
+# 运行所有测试
+pnpm test
+
+# 查看测试覆盖率
+pnpm test:coverage
+```
+
+当前测试覆盖率要求：
+
+- 行覆盖率 >= 80%
+- 分支覆盖率 >= 70%
+
+---
+
+## 🤝 贡献指南
+
+### Git 提交规范
+
+```
+feat: 添加新功能
+fix: 修复 Bug
+docs: 更新文档
+test: 添加测试
+refactor: 代码重构
+perf: 性能优化
+chore: 构建/工具变更
+```
+
+### 分支策略
+
+- `main` - 生产分支
+- `develop` - 开发分支
+- `feature/*` - 功能分支
+- `bugfix/*` - 修复分支
+
+---
+
+## 📄 许可证
+
+[MIT](./LICENSE)
+
+---
+
+## 🙏 致谢
+
+- [Next.js](https://nextjs.org/)
+- [XY Flow](https://reactflow.dev/)
+- [Radix UI](https://www.radix-ui.com/)
+- [Prisma](https://www.prisma.io/)
+
+---
+
+**维护者**: AI Workflow Team  
+**最后更新**: 2025-12-23

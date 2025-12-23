@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { encryptApiKey, maskApiKey } from '@/lib/crypto'
+import { ApiResponse } from '@/lib/api/api-response'
 
 // GET: 获取单个配置详情
 export async function GET(
@@ -12,7 +13,7 @@ export async function GET(
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const { id } = await params
@@ -40,13 +41,13 @@ export async function GET(
     })
 
     if (!config) {
-      return NextResponse.json({ error: '配置不存在' }, { status: 404 })
+      return ApiResponse.error('配置不存在', 404)
     }
 
-    return NextResponse.json({ config })
+    return ApiResponse.success({ config })
   } catch (error) {
     console.error('Failed to get AI config:', error)
-    return NextResponse.json({ error: '获取配置失败' }, { status: 500 })
+    return ApiResponse.error('获取配置失败', 500)
   }
 }
 
@@ -59,12 +60,12 @@ export async function PATCH(
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 检查用户权限
     if (!['OWNER', 'ADMIN'].includes(session.user.role)) {
-      return NextResponse.json({ error: '权限不足' }, { status: 403 })
+      return ApiResponse.error('权限不足', 403)
     }
 
     const { id } = await params
@@ -79,7 +80,7 @@ export async function PATCH(
     })
 
     if (!existingConfig) {
-      return NextResponse.json({ error: '配置不存在' }, { status: 404 })
+      return ApiResponse.error('配置不存在', 404)
     }
 
     const body = await request.json()
@@ -128,10 +129,10 @@ export async function PATCH(
       },
     })
 
-    return NextResponse.json({ config })
+    return ApiResponse.success({ config })
   } catch (error) {
     console.error('Failed to update AI config:', error)
-    return NextResponse.json({ error: '更新配置失败' }, { status: 500 })
+    return ApiResponse.error('更新配置失败', 500)
   }
 }
 
@@ -144,12 +145,12 @@ export async function DELETE(
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 检查用户权限
     if (!['OWNER', 'ADMIN'].includes(session.user.role)) {
-      return NextResponse.json({ error: '权限不足' }, { status: 403 })
+      return ApiResponse.error('权限不足', 403)
     }
 
     const { id } = await params
@@ -163,7 +164,7 @@ export async function DELETE(
     })
 
     if (!config) {
-      return NextResponse.json({ error: '配置不存在' }, { status: 404 })
+      return ApiResponse.error('配置不存在', 404)
     }
 
     // 软删除（标记为非活动）
@@ -190,9 +191,9 @@ export async function DELETE(
       }
     }
 
-    return NextResponse.json({ success: true })
+    return ApiResponse.success({ success: true })
   } catch (error) {
     console.error('Failed to delete AI config:', error)
-    return NextResponse.json({ error: '删除失败' }, { status: 500 })
+    return ApiResponse.error('删除失败', 500)
   }
 }

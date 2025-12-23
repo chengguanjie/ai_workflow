@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { hash } from 'bcryptjs'
 import { z } from 'zod'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 
 // 验证邮箱或手机号
 const isEmailOrPhone = (value: string) => {
@@ -62,7 +63,7 @@ export async function GET() {
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const isAdmin = session.user.role === 'OWNER' || session.user.role === 'ADMIN'
@@ -84,7 +85,7 @@ export async function GET() {
 
       // 如果不是部门负责人，返回空列表（普通员工无权查看成员）
       if (managedDepartmentIds.length === 0) {
-        return NextResponse.json({
+        return ApiResponse.success({
           members: [],
           canManageMembers: false,
           managedDepartmentIds: [],
@@ -124,7 +125,7 @@ export async function GET() {
     const roleOrder = { OWNER: 0, ADMIN: 1, EDITOR: 2, MEMBER: 3, VIEWER: 4 }
     const sortedMembers = members.sort((a, b) => {
       return (roleOrder[a.role as keyof typeof roleOrder] || 99) -
-             (roleOrder[b.role as keyof typeof roleOrder] || 99)
+        (roleOrder[b.role as keyof typeof roleOrder] || 99)
     })
 
     // 获取部门负责人管理的部门ID（用于前端判断）
@@ -132,7 +133,7 @@ export async function GET() {
       ? [] // 管理员可以管理所有
       : await getManagedDepartmentIds(session.user.id, session.user.organizationId)
 
-    return NextResponse.json({
+    return ApiResponse.success({
       members: sortedMembers,
       canManageMembers: isAdmin || managedDepartmentIds.length > 0,
       managedDepartmentIds,
@@ -140,7 +141,7 @@ export async function GET() {
     })
   } catch (error) {
     console.error('Failed to get members:', error)
-    return NextResponse.json({ error: '获取成员列表失败' }, { status: 500 })
+    return ApiResponse.error('获取成员列表失败', 500)
   }
 }
 
@@ -150,7 +151,7 @@ export async function POST(request: NextRequest) {
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const isAdmin = session.user.role === 'OWNER' || session.user.role === 'ADMIN'
@@ -162,7 +163,7 @@ export async function POST(request: NextRequest) {
 
     // 检查权限：只有 OWNER、ADMIN 或部门负责人可以创建成员
     if (!isAdmin && (!managedDepartmentIds || managedDepartmentIds.length === 0)) {
-      return NextResponse.json({ error: '无权限创建成员' }, { status: 403 })
+      return ApiResponse.error('无权限创建成员', 403)
     }
 
     const body = await request.json()
@@ -171,10 +172,10 @@ export async function POST(request: NextRequest) {
     // 部门负责人必须指定部门，且只能添加到自己管理的部门
     if (!isAdmin) {
       if (!departmentId) {
-        return NextResponse.json({ error: '请选择部门' }, { status: 400 })
+        return ApiResponse.error('请选择部门', 400)
       }
       if (!managedDepartmentIds!.includes(departmentId)) {
-        return NextResponse.json({ error: '您只能添加成员到您管理的部门' }, { status: 403 })
+        return ApiResponse.error('您只能添加成员到您管理的部门', 403)
       }
     }
 
@@ -184,7 +185,7 @@ export async function POST(request: NextRequest) {
     })
 
     if (existingUser) {
-      return NextResponse.json({ error: '该邮箱已被注册' }, { status: 400 })
+      return ApiResponse.error('该邮箱已被注册', 400)
     }
 
     // 如果指定了部门，检查部门是否存在且属于当前企业
@@ -193,7 +194,7 @@ export async function POST(request: NextRequest) {
         where: { id: departmentId },
       })
       if (!department || department.organizationId !== session.user.organizationId) {
-        return NextResponse.json({ error: '部门不存在' }, { status: 400 })
+        return ApiResponse.error('部门不存在', 400)
       }
     }
 
@@ -240,21 +241,18 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    return NextResponse.json({
+    return ApiResponse.created({
       message: '成员创建成功',
       member: user,
     })
   } catch (error) {
     if (error instanceof z.ZodError) {
       const issues = error.issues
-      return NextResponse.json(
-        { error: issues[0]?.message || '输入验证失败' },
-        { status: 400 }
-      )
+      return ApiResponse.error(issues[0]?.message || '输入验证失败', 400)
     }
 
     console.error('Create member error:', error)
     const errorMessage = error instanceof Error ? error.message : '创建成员失败'
-    return NextResponse.json({ error: errorMessage }, { status: 500 })
+    return ApiResponse.error(errorMessage, 500)
   }
 }

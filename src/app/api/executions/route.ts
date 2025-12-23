@@ -4,9 +4,10 @@
  * GET /api/executions - 获取执行记录列表
  */
 
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 
 /**
  * GET /api/executions
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest) {
   try {
     const session = await auth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未登录' }, { status: 401 })
+      return ApiResponse.error('未登录', 401)
     }
 
     const { searchParams } = new URL(request.url)
@@ -48,9 +49,7 @@ export async function GET(request: NextRequest) {
     }
 
     const where = {
-      workflow: {
-        organizationId: session.user.organizationId,
-      },
+      organizationId: session.user.organizationId,
       ...(workflowId ? { workflowId } : {}),
       ...(status ? { status: status as 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' } : {}),
       ...(Object.keys(dateFilter).length > 0 ? { createdAt: dateFilter } : {}),
@@ -89,7 +88,7 @@ export async function GET(request: NextRequest) {
       prisma.execution.count({ where }),
     ])
 
-    return NextResponse.json({
+    return ApiResponse.success({
       executions: executions.map((e) => ({
         id: e.id,
         status: e.status,
@@ -111,9 +110,6 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error('Get executions error:', error)
-    return NextResponse.json(
-      { error: '获取执行记录失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('获取执行记录失败', 500)
   }
 }

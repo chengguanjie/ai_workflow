@@ -114,7 +114,8 @@ export default function WorkflowAnalyticsPage() {
       const response = await fetch(`/api/workflows/${workflowId}/analytics?period=${period}`)
       if (!response.ok) throw new Error('加载失败')
       const result = await response.json()
-      setAnalytics(result.data)
+      // API 返回格式: { success: true, data: {...} }
+      setAnalytics(result.data || null)
     } catch {
       toast.error('加载统计数据失败')
     } finally {

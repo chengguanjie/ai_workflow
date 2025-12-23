@@ -1,14 +1,7 @@
-/**
- * 工作流表单详情 API
- *
- * GET /api/workflows/[id]/forms/[formId] - 获取表单详情
- * PATCH /api/workflows/[id]/forms/[formId] - 更新表单
- * DELETE /api/workflows/[id]/forms/[formId] - 删除表单
- */
-
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 
 interface RouteParams {
   params: Promise<{ id: string; formId: string }>
@@ -19,7 +12,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const session = await auth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const { id: workflowId, formId } = await params
@@ -34,7 +27,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     })
 
     if (!workflow) {
-      return NextResponse.json({ error: '工作流不存在' }, { status: 404 })
+      return ApiResponse.error('工作流不存在', 404)
     }
 
     // 获取表单详情
@@ -51,16 +44,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     })
 
     if (!form) {
-      return NextResponse.json({ error: '表单不存在' }, { status: 404 })
+      return ApiResponse.error('表单不存在', 404)
     }
 
-    return NextResponse.json({ form })
+    return ApiResponse.success({ form })
   } catch (error) {
     console.error('Get form detail error:', error)
-    return NextResponse.json(
-      { error: '获取表单详情失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('获取表单详情失败', 500)
   }
 }
 
@@ -69,7 +59,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
     const session = await auth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const { id: workflowId, formId } = await params
@@ -84,7 +74,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     })
 
     if (!workflow) {
-      return NextResponse.json({ error: '工作流不存在' }, { status: 404 })
+      return ApiResponse.error('工作流不存在', 404)
     }
 
     // 验证表单存在
@@ -96,7 +86,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     })
 
     if (!existingForm) {
-      return NextResponse.json({ error: '表单不存在' }, { status: 404 })
+      return ApiResponse.error('表单不存在', 404)
     }
 
     // 解析请求体
@@ -117,7 +107,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     if (name !== undefined) {
       if (!name?.trim()) {
-        return NextResponse.json({ error: '表单名称不能为空' }, { status: 400 })
+        return ApiResponse.error('表单名称不能为空', 400)
       }
       updateData.name = name.trim()
     }
@@ -156,13 +146,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       data: updateData,
     })
 
-    return NextResponse.json({ form })
+    return ApiResponse.success({ form })
   } catch (error) {
     console.error('Update form error:', error)
-    return NextResponse.json(
-      { error: '更新表单失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('更新表单失败', 500)
   }
 }
 
@@ -171,7 +158,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const session = await auth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const { id: workflowId, formId } = await params
@@ -186,7 +173,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     })
 
     if (!workflow) {
-      return NextResponse.json({ error: '工作流不存在' }, { status: 404 })
+      return ApiResponse.error('工作流不存在', 404)
     }
 
     // 验证表单存在
@@ -198,7 +185,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     })
 
     if (!existingForm) {
-      return NextResponse.json({ error: '表单不存在' }, { status: 404 })
+      return ApiResponse.error('表单不存在', 404)
     }
 
     // 删除表单（级联删除提交记录）
@@ -206,12 +193,9 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       where: { id: formId },
     })
 
-    return NextResponse.json({ success: true })
+    return ApiResponse.success({ success: true })
   } catch (error) {
     console.error('Delete form error:', error)
-    return NextResponse.json(
-      { error: '删除表单失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('删除表单失败', 500)
   }
 }

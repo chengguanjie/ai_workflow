@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 
 // DELETE: 撤销邀请
 export async function DELETE(
@@ -12,12 +13,12 @@ export async function DELETE(
     const { id: invitationId } = await params
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 只有 OWNER 和 ADMIN 可以撤销邀请
     if (!['OWNER', 'ADMIN'].includes(session.user.role)) {
-      return NextResponse.json({ error: '权限不足' }, { status: 403 })
+      return ApiResponse.error('权限不足', 403)
     }
 
     // 获取邀请信息
@@ -26,7 +27,7 @@ export async function DELETE(
     })
 
     if (!invitation || invitation.organizationId !== session.user.organizationId) {
-      return NextResponse.json({ error: '邀请不存在' }, { status: 404 })
+      return ApiResponse.error('邀请不存在', 404)
     }
 
     // 删除邀请
@@ -50,9 +51,9 @@ export async function DELETE(
       },
     })
 
-    return NextResponse.json({ success: true })
+    return ApiResponse.success({ success: true })
   } catch (error) {
     console.error('Failed to revoke invitation:', error)
-    return NextResponse.json({ error: '撤销邀请失败' }, { status: 500 })
+    return ApiResponse.error('撤销邀请失败', 500)
   }
 }

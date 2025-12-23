@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 
 interface RouteContext {
   params: Promise<{ id: string }>
@@ -14,7 +15,7 @@ export async function DELETE(
   try {
     const session = await auth()
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const { id } = await context.params
@@ -28,17 +29,17 @@ export async function DELETE(
     })
 
     if (!token) {
-      return NextResponse.json({ error: 'Token 不存在' }, { status: 404 })
+      return ApiResponse.error('Token 不存在', 404)
     }
 
     await prisma.apiToken.delete({
       where: { id },
     })
 
-    return NextResponse.json({ success: true })
+    return ApiResponse.success({ success: true })
   } catch (error) {
     console.error('Failed to delete API token:', error)
-    return NextResponse.json({ error: '删除失败' }, { status: 500 })
+    return ApiResponse.error('删除失败', 500)
   }
 }
 
@@ -50,7 +51,7 @@ export async function PATCH(
   try {
     const session = await auth()
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const { id } = await context.params
@@ -66,7 +67,7 @@ export async function PATCH(
     })
 
     if (!token) {
-      return NextResponse.json({ error: 'Token 不存在' }, { status: 404 })
+      return ApiResponse.error('Token 不存在', 404)
     }
 
     const updated = await prisma.apiToken.update({
@@ -74,12 +75,12 @@ export async function PATCH(
       data: { isActive },
     })
 
-    return NextResponse.json({
+    return ApiResponse.success({
       id: updated.id,
       isActive: updated.isActive,
     })
   } catch (error) {
     console.error('Failed to update API token:', error)
-    return NextResponse.json({ error: '更新失败' }, { status: 500 })
+    return ApiResponse.error('更新失败', 500)
   }
 }

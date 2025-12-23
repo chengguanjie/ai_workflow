@@ -158,6 +158,7 @@ export const POST = withAuth<ApiSuccessResponse<KnowledgeBase>>(
         chunkSize: chunkSize || 1000,
         chunkOverlap: chunkOverlap || 200,
         vectorStoreType: vectorStoreType || 'MEMORY',
+        vectorStoreConfig: {}, // Default empty configuration
         organizationId: user.organizationId,
         creatorId: user.id,
       },

@@ -305,8 +305,13 @@ export default function AIConfigPage() {
     try {
       const res = await fetch('/api/settings/ai-config')
       if (res.ok) {
-        const data = await res.json()
-        setConfigs(data.configs || [])
+        const result = await res.json()
+        // API returns wrapped response: {success: true, data: {configs: [...]}}
+        if (result.success && result.data) {
+          setConfigs(result.data.configs || [])
+        } else {
+          setConfigs([])
+        }
       }
     } catch (error) {
       console.error('Failed to load AI configs:', error)

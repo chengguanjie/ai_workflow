@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { codeNodeProcessor } from '@/lib/workflow/processors/code'
+import { ApiResponse } from '@/lib/api/api-response'
 import type { ExecutionContext } from '@/lib/workflow/types'
 
 export async function POST(request: NextRequest) {
@@ -8,10 +9,7 @@ export async function POST(request: NextRequest) {
     const { code, language = 'javascript', inputs = {} } = body
 
     if (!code || typeof code !== 'string') {
-      return NextResponse.json(
-        { success: false, error: '代码不能为空' },
-        { status: 400 }
-      )
+      return ApiResponse.error('代码不能为空', 400)
     }
 
     // 创建模拟节点配置
@@ -47,14 +45,14 @@ export async function POST(request: NextRequest) {
         logs?: string[]
         executionTime?: number
       }
-      return NextResponse.json({
+      return ApiResponse.success({
         success: true,
         output: data.formattedOutput || String(data.output || ''),
         executionTime: data.executionTime || result.duration,
         logs: data.logs || [],
       })
     } else {
-      return NextResponse.json({
+      return ApiResponse.success({
         success: false,
         error: result.error || '执行失败',
         executionTime: result.duration,
@@ -62,12 +60,9 @@ export async function POST(request: NextRequest) {
     }
   } catch (error) {
     console.error('Code execution error:', error)
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : '执行失败',
-      },
-      { status: 500 }
+    return ApiResponse.error(
+      error instanceof Error ? error.message : '执行失败',
+      500
     )
   }
 }

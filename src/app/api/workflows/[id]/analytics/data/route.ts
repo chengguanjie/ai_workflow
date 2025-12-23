@@ -1,17 +1,9 @@
-/**
- * 工作流分析数据 API
- *
- * GET: 获取工作流的分析数据
- * - 支持时间范围筛选
- * - 支持按数据点分组
- * - 支持聚合计算
- */
-
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { checkResourcePermission } from '@/lib/permissions/resource'
 import { startOfDay, endOfDay, subDays } from 'date-fns'
+import { ApiResponse } from '@/lib/api/api-response'
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -24,21 +16,21 @@ export async function GET(
   try {
     const session = await auth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const { id: workflowId } = await params
 
     // 检查权限
-    const canRead = await checkResourcePermission({
-      userId: session.user.id,
-      resourceType: 'workflow',
-      resourceId: workflowId,
-      action: 'read',
-    })
+    const { allowed: canRead } = await checkResourcePermission(
+      session.user.id,
+      'WORKFLOW',
+      workflowId,
+      'VIEWER'
+    )
 
     if (!canRead) {
-      return NextResponse.json({ error: '无权限查看此工作流的分析数据' }, { status: 403 })
+      return ApiResponse.error('无权限查看此工作流的分析数据', 403)
     }
 
     // 获取查询参数
@@ -61,21 +53,29 @@ export async function GET(
     // 查询分析配置
     const configs = configId
       ? await prisma.analyticsConfig.findMany({
-          where: { id: configId, workflowId, isActive: true },
-        })
+        where: { id: configId, workflowId, isActive: true },
+      })
       : await prisma.analyticsConfig.findMany({
-          where: { workflowId, isActive: true },
-        })
+        where: { workflowId, isActive: true },
+      })
 
     if (!configs.length) {
-      return NextResponse.json({ configs: [], dataPoints: [] })
+      return ApiResponse.success({
+        dateRange: {
+          start: dateFilter.gte,
+          end: dateFilter.lte,
+        },
+        groupBy,
+        aggregationType,
+        data: [],
+      })
     }
 
     // 获取数据点
     const dataPoints = await prisma.analyticsDataPoint.findMany({
       where: {
         configId: configId || { in: configs.map(c => c.id) },
-        createdAt: dateFilter,
+        recordedAt: dateFilter,
       },
       include: {
         config: true,
@@ -100,7 +100,7 @@ export async function GET(
           },
         },
       },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { recordedAt: 'asc' },
     })
 
     // 按配置分组数据
@@ -165,7 +165,7 @@ export async function GET(
       }
     })
 
-    return NextResponse.json({
+    return ApiResponse.success({
       dateRange: {
         start: dateFilter.gte,
         end: dateFilter.lte,
@@ -176,24 +176,21 @@ export async function GET(
     })
   } catch (error) {
     console.error('获取分析数据失败:', error)
-    return NextResponse.json(
-      { error: '获取分析数据失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('获取分析数据失败', 500)
   }
 }
 
 /**
  * 按时间分组数据
  */
-function groupDataByTime(
-  dataPoints: any[],
+function groupDataByTime<T extends { recordedAt: Date }>(
+  dataPoints: T[],
   groupBy: string
-): Array<{ date: Date; dataPoints: any[] }> {
-  const grouped = new Map<string, any[]>()
+): Array<{ date: Date; dataPoints: T[] }> {
+  const grouped = new Map<string, T[]>()
 
   dataPoints.forEach(dp => {
-    const date = new Date(dp.createdAt)
+    const date = new Date(dp.recordedAt)
     let key: string
 
     switch (groupBy) {

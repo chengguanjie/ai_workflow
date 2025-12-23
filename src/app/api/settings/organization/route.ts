@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 import { z } from 'zod'
 
 // 基本信息更新 schema
@@ -32,7 +33,7 @@ export async function GET() {
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const organization = await prisma.organization.findUnique({
@@ -62,7 +63,7 @@ export async function GET() {
     })
 
     if (!organization) {
-      return NextResponse.json({ error: '企业不存在' }, { status: 404 })
+      return ApiResponse.error('企业不存在', 404)
     }
 
     // 解析安全设置，提供默认值
@@ -82,7 +83,7 @@ export async function GET() {
       ...(typeof organization.securitySettings === 'object' ? organization.securitySettings : {}),
     }
 
-    return NextResponse.json({
+    return ApiResponse.success({
       organization: {
         ...organization,
         securitySettings,
@@ -94,7 +95,7 @@ export async function GET() {
     })
   } catch (error) {
     console.error('Failed to get organization:', error)
-    return NextResponse.json({ error: '获取企业信息失败' }, { status: 500 })
+    return ApiResponse.error('获取企业信息失败', 500)
   }
 }
 
@@ -104,12 +105,12 @@ export async function PATCH(request: NextRequest) {
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 只有 OWNER 和 ADMIN 可以修改企业信息
     if (!['OWNER', 'ADMIN'].includes(session.user.role)) {
-      return NextResponse.json({ error: '权限不足' }, { status: 403 })
+      return ApiResponse.error('权限不足', 403)
     }
 
     const body = await request.json()
@@ -148,11 +149,11 @@ export async function PATCH(request: NextRequest) {
         },
       })
 
-      return NextResponse.json({ organization })
+      return ApiResponse.success({ organization })
     } else if (type === 'security') {
       // 更新安全设置（只有 OWNER 可以修改）
       if (session.user.role !== 'OWNER') {
-        return NextResponse.json({ error: '只有企业所有者可以修改安全设置' }, { status: 403 })
+        return ApiResponse.error('只有企业所有者可以修改安全设置', 403)
       }
 
       const validatedSettings = securitySettingsSchema.parse(data)
@@ -193,19 +194,16 @@ export async function PATCH(request: NextRequest) {
         },
       })
 
-      return NextResponse.json({ organization })
+      return ApiResponse.success({ organization })
     } else {
-      return NextResponse.json({ error: '无效的更新类型' }, { status: 400 })
+      return ApiResponse.error('无效的更新类型', 400)
     }
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: error.issues[0]?.message || '数据验证失败' },
-        { status: 400 }
-      )
+      return ApiResponse.error(error.issues[0]?.message || '数据验证失败', 400)
     }
 
     console.error('Failed to update organization:', error)
-    return NextResponse.json({ error: '更新企业信息失败' }, { status: 500 })
+    return ApiResponse.error('更新企业信息失败', 500)
   }
 }

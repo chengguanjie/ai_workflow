@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 import { Role } from '@prisma/client'
 
 
@@ -14,12 +15,12 @@ export async function PATCH(
     const { id: memberId } = await params
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 只有 OWNER 和 ADMIN 可以修改
     if (!['OWNER', 'ADMIN'].includes(session.user.role)) {
-      return NextResponse.json({ error: '权限不足' }, { status: 403 })
+      return ApiResponse.error('权限不足', 403)
     }
 
     const body = await request.json()
@@ -31,7 +32,7 @@ export async function PATCH(
     })
 
     if (!targetMember || targetMember.organizationId !== session.user.organizationId) {
-      return NextResponse.json({ error: '成员不存在' }, { status: 404 })
+      return ApiResponse.error('成员不存在', 404)
     }
 
     // 构建更新数据
@@ -47,27 +48,27 @@ export async function PATCH(
     // 处理角色更新
     if (newRole !== undefined) {
       if (!Object.values(Role).includes(newRole)) {
-        return NextResponse.json({ error: '无效的角色' }, { status: 400 })
+        return ApiResponse.error('无效的角色', 400)
       }
 
       // 不能修改自己的角色
       if (memberId === session.user.id) {
-        return NextResponse.json({ error: '不能修改自己的角色' }, { status: 400 })
+        return ApiResponse.error('不能修改自己的角色', 400)
       }
 
       // OWNER 角色不能被修改
       if (targetMember.role === 'OWNER') {
-        return NextResponse.json({ error: '不能修改企业所有者的角色' }, { status: 400 })
+        return ApiResponse.error('不能修改企业所有者的角色', 400)
       }
 
       // 不能设置为 OWNER
       if (newRole === 'OWNER') {
-        return NextResponse.json({ error: '不能将成员设为企业所有者' }, { status: 400 })
+        return ApiResponse.error('不能将成员设为企业所有者', 400)
       }
 
       // ADMIN 不能操作其他 ADMIN
       if (session.user.role === 'ADMIN' && targetMember.role === 'ADMIN') {
-        return NextResponse.json({ error: 'ADMIN 不能修改其他 ADMIN 的角色' }, { status: 403 })
+        return ApiResponse.error('ADMIN 不能修改其他 ADMIN 的角色', 403)
       }
 
       updateData.role = newRole
@@ -86,7 +87,7 @@ export async function PATCH(
           },
         })
         if (!department) {
-          return NextResponse.json({ error: '部门不存在' }, { status: 400 })
+          return ApiResponse.error('部门不存在', 400)
         }
       }
       updateData.departmentId = departmentId || null
@@ -95,7 +96,7 @@ export async function PATCH(
     }
 
     if (Object.keys(updateData).length === 0) {
-      return NextResponse.json({ error: '没有需要更新的内容' }, { status: 400 })
+      return ApiResponse.error('没有需要更新的内容', 400)
     }
 
     // 更新成员
@@ -126,10 +127,10 @@ export async function PATCH(
       },
     })
 
-    return NextResponse.json({ member: updatedMember })
+    return ApiResponse.success({ member: updatedMember })
   } catch (error) {
     console.error('Failed to update member:', error)
-    return NextResponse.json({ error: '修改成员信息失败' }, { status: 500 })
+    return ApiResponse.error('修改成员信息失败', 500)
   }
 }
 
@@ -143,12 +144,12 @@ export async function DELETE(
     const { id: memberId } = await params
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 只有 OWNER 和 ADMIN 可以移除成员
     if (!['OWNER', 'ADMIN'].includes(session.user.role)) {
-      return NextResponse.json({ error: '权限不足' }, { status: 403 })
+      return ApiResponse.error('权限不足', 403)
     }
 
     // 获取目标成员信息
@@ -157,22 +158,22 @@ export async function DELETE(
     })
 
     if (!targetMember || targetMember.organizationId !== session.user.organizationId) {
-      return NextResponse.json({ error: '成员不存在' }, { status: 404 })
+      return ApiResponse.error('成员不存在', 404)
     }
 
     // 不能移除自己
     if (memberId === session.user.id) {
-      return NextResponse.json({ error: '不能移除自己' }, { status: 400 })
+      return ApiResponse.error('不能移除自己', 400)
     }
 
     // 不能移除 OWNER
     if (targetMember.role === 'OWNER') {
-      return NextResponse.json({ error: '不能移除企业所有者' }, { status: 400 })
+      return ApiResponse.error('不能移除企业所有者', 400)
     }
 
     // ADMIN 不能移除其他 ADMIN
     if (session.user.role === 'ADMIN' && targetMember.role === 'ADMIN') {
-      return NextResponse.json({ error: 'ADMIN 不能移除其他 ADMIN' }, { status: 403 })
+      return ApiResponse.error('ADMIN 不能移除其他 ADMIN', 403)
     }
 
     // 软删除：将用户设为不活跃，而不是真删除
@@ -197,9 +198,9 @@ export async function DELETE(
       },
     })
 
-    return NextResponse.json({ success: true })
+    return ApiResponse.success({ success: true })
   } catch (error) {
     console.error('Failed to remove member:', error)
-    return NextResponse.json({ error: '移除成员失败' }, { status: 500 })
+    return ApiResponse.error('移除成员失败', 500)
   }
 }

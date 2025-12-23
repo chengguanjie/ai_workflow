@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { consoleAuth } from '@/lib/console-auth'
 import { hasPermission } from '@/lib/console-auth/permissions'
 import { prisma } from '@/lib/db'
 import { hash } from 'bcryptjs'
+import { ApiResponse } from '@/lib/api/api-response'
 import type { PlatformRole, Plan, OrgStatus } from '@prisma/client'
 
 // 生成随机密码
@@ -21,11 +22,11 @@ export async function GET(request: NextRequest) {
   const session = await consoleAuth()
 
   if (!session?.user) {
-    return NextResponse.json({ error: '未登录' }, { status: 401 })
+    return ApiResponse.error('未登录', 401)
   }
 
   if (!hasPermission(session.user.role as PlatformRole, 'organization:read')) {
-    return NextResponse.json({ error: '权限不足' }, { status: 403 })
+    return ApiResponse.error('权限不足', 403)
   }
 
   const { searchParams } = new URL(request.url)
@@ -106,14 +107,10 @@ export async function GET(request: NextRequest) {
     updatedAt: org.updatedAt,
   }))
 
-  return NextResponse.json({
-    data,
-    pagination: {
-      page,
-      pageSize,
-      total,
-      totalPages: Math.ceil(total / pageSize),
-    },
+  return ApiResponse.paginated(data, {
+    page,
+    pageSize,
+    total,
   })
 }
 
@@ -122,11 +119,11 @@ export async function POST(request: NextRequest) {
   const session = await consoleAuth()
 
   if (!session?.user) {
-    return NextResponse.json({ error: '未登录' }, { status: 401 })
+    return ApiResponse.error('未登录', 401)
   }
 
   if (!hasPermission(session.user.role as PlatformRole, 'organization:create')) {
-    return NextResponse.json({ error: '权限不足' }, { status: 403 })
+    return ApiResponse.error('权限不足', 403)
   }
 
   try {
@@ -146,10 +143,7 @@ export async function POST(request: NextRequest) {
 
     // 验证必填字段
     if (!name || !owner?.email || !owner?.name) {
-      return NextResponse.json(
-        { error: '企业名称、企业主邮箱和姓名为必填项' },
-        { status: 400 }
-      )
+      return ApiResponse.error('企业名称、企业主邮箱和姓名为必填项', 400)
     }
 
     // 检查邮箱是否已存在
@@ -158,10 +152,7 @@ export async function POST(request: NextRequest) {
     })
 
     if (existingUser) {
-      return NextResponse.json(
-        { error: '该邮箱已被使用' },
-        { status: 400 }
-      )
+      return ApiResponse.error('该邮箱已被使用', 400)
     }
 
     // 生成或使用提供的密码
@@ -181,6 +172,16 @@ export async function POST(request: NextRequest) {
         status: 'ACTIVE',
         createdByAdminId: session.user.id,
         notes,
+        securitySettings: {
+          passwordMinLength: 8,
+          passwordRequireUppercase: false,
+          passwordRequireNumber: false,
+          passwordRequireSymbol: false,
+          sessionTimeout: 10080, // 7天
+          maxLoginAttempts: 5,
+          ipWhitelist: [],
+          twoFactorRequired: false,
+        },
         users: {
           create: {
             email: owner.email,
@@ -218,7 +219,7 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    return NextResponse.json({
+    return ApiResponse.created({
       organization: {
         id: organization.id,
         name: organization.name,
@@ -230,15 +231,11 @@ export async function POST(request: NextRequest) {
         id: organization.users[0].id,
         email: organization.users[0].email,
         name: organization.users[0].name,
-        // 仅当自动生成密码时返回临时密码
         tempPassword: owner.password ? undefined : tempPassword,
       },
     })
   } catch (error) {
     console.error('创建企业失败:', error)
-    return NextResponse.json(
-      { error: '创建企业失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('创建企业失败', 500)
   }
 }

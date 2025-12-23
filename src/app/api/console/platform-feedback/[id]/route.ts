@@ -1,15 +1,9 @@
-/**
- * 平台管理后台 - 反馈详情 API
- *
- * GET   /api/console/platform-feedback/[id] - 获取反馈详情
- * PATCH /api/console/platform-feedback/[id] - 更新反馈（回复、状态、优先级）
- */
-
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { consoleAuth } from '@/lib/console-auth'
 import { z } from 'zod'
 import { PlatformFeedbackStatus, PlatformFeedbackPriority } from '@prisma/client'
+import { ApiResponse } from '@/lib/api/api-response'
 
 // 更新反馈验证 Schema
 const updateFeedbackSchema = z.object({
@@ -27,7 +21,7 @@ export async function GET(
   try {
     const session = await consoleAuth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const { id } = await params
@@ -54,13 +48,13 @@ export async function GET(
     })
 
     if (!feedback) {
-      return NextResponse.json({ error: '反馈不存在' }, { status: 404 })
+      return ApiResponse.error('反馈不存在', 404)
     }
 
-    return NextResponse.json({ feedback })
+    return ApiResponse.success({ feedback })
   } catch (error) {
     console.error('获取反馈详情失败:', error)
-    return NextResponse.json({ error: '获取失败' }, { status: 500 })
+    return ApiResponse.error('获取失败', 500)
   }
 }
 
@@ -72,7 +66,7 @@ export async function PATCH(
   try {
     const session = await consoleAuth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const { id } = await params
@@ -83,7 +77,7 @@ export async function PATCH(
     })
 
     if (!existingFeedback) {
-      return NextResponse.json({ error: '反馈不存在' }, { status: 404 })
+      return ApiResponse.error('反馈不存在', 404)
     }
 
     // 解析并验证请求体
@@ -91,10 +85,7 @@ export async function PATCH(
     const parseResult = updateFeedbackSchema.safeParse(body)
 
     if (!parseResult.success) {
-      return NextResponse.json(
-        { error: parseResult.error.issues[0].message },
-        { status: 400 }
-      )
+      return ApiResponse.error(parseResult.error.issues[0].message, 400)
     }
 
     const { status, priority, reply, assignedTo } = parseResult.data
@@ -150,9 +141,9 @@ export async function PATCH(
       },
     })
 
-    return NextResponse.json({ feedback })
+    return ApiResponse.success({ feedback })
   } catch (error) {
     console.error('更新反馈失败:', error)
-    return NextResponse.json({ error: '更新失败' }, { status: 500 })
+    return ApiResponse.error('更新失败', 500)
   }
 }

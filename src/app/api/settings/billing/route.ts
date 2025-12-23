@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 
 // 获取订阅信息和使用统计
 export async function GET(_request: NextRequest) {
@@ -8,13 +9,13 @@ export async function GET(_request: NextRequest) {
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 检查权限（仅 OWNER 和 ADMIN 可访问）
     const userRole = (session.user as { role?: string }).role
     if (userRole !== 'OWNER' && userRole !== 'ADMIN') {
-      return NextResponse.json({ error: '权限不足' }, { status: 403 })
+      return ApiResponse.error('权限不足', 403)
     }
 
     const organizationId = session.user.organizationId
@@ -40,7 +41,7 @@ export async function GET(_request: NextRequest) {
     })
 
     if (!organization) {
-      return NextResponse.json({ error: '企业不存在' }, { status: 404 })
+      return ApiResponse.error('企业不存在', 404)
     }
 
     // 获取本月执行统计
@@ -86,7 +87,7 @@ export async function GET(_request: NextRequest) {
 
     const limits = planLimits[organization.plan] || planLimits.FREE
 
-    return NextResponse.json({
+    return ApiResponse.success({
       organization: {
         id: organization.id,
         name: organization.name,
@@ -118,9 +119,6 @@ export async function GET(_request: NextRequest) {
     })
   } catch (error) {
     console.error('获取账单信息失败:', error)
-    return NextResponse.json(
-      { error: '获取账单信息失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('获取账单信息失败', 500)
   }
 }

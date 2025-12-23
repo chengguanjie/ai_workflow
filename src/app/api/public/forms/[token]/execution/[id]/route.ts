@@ -1,11 +1,6 @@
-/**
- * 公开表单执行状态查询 API（无需认证）
- *
- * GET /api/public/forms/[token]/execution/[id] - 查询执行状态
- */
-
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 
 interface RouteParams {
   params: Promise<{ token: string; id: string }>
@@ -27,18 +22,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     })
 
     if (!form) {
-      return NextResponse.json(
-        { error: '表单不存在或已失效' },
-        { status: 404 }
-      )
+      return ApiResponse.error('表单不存在或已失效', 404)
     }
 
     // 如果不显示结果，返回禁止访问
     if (!form.showResult) {
-      return NextResponse.json(
-        { error: '该表单不支持查看执行结果' },
-        { status: 403 }
-      )
+      return ApiResponse.error('该表单不支持查看执行结果', 403)
     }
 
     // 查询执行记录
@@ -59,10 +48,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     })
 
     if (!execution) {
-      return NextResponse.json(
-        { error: '执行记录不存在' },
-        { status: 404 }
-      )
+      return ApiResponse.error('执行记录不存在', 404)
     }
 
     // 获取输出文件
@@ -85,13 +71,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           size: true,
         },
       })
-      outputFiles = files.map(f => ({
+      outputFiles = files.map((f: { id: string; fileName: string; format: string; url: string | null; size: number }) => ({
         ...f,
         url: f.url || '',
       }))
     }
 
-    return NextResponse.json({
+    return ApiResponse.success({
       execution: {
         id: execution.id,
         status: execution.status,
@@ -105,10 +91,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     })
   } catch (error) {
     console.error('Get execution status error:', error)
-    return NextResponse.json(
-      { error: '获取执行状态失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('获取执行状态失败', 500)
   }
 }
 

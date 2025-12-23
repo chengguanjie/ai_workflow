@@ -1,20 +1,19 @@
-/**
- * 公开的任务状态查询 API (使用 API Token 认证)
- *
- * GET /api/v1/tasks/[taskId]
- */
-
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { executionQueue } from '@/lib/workflow/queue'
 import { createHash } from 'crypto'
+import { ApiResponse } from '@/lib/api/api-response'
 
 interface RouteParams {
   params: Promise<{ taskId: string }>
 }
 
+type AuthResult =
+  | { organizationId: string }
+  | { error: string; status: number }
+
 // 验证 API Token
-async function verifyApiToken(authHeader: string | null) {
+async function verifyApiToken(authHeader: string | null): Promise<AuthResult> {
   if (!authHeader?.startsWith('Bearer ')) {
     return { error: '缺少 Authorization 头', status: 401 }
   }
@@ -48,62 +47,39 @@ async function verifyApiToken(authHeader: string | null) {
 /**
  * GET /api/v1/tasks/[taskId]
  * 查询异步任务状态
- *
- * Headers:
- *   Authorization: Bearer YOUR_API_TOKEN
- *
- * Response:
- * {
- *   taskId: string
- *   status: 'pending' | 'running' | 'completed' | 'failed'
- *   result?: {
- *     output?: Record<string, unknown>
- *     error?: string
- *     duration?: number
- *     totalTokens?: number
- *   }
- *   createdAt: string
- *   completedAt?: string
- * }
  */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     // 验证 Token
     const authResult = await verifyApiToken(request.headers.get('Authorization'))
     if ('error' in authResult) {
-      return NextResponse.json(
-        { error: authResult.error },
-        { status: authResult.status }
-      )
+      return ApiResponse.error(authResult.error, authResult.status)
     }
 
     const { taskId } = await params
     const { task, execution } = await executionQueue.getTaskWithDetails(taskId)
 
     if (!task) {
-      return NextResponse.json(
-        { error: '任务不存在或已过期' },
-        { status: 404 }
-      )
+      return ApiResponse.error('任务不存在或已过期', 404)
     }
 
     // 返回任务状态
-    const response: Record<string, unknown> = {
+    const data: Record<string, unknown> = {
       taskId: task.id,
       status: task.status,
       createdAt: task.createdAt.toISOString(),
     }
 
     if (task.startedAt) {
-      response.startedAt = task.startedAt.toISOString()
+      data.startedAt = task.startedAt.toISOString()
     }
 
     if (task.completedAt) {
-      response.completedAt = task.completedAt.toISOString()
+      data.completedAt = task.completedAt.toISOString()
     }
 
     if (task.status === 'completed' || task.status === 'failed') {
-      response.result = {
+      data.result = {
         output: task.result?.output || execution?.output,
         error: task.error || execution?.error,
         duration: task.result?.duration || execution?.duration,
@@ -111,13 +87,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    return NextResponse.json(response)
+    return ApiResponse.success(data)
   } catch (error) {
     console.error('Get task status error:', error)
-    return NextResponse.json(
-      { error: '获取任务状态失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('获取任务状态失败', 500)
   }
 }
 

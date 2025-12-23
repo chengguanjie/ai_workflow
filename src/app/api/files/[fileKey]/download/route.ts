@@ -1,14 +1,9 @@
-/**
- * 文件下载 API
- *
- * GET /api/files/[fileKey]/download - 下载文件
- */
-
 import { NextRequest, NextResponse } from 'next/server'
 import { createReadStream } from 'fs'
 import { stat } from 'fs/promises'
 import { auth } from '@/lib/auth'
 import { storageService } from '@/lib/storage'
+import { ApiResponse } from '@/lib/api/api-response'
 
 interface RouteParams {
   params: Promise<{ fileKey: string }>
@@ -18,13 +13,13 @@ interface RouteParams {
  * GET /api/files/[fileKey]/download
  * 下载文件
  *
- * 支持 Range 请求（用于大文件和视频流）
+ * 支持 Range 请求（用于大文件 and 视频流）
  */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const session = await auth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未登录' }, { status: 401 })
+      return ApiResponse.error('未登录', 401)
     }
 
     const { fileKey } = await params
@@ -34,17 +29,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const downloadInfo = await storageService.getDownloadInfoByKey(decodedKey)
 
     if (!downloadInfo) {
-      return NextResponse.json(
-        { error: '文件不存在、已过期或已达下载次数限制' },
-        { status: 404 }
-      )
+      return ApiResponse.error('文件不存在、已过期或已达下载次数限制', 404)
     }
 
     const { file, localPath } = downloadInfo
 
     // 验证权限
     if (file.organizationId !== session.user.organizationId) {
-      return NextResponse.json({ error: '无权下载此文件' }, { status: 403 })
+      return ApiResponse.error('无权下载此文件', 403)
     }
 
     // 本地存储：直接流式传输
@@ -92,25 +84,16 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         })
       } catch (error) {
         console.error('Read file error:', error)
-        return NextResponse.json(
-          { error: '读取文件失败' },
-          { status: 500 }
-        )
+        return ApiResponse.error('读取文件失败', 500)
       }
     }
 
     // 云存储：重定向到签名 URL
     // 此处应该从存储服务获取签名 URL 并重定向
-    return NextResponse.json(
-      { error: '云存储下载暂未实现' },
-      { status: 501 }
-    )
+    return ApiResponse.error('云存储下载暂未实现', 501)
   } catch (error) {
     console.error('Download file error:', error)
-    return NextResponse.json(
-      { error: '下载文件失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('下载文件失败', 500)
   }
 }
 

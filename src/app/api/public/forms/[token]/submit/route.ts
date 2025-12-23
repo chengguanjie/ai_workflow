@@ -1,13 +1,8 @@
-/**
- * 公开表单提交 API（无需认证）
- *
- * POST /api/public/forms/[token]/submit - 提交表单
- */
-
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { executeWorkflow } from '@/lib/workflow/engine'
 import { executionQueue } from '@/lib/workflow/queue'
+import { ApiResponse } from '@/lib/api/api-response'
 
 interface RouteParams {
   params: Promise<{ token: string }>
@@ -33,34 +28,22 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     })
 
     if (!form) {
-      return NextResponse.json(
-        { error: '表单不存在或已失效' },
-        { status: 404 }
-      )
+      return ApiResponse.error('表单不存在或已失效', 404)
     }
 
     // 检查表单是否激活
     if (!form.isActive) {
-      return NextResponse.json(
-        { error: '表单已停用' },
-        { status: 403 }
-      )
+      return ApiResponse.error('表单已停用', 403)
     }
 
     // 检查是否过期
     if (form.expiresAt && new Date(form.expiresAt) < new Date()) {
-      return NextResponse.json(
-        { error: '表单已过期' },
-        { status: 403 }
-      )
+      return ApiResponse.error('表单已过期', 403)
     }
 
     // 检查提交次数限制
     if (form.maxSubmissions && form.submissionCount >= form.maxSubmissions) {
-      return NextResponse.json(
-        { error: '表单已达到最大提交次数' },
-        { status: 403 }
-      )
+      return ApiResponse.error('表单已达到最大提交次数', 403)
     }
 
     // 获取提交数据
@@ -69,8 +52,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     // 获取客户端信息
     const submitterIp = request.headers.get('x-forwarded-for') ||
-                        request.headers.get('x-real-ip') ||
-                        'unknown'
+      request.headers.get('x-real-ip') ||
+      'unknown'
     const userAgent = request.headers.get('user-agent') || null
 
     // 更新提交计数
@@ -123,14 +106,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               size: true,
             },
           })
-          outputFiles = files.map(f => ({
+          outputFiles = files.map((f: { id: string; fileName: string; format: string; url: string | null; size: number }) => ({
             ...f,
             url: f.url || '',
           }))
         }
 
-        return NextResponse.json({
-          success: true,
+        return ApiResponse.success({
           status: result.status,
           output: result.output,
           error: result.error,
@@ -140,10 +122,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         })
       } catch (error) {
         console.error('Workflow execution error:', error)
-        return NextResponse.json({
-          success: false,
+        return ApiResponse.error(error instanceof Error ? error.message : '执行失败', 500, {
           status: 'FAILED',
-          error: error instanceof Error ? error.message : '执行失败',
         })
       }
     } else {
@@ -165,18 +145,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         },
       })
 
-      return NextResponse.json({
-        success: true,
+      return ApiResponse.success({
         taskId,
         message: form.successMessage || '提交成功！',
       })
     }
   } catch (error) {
     console.error('Submit public form error:', error)
-    return NextResponse.json(
-      { error: '提交表单失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('提交表单失败', 500)
   }
 }
 

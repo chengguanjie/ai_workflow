@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 import { randomBytes, createHash } from 'crypto'
 
 // 生成 API Token
@@ -17,7 +18,7 @@ export async function GET() {
   try {
     const session = await auth()
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const tokens = await prisma.apiToken.findMany({
@@ -38,10 +39,10 @@ export async function GET() {
       },
     })
 
-    return NextResponse.json({ tokens })
+    return ApiResponse.success({ tokens })
   } catch (error) {
     console.error('Failed to get API tokens:', error)
-    return NextResponse.json({ error: '获取失败' }, { status: 500 })
+    return ApiResponse.error('获取失败', 500)
   }
 }
 
@@ -50,14 +51,14 @@ export async function POST(request: NextRequest) {
   try {
     const session = await auth()
     if (!session?.user?.organizationId || !session.user.id) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const body = await request.json()
     const { name, expiresIn, scopes = ['workflow:execute'] } = body
 
     if (!name?.trim()) {
-      return NextResponse.json({ error: '请输入 Token 名称' }, { status: 400 })
+      return ApiResponse.error('请输入 Token 名称', 400)
     }
 
     // 生成 Token
@@ -97,7 +98,7 @@ export async function POST(request: NextRequest) {
     })
 
     // 返回完整 Token（仅此一次）
-    return NextResponse.json({
+    return ApiResponse.success({
       id: apiToken.id,
       name: apiToken.name,
       token: apiToken.token, // 完整 token，仅此一次显示
@@ -108,6 +109,6 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('Failed to create API token:', error)
-    return NextResponse.json({ error: '创建失败' }, { status: 500 })
+    return ApiResponse.error('创建失败', 500)
   }
 }

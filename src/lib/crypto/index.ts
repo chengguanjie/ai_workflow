@@ -18,7 +18,12 @@ function getEncryptionKey(): Buffer {
     throw new Error('ENCRYPTION_KEY must be at least 32 characters long.')
   }
   
-  const salt = createHash('sha256').update(process.env.ENCRYPTION_SALT || 'ai-workflow-salt-v1').digest()
+  const saltValue = process.env.ENCRYPTION_SALT
+  if (!saltValue) {
+    throw new Error('ENCRYPTION_SALT environment variable is required. Please set a unique random string for your deployment.')
+  }
+  
+  const salt = createHash('sha256').update(saltValue).digest()
   cachedKey = scryptSync(secret, salt, KEY_LENGTH)
   return cachedKey
 }

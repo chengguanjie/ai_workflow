@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 
 // GET: 导出企业数据
 export async function GET(request: NextRequest) {
@@ -8,12 +9,12 @@ export async function GET(request: NextRequest) {
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 只有 OWNER 可以导出数据
     if (session.user.role !== 'OWNER') {
-      return NextResponse.json({ error: '只有企业所有者可以导出数据' }, { status: 403 })
+      return ApiResponse.error('只有企业所有者可以导出数据', 403)
     }
 
     const searchParams = request.nextUrl.searchParams
@@ -134,17 +135,18 @@ export async function GET(request: NextRequest) {
     })
 
     if (format === 'json') {
-      return NextResponse.json(exportData, {
-        headers: {
-          'Content-Disposition': `attachment; filename="organization-export-${new Date().toISOString().split('T')[0]}.json"`,
-        },
-      })
+      const response = ApiResponse.success(exportData)
+      response.headers.set(
+        'Content-Disposition',
+        `attachment; filename="organization-export-${new Date().toISOString().split('T')[0]}.json"`
+      )
+      return response
     }
 
     // CSV 格式暂不支持（数据结构复杂）
-    return NextResponse.json({ error: '暂只支持 JSON 格式导出' }, { status: 400 })
+    return ApiResponse.error('暂只支持 JSON 格式导出', 400)
   } catch (error) {
     console.error('Failed to export data:', error)
-    return NextResponse.json({ error: '导出数据失败' }, { status: 500 })
+    return ApiResponse.error('导出数据失败', 500)
   }
 }

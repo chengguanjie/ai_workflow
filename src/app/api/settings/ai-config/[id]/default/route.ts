@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 
 // POST: 设置为默认配置
 export async function POST(
@@ -11,12 +12,12 @@ export async function POST(
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 检查用户权限
     if (!['OWNER', 'ADMIN'].includes(session.user.role)) {
-      return NextResponse.json({ error: '权限不足' }, { status: 403 })
+      return ApiResponse.error('权限不足', 403)
     }
 
     const { id } = await params
@@ -32,7 +33,7 @@ export async function POST(
     })
 
     if (!config) {
-      return NextResponse.json({ error: '配置不存在' }, { status: 404 })
+      return ApiResponse.error('配置不存在', 404)
     }
 
     // 先将所有配置设为非默认
@@ -47,9 +48,9 @@ export async function POST(
       data: { isDefault: true },
     })
 
-    return NextResponse.json({ success: true })
+    return ApiResponse.success({})
   } catch (error) {
     console.error('Failed to set default AI config:', error)
-    return NextResponse.json({ error: '设置失败' }, { status: 500 })
+    return ApiResponse.error('设置失败', 500)
   }
 }

@@ -1,15 +1,9 @@
-/**
- * 工作流表单管理 API
- *
- * GET /api/workflows/[id]/forms - 获取工作流的表单列表
- * POST /api/workflows/[id]/forms - 创建新表单
- */
-
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { FormMode } from '@prisma/client'
 import crypto from 'crypto'
+import { ApiResponse } from '@/lib/api/api-response'
 
 // 生成分享 token
 function generateShareToken(length = 12): string {
@@ -25,7 +19,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const session = await auth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const { id: workflowId } = await params
@@ -40,7 +34,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     })
 
     if (!workflow) {
-      return NextResponse.json({ error: '工作流不存在' }, { status: 404 })
+      return ApiResponse.error('工作流不存在', 404)
     }
 
     // 获取表单列表
@@ -70,13 +64,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       mode: form.mode === FormMode.AI_PAGE ? 'ai_page' : 'form',
     }))
 
-    return NextResponse.json({ forms: formsWithMode })
+    return ApiResponse.success({ forms: formsWithMode })
   } catch (error) {
     console.error('Get workflow forms error:', error)
-    return NextResponse.json(
-      { error: '获取表单列表失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('获取表单列表失败', 500)
   }
 }
 
@@ -85,7 +76,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const session = await auth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const { id: workflowId } = await params
@@ -100,7 +91,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     })
 
     if (!workflow) {
-      return NextResponse.json({ error: '工作流不存在' }, { status: 404 })
+      return ApiResponse.error('工作流不存在', 404)
     }
 
     // 解析请求体
@@ -120,7 +111,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     } = body
 
     if (!name?.trim()) {
-      return NextResponse.json({ error: '表单名称不能为空' }, { status: 400 })
+      return ApiResponse.error('表单名称不能为空', 400)
     }
 
     // 转换 mode 字符串为枚举值
@@ -128,7 +119,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     // AI 网页模式需要 HTML 模板
     if (formMode === FormMode.AI_PAGE && !htmlTemplate) {
-      return NextResponse.json({ error: 'AI网页模式需要先生成HTML模板' }, { status: 400 })
+      return ApiResponse.error('AI网页模式需要先生成HTML模板', 400)
     }
 
     // 生成分享 token
@@ -154,12 +145,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       },
     })
 
-    return NextResponse.json({ form }, { status: 201 })
+    return ApiResponse.created({ form })
   } catch (error) {
     console.error('Create workflow form error:', error)
-    return NextResponse.json(
-      { error: '创建表单失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('创建表单失败', 500)
   }
 }

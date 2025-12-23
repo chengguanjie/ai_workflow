@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { hash } from 'bcryptjs'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 import { z } from 'zod'
 
 const acceptSchema = z.object({
@@ -26,26 +27,26 @@ export async function POST(request: NextRequest) {
     })
 
     if (!invitation) {
-      return NextResponse.json({ error: '邀请不存在或已失效' }, { status: 404 })
+      return ApiResponse.error('邀请不存在或已失效', 404)
     }
 
     // 检查是否过期
     if (new Date(invitation.expiresAt) < new Date()) {
-      return NextResponse.json({ error: '邀请已过期' }, { status: 400 })
+      return ApiResponse.error('邀请已过期', 400)
     }
 
     // 检查是否已用完
     if (invitation.usedCount >= invitation.maxUses) {
-      return NextResponse.json({ error: '邀请已达到使用上限' }, { status: 400 })
+      return ApiResponse.error('邀请已达到使用上限', 400)
     }
 
     // 邮件邀请必须使用指定邮箱
     if (invitation.type === 'EMAIL') {
       if (invitation.acceptedAt) {
-        return NextResponse.json({ error: '邀请已被接受' }, { status: 400 })
+        return ApiResponse.error('邀请已被接受', 400)
       }
       if (invitation.email && invitation.email.toLowerCase() !== email.toLowerCase()) {
-        return NextResponse.json({ error: '邮箱地址与邀请不匹配' }, { status: 400 })
+        return ApiResponse.error('邮箱地址与邀请不匹配', 400)
       }
     }
 
@@ -55,8 +56,7 @@ export async function POST(request: NextRequest) {
     })
 
     if (existingUser) {
-      // 如果用户已存在但不在这个组织，可以考虑加入（暂不支持）
-      return NextResponse.json({ error: '该邮箱已被注册' }, { status: 400 })
+      return ApiResponse.error('该邮箱已被注册', 400)
     }
 
     // 创建用户
@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    return NextResponse.json({
+    return ApiResponse.created({
       message: '加入成功',
       user: {
         id: user.id,
@@ -117,13 +117,10 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof z.ZodError) {
       const issues = error.issues
-      return NextResponse.json(
-        { error: issues[0]?.message || '输入验证失败' },
-        { status: 400 }
-      )
+      return ApiResponse.error(issues[0]?.message || '输入验证失败', 400)
     }
 
     console.error('Accept invitation error:', error)
-    return NextResponse.json({ error: '接受邀请失败' }, { status: 500 })
+    return ApiResponse.error('接受邀请失败', 500)
   }
 }

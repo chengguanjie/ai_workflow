@@ -5,8 +5,9 @@
  * POST /api/scheduler - Initialize/reload scheduler
  */
 
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
+import { ApiResponse } from '@/lib/api/api-response'
 import { scheduler } from '@/lib/scheduler'
 import { executionQueue } from '@/lib/workflow/queue'
 
@@ -30,27 +31,21 @@ async function checkAdminAccess() {
 export async function GET(_request: NextRequest) {
   const authResult = await checkAdminAccess()
   if ('error' in authResult) {
-    return NextResponse.json(
-      { error: authResult.error },
-      { status: authResult.status }
-    )
+    return ApiResponse.error(authResult.error!, authResult.status!)
   }
 
   try {
     const schedulerStatus = scheduler.getStatus()
     const queueStatus = await executionQueue.getQueueStatus()
 
-    return NextResponse.json({
+    return ApiResponse.success({
       status: 'ok',
       scheduler: schedulerStatus,
       queue: queueStatus,
     })
   } catch (error) {
     console.error('Get scheduler status error:', error)
-    return NextResponse.json(
-      { error: '获取调度器状态失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('获取调度器状态失败', 500)
   }
 }
 
@@ -62,10 +57,7 @@ export async function GET(_request: NextRequest) {
 export async function POST(request: NextRequest) {
   const authResult = await checkAdminAccess()
   if ('error' in authResult) {
-    return NextResponse.json(
-      { error: authResult.error },
-      { status: authResult.status }
-    )
+    return ApiResponse.error(authResult.error!, authResult.status!)
   }
 
   try {
@@ -74,7 +66,7 @@ export async function POST(request: NextRequest) {
 
     if (action === 'stop') {
       scheduler.stopAll()
-      return NextResponse.json({
+      return ApiResponse.success({
         status: 'ok',
         message: '调度器已停止',
         jobCount: 0,
@@ -87,16 +79,13 @@ export async function POST(request: NextRequest) {
 
     await scheduler.initialize()
 
-    return NextResponse.json({
+    return ApiResponse.success({
       status: 'ok',
       message: '调度器已初始化',
       jobCount: scheduler.getJobCount(),
     })
   } catch (error) {
     console.error('Initialize scheduler error:', error)
-    return NextResponse.json(
-      { error: '初始化调度器失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('初始化调度器失败', 500)
   }
 }

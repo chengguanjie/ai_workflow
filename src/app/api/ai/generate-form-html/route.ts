@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { safeDecryptApiKey } from '@/lib/crypto'
 import { aiService } from '@/lib/ai'
+import { ApiResponse } from '@/lib/api/api-response'
 
 // 字段类型中文映射
 const FIELD_TYPE_LABELS: Record<string, string> = {
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest) {
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const body = await request.json()
@@ -65,11 +66,11 @@ export async function POST(request: NextRequest) {
     } = body
 
     if (!inputFields || inputFields.length === 0) {
-      return NextResponse.json({ error: '没有可用的输入字段' }, { status: 400 })
+      return ApiResponse.error('没有可用的输入字段', 400)
     }
 
     if (!stylePrompt || !stylePrompt.trim()) {
-      return NextResponse.json({ error: '请输入风格描述' }, { status: 400 })
+      return ApiResponse.error('请输入风格描述', 400)
     }
 
     // 获取AI配置
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest) {
     })
 
     if (!apiKey) {
-      return NextResponse.json({ error: '未配置AI服务，请先在设置中配置AI服务商' }, { status: 400 })
+      return ApiResponse.error('未配置AI服务，请先在设置中配置AI服务商', 400)
     }
 
     // 构建字段描述
@@ -172,10 +173,7 @@ ${stylePrompt}
       )
     } catch (aiError) {
       console.error('AI service call failed:', aiError)
-      return NextResponse.json(
-        { error: `AI服务调用失败: ${aiError instanceof Error ? aiError.message : '未知错误'}` },
-        { status: 500 }
-      )
+      return ApiResponse.error(`AI服务调用失败: ${aiError instanceof Error ? aiError.message : '未知错误'}`, 500)
     }
 
     // 解析AI返回的内容
@@ -188,9 +186,9 @@ ${stylePrompt}
       // 方法1: 尝试直接从代码块中提取HTML和CSS
       // 支持多种格式：```html、``` html、```HTML 等
       const htmlMatch = content.match(/```\s*html\s*\n([\s\S]*?)\n```/i) ||
-                        content.match(/```\s*html\s*\r?\n([\s\S]*?)\r?\n```/i)
+        content.match(/```\s*html\s*\r?\n([\s\S]*?)\r?\n```/i)
       const cssMatch = content.match(/```\s*css\s*\n([\s\S]*?)\n```/i) ||
-                       content.match(/```\s*css\s*\r?\n([\s\S]*?)\r?\n```/i)
+        content.match(/```\s*css\s*\r?\n([\s\S]*?)\r?\n```/i)
 
       console.log('HTML match found:', !!htmlMatch)
       console.log('CSS match found:', !!cssMatch)
@@ -247,21 +245,15 @@ ${stylePrompt}
       console.error('Parse AI response error:', parseError)
       console.error('AI response preview:', response.content.substring(0, 1000))
       console.error('AI response end:', response.content.substring(Math.max(0, response.content.length - 500)))
-      return NextResponse.json(
-        { error: 'AI返回格式错误，请重试。如果问题持续，请尝试简化风格描述。' },
-        { status: 500 }
-      )
+      return ApiResponse.error('AI返回格式错误，请重试。如果问题持续，请尝试简化风格描述。', 500)
     }
 
-    return NextResponse.json({
+    return ApiResponse.success({
       html: result.html,
       css: result.css,
     })
   } catch (error) {
     console.error('Generate form HTML error:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : '生成失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error(error instanceof Error ? error.message : '生成失败', 500)
   }
 }

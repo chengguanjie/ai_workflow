@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 
 // GET: 验证邀请 token 并获取邀请信息
 export async function GET(request: NextRequest) {
@@ -7,7 +8,7 @@ export async function GET(request: NextRequest) {
     const token = request.nextUrl.searchParams.get('token')
 
     if (!token) {
-      return NextResponse.json({ error: '缺少邀请 token' }, { status: 400 })
+      return ApiResponse.error('缺少邀请 token', 400)
     }
 
     const invitation = await prisma.invitation.findUnique({
@@ -30,25 +31,25 @@ export async function GET(request: NextRequest) {
     })
 
     if (!invitation) {
-      return NextResponse.json({ error: '邀请不存在或已失效' }, { status: 404 })
+      return ApiResponse.error('邀请不存在或已失效', 404)
     }
 
     // 检查是否过期
     if (new Date(invitation.expiresAt) < new Date()) {
-      return NextResponse.json({ error: '邀请已过期' }, { status: 400 })
+      return ApiResponse.error('邀请已过期', 400)
     }
 
     // 检查是否已用完
     if (invitation.usedCount >= invitation.maxUses) {
-      return NextResponse.json({ error: '邀请已达到使用上限' }, { status: 400 })
+      return ApiResponse.error('邀请已达到使用上限', 400)
     }
 
     // 检查邮件邀请是否已被接受
     if (invitation.type === 'EMAIL' && invitation.acceptedAt) {
-      return NextResponse.json({ error: '邀请已被接受' }, { status: 400 })
+      return ApiResponse.error('邀请已被接受', 400)
     }
 
-    return NextResponse.json({
+    return ApiResponse.success({
       invitation: {
         id: invitation.id,
         email: invitation.email,
@@ -60,6 +61,6 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error('Failed to verify invitation:', error)
-    return NextResponse.json({ error: '验证邀请失败' }, { status: 500 })
+    return ApiResponse.error('验证邀请失败', 500)
   }
 }

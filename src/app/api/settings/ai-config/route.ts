@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { encryptApiKey, maskApiKey } from '@/lib/crypto'
+import { ApiResponse } from '@/lib/api/api-response'
 import { AIProvider } from '@prisma/client'
 
 // GET: 获取所有 AI 配置
@@ -10,7 +11,7 @@ export async function GET() {
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const configs = await prisma.apiKey.findMany({
@@ -38,10 +39,10 @@ export async function GET() {
       ],
     })
 
-    return NextResponse.json({ configs })
+    return ApiResponse.success({ configs })
   } catch (error) {
     console.error('Failed to get AI configs:', error)
-    return NextResponse.json({ error: '获取配置失败' }, { status: 500 })
+    return ApiResponse.error('获取配置失败', 500)
   }
 }
 
@@ -51,24 +52,24 @@ export async function POST(request: NextRequest) {
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 检查用户权限（只有 OWNER 和 ADMIN 可以修改配置）
     if (!['OWNER', 'ADMIN'].includes(session.user.role)) {
-      return NextResponse.json({ error: '权限不足' }, { status: 403 })
+      return ApiResponse.error('权限不足', 403)
     }
 
     const body = await request.json()
     const { provider, name, baseUrl, defaultModel, defaultModels, models, apiKey } = body
 
     if (!provider || !name || !apiKey) {
-      return NextResponse.json({ error: '服务商、名称和 API Key 不能为空' }, { status: 400 })
+      return ApiResponse.error('服务商、名称和 API Key 不能为空', 400)
     }
 
     // 验证 provider 是有效的枚举值
     if (!Object.values(AIProvider).includes(provider)) {
-      return NextResponse.json({ error: '无效的服务商' }, { status: 400 })
+      return ApiResponse.error('无效的服务商', 400)
     }
 
     const organizationId = session.user.organizationId
@@ -99,7 +100,7 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    return NextResponse.json({
+    return ApiResponse.success({
       config: {
         id: config.id,
         name: config.name,
@@ -116,6 +117,6 @@ export async function POST(request: NextRequest) {
     console.error('Failed to create AI config:', error)
     // 返回更详细的错误信息
     const errorMessage = error instanceof Error ? error.message : '创建配置失败'
-    return NextResponse.json({ error: errorMessage }, { status: 500 })
+    return ApiResponse.error(errorMessage, 500)
   }
 }

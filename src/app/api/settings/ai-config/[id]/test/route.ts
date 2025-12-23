@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { safeDecryptApiKey } from '@/lib/crypto'
 import { aiService, type AIProviderType } from '@/lib/ai'
+import { ApiResponse } from '@/lib/api/api-response'
 
 // POST: 测试 AI 连接
 export async function POST(
@@ -13,7 +14,7 @@ export async function POST(
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const { id } = await params
@@ -28,7 +29,7 @@ export async function POST(
     })
 
     if (!config) {
-      return NextResponse.json({ error: '配置不存在' }, { status: 404 })
+      return ApiResponse.error('配置不存在', 404)
     }
 
     // 解密 API Key
@@ -52,8 +53,7 @@ export async function POST(
       baseUrl
     )
 
-    return NextResponse.json({
-      success: true,
+    return ApiResponse.success({
       model: result.model || model,
       message: '连接测试成功',
     })
@@ -61,7 +61,7 @@ export async function POST(
     console.error('AI connection test failed:', error)
 
     const message = error instanceof Error ? error.message : '连接测试失败'
-    return NextResponse.json({ error: message }, { status: 500 })
+    return ApiResponse.error(message, 500)
   }
 }
 

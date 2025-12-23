@@ -4,9 +4,10 @@
  * POST /api/executions/[id]/resume - 恢复执行失败的工作流
  */
 
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 import { validateCheckpoint, createWorkflowHash } from '@/lib/workflow/checkpoint'
 import { executionQueue } from '@/lib/workflow/queue'
 
@@ -22,7 +23,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const session = await auth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未登录' }, { status: 401 })
+      return ApiResponse.error('未登录', 401)
     }
 
     const { id: executionId } = await params
@@ -48,25 +49,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     })
 
     if (!originalExecution) {
-      return NextResponse.json(
-        { error: '执行记录不存在或无权访问' },
-        { status: 404 }
-      )
+      return ApiResponse.error('执行记录不存在或无权访问', 404)
     }
 
     // 检查是否可以恢复
     if (!originalExecution.canResume) {
-      return NextResponse.json(
-        { error: '此执行记录不支持恢复执行' },
-        { status: 400 }
-      )
+      return ApiResponse.error('此执行记录不支持恢复执行', 400)
     }
 
     if (originalExecution.status !== 'FAILED') {
-      return NextResponse.json(
-        { error: '只能恢复失败的执行记录' },
-        { status: 400 }
-      )
+      return ApiResponse.error('只能恢复失败的执行记录', 400)
     }
 
     // 验证工作流是否已变更
@@ -75,10 +67,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const validation = await validateCheckpoint(executionId, currentHash)
 
     if (!validation.valid) {
-      return NextResponse.json(
-        { error: validation.reason || '检查点验证失败' },
-        { status: 400 }
-      )
+      return ApiResponse.error(validation.reason || '检查点验证失败', 400)
     }
 
     // 创建新的执行记录（复制检查点）
@@ -90,6 +79,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         status: 'PENDING',
         checkpoint: originalExecution.checkpoint ?? undefined,
         resumedFromId: executionId,
+        organizationId: originalExecution.workflow.organizationId,
       },
     })
 
@@ -110,7 +100,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     )
 
-    return NextResponse.json({
+    return ApiResponse.success({
       success: true,
       execution: {
         id: newExecution.id,
@@ -122,10 +112,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     })
   } catch (error) {
     console.error('Resume execution error:', error)
-    return NextResponse.json(
-      { error: '恢复执行失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('恢复执行失败', 500)
   }
 }
 
@@ -137,7 +124,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const session = await auth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未登录' }, { status: 401 })
+      return ApiResponse.error('未登录', 401)
     }
 
     const { id: executionId } = await params
@@ -167,10 +154,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     })
 
     if (!execution) {
-      return NextResponse.json(
-        { error: '执行记录不存在或无权访问' },
-        { status: 404 }
-      )
+      return ApiResponse.error('执行记录不存在或无权访问', 404)
     }
 
     // 检查是否可以恢复
@@ -202,7 +186,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       failedNodeId?: string
     } | null
 
-    return NextResponse.json({
+    return ApiResponse.success({
       executionId: execution.id,
       status: execution.status,
       canResume: canResumeNow,
@@ -212,16 +196,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       error: execution.error,
       checkpointInfo: checkpoint
         ? {
-            completedNodesCount: Object.keys(checkpoint.completedNodes || {}).length,
-            failedNodeId: checkpoint.failedNodeId,
-          }
+          completedNodesCount: Object.keys(checkpoint.completedNodes || {}).length,
+          failedNodeId: checkpoint.failedNodeId,
+        }
         : null,
     })
   } catch (error) {
     console.error('Get resume status error:', error)
-    return NextResponse.json(
-      { error: '获取恢复状态失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('获取恢复状态失败', 500)
   }
 }

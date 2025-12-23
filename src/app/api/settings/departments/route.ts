@@ -1,6 +1,6 @@
-import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 import { updateDepartmentPath } from '@/lib/permissions/department'
 
 // GET: 获取所有部门（支持树形结构）
@@ -9,7 +9,7 @@ export async function GET() {
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const departments = await prisma.department.findMany({
@@ -54,13 +54,13 @@ export async function GET() {
 
     const tree = buildTree(null)
 
-    return NextResponse.json({
+    return ApiResponse.success({
       departments: departmentsWithManager,
       tree,
     })
   } catch (error) {
     console.error('Failed to get departments:', error)
-    return NextResponse.json({ error: '获取部门列表失败' }, { status: 500 })
+    return ApiResponse.error('获取部门列表失败', 500)
   }
 }
 
@@ -70,19 +70,19 @@ export async function POST(request: Request) {
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 检查权限（只有 OWNER 和 ADMIN 可以创建部门）
     if (session.user.role !== 'OWNER' && session.user.role !== 'ADMIN') {
-      return NextResponse.json({ error: '权限不足' }, { status: 403 })
+      return ApiResponse.error('权限不足', 403)
     }
 
     const body = await request.json()
     const { name, description, parentId, sortOrder } = body
 
     if (!name?.trim()) {
-      return NextResponse.json({ error: '部门名称不能为空' }, { status: 400 })
+      return ApiResponse.error('部门名称不能为空', 400)
     }
 
     // 如果有父部门，检查父部门是否存在且属于同一组织
@@ -94,7 +94,7 @@ export async function POST(request: Request) {
         },
       })
       if (!parentDept) {
-        return NextResponse.json({ error: '父部门不存在' }, { status: 400 })
+        return ApiResponse.error('父部门不存在', 400)
       }
     }
 
@@ -139,9 +139,9 @@ export async function POST(request: Request) {
       },
     })
 
-    return NextResponse.json({ department: updatedDepartment }, { status: 201 })
+    return ApiResponse.created({ department: updatedDepartment })
   } catch (error) {
     console.error('Failed to create department:', error)
-    return NextResponse.json({ error: '创建部门失败' }, { status: 500 })
+    return ApiResponse.error('创建部门失败', 500)
   }
 }

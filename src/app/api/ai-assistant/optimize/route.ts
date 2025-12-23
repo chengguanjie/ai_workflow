@@ -1,9 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { safeDecryptApiKey } from '@/lib/crypto'
 import { aiService } from '@/lib/ai'
 import type { WorkflowConfig, NodeConfig } from '@/types/workflow'
+import { ApiResponse } from '@/lib/api/api-response'
 
 const OPTIMIZATION_SYSTEM_PROMPT = `你是一个专业的工作流优化专家。你的任务是分析工作流的执行结果，诊断问题，并提出精确的优化方案。
 
@@ -94,7 +95,7 @@ function generateWorkflowContext(config: WorkflowConfig): string {
 
     switch (node.type) {
       case 'INPUT':
-        const fields = (nodeConfig as { fields?: { name: string }[] }).fields || []
+        const fields = (nodeConfig as { fields?: Array<{ name: string }> }).fields || []
         configSummary = `输入字段: ${fields.map(f => f.name).join(', ') || '无'}`
         break
       case 'PROCESS':
@@ -192,13 +193,13 @@ export async function POST(request: NextRequest) {
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const body = await request.json()
-    const { 
-      workflowId, 
-      testResult, 
+    const {
+      workflowId,
+      testResult,
       aesDiagnosis,
       targetCriteria,
       model,
@@ -206,11 +207,11 @@ export async function POST(request: NextRequest) {
     } = body
 
     if (!workflowId) {
-      return NextResponse.json({ error: '工作流ID不能为空' }, { status: 400 })
+      return ApiResponse.error('工作流ID不能为空', 400)
     }
 
     if (!testResult && !aesDiagnosis) {
-      return NextResponse.json({ error: '测试结果或AES评估报告不能为空' }, { status: 400 })
+      return ApiResponse.error('测试结果或AES评估报告不能为空', 400)
     }
 
     const workflow = await prisma.workflow.findFirst({
@@ -222,7 +223,7 @@ export async function POST(request: NextRequest) {
     })
 
     if (!workflow) {
-      return NextResponse.json({ error: '工作流不存在' }, { status: 404 })
+      return ApiResponse.error('工作流不存在', 404)
     }
 
     const config = workflow.config as unknown as WorkflowConfig
@@ -260,7 +261,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!apiKey) {
-      return NextResponse.json({ error: '未配置AI服务' }, { status: 400 })
+      return ApiResponse.error('未配置AI服务', 400)
     }
 
     const workflowContext = generateWorkflowContext(config)
@@ -333,7 +334,7 @@ ${JSON.stringify(testResult, null, 2)}
       }
     }
 
-    return NextResponse.json({
+    return ApiResponse.success({
       success: true,
       optimization,
       model: response.model,
@@ -341,9 +342,6 @@ ${JSON.stringify(testResult, null, 2)}
     })
   } catch (error) {
     console.error('Optimization error:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : '优化分析失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error(error instanceof Error ? error.message : '优化分析失败', 500)
   }
 }

@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { safeDecryptApiKey } from '@/lib/crypto'
 import { aiService } from '@/lib/ai'
+import { ApiResponse } from '@/lib/api/api-response'
 
 const AES_EVALUATION_PROMPT = `你是一个专业的 AI 工作流审计师。请基于 AES 评估体系对用户的工作流进行深度评估。
 
@@ -60,17 +61,17 @@ export async function POST(request: NextRequest) {
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const body = await request.json()
-    const { 
-      workflowContext, 
+    const {
+      workflowContext,
       model,
     } = body
 
     if (!workflowContext) {
-      return NextResponse.json({ error: '工作流上下文不能为空' }, { status: 400 })
+      return ApiResponse.error('工作流上下文不能为空', 400)
     }
 
     // 获取 API Key
@@ -107,11 +108,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (!apiKey) {
-      return NextResponse.json({ error: '未配置AI服务，请先在设置中配置AI服务商' }, { status: 400 })
+      return ApiResponse.error('未配置AI服务，请先在设置中配置AI服务商', 400)
     }
 
     const selectedModel = modelName || apiKey.defaultModel || 'deepseek/deepseek-chat'
-    
+
     // 调用 AI
     const response = await aiService.chat(
       apiKey.provider,
@@ -144,7 +145,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({
+    return ApiResponse.success({
       success: true,
       evaluation: result,
       model: response.model,
@@ -153,9 +154,6 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('AES Evaluation error:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : '评估请求失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error(error instanceof Error ? error.message : '评估请求失败', 500)
   }
 }

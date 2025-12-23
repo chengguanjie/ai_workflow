@@ -4,7 +4,7 @@
  * 执行历史页面
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -27,7 +27,9 @@ import {
   ChevronRight,
   Filter,
   X,
+  Timer,
 } from 'lucide-react'
+import { Checkbox } from '@/components/ui/checkbox'
 import Link from 'next/link'
 
 interface Execution {
@@ -61,8 +63,13 @@ export default function ExecutionsPage() {
 
   // 筛选状态
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>('')
+  const [selectedStatus, setSelectedStatus] = useState<string>('')
   const [startDate, setStartDate] = useState<string>('')
   const [endDate, setEndDate] = useState<string>('')
+
+  // 自动刷新相关
+  const [autoRefresh, setAutoRefresh] = useState(false)
+  const intervalRef = useRef<NodeJS.Timeout | null>(null)
 
   // 加载工作流列表
   useEffect(() => {
@@ -92,6 +99,9 @@ export default function ExecutionsPage() {
       if (selectedWorkflowId) {
         params.append('workflowId', selectedWorkflowId)
       }
+      if (selectedStatus) {
+        params.append('status', selectedStatus)
+      }
       if (startDate) {
         params.append('startDate', startDate)
       }
@@ -100,31 +110,66 @@ export default function ExecutionsPage() {
       }
       const response = await fetch(`/api/executions?${params.toString()}`)
       if (response.ok) {
-        const data = await response.json()
-        setExecutions(data.executions)
-        setTotal(data.total)
+        const result = await response.json()
+        // API response is wrapped in { success: true, data: { executions, total, ... } }
+        if (result.success && result.data) {
+          setExecutions(result.data.executions || [])
+          setTotal(result.data.total || 0)
+        } else {
+          setExecutions([])
+          setTotal(0)
+        }
       }
     } catch (error) {
       console.error('Load executions error:', error)
     } finally {
       setIsLoading(false)
     }
-  }, [page, selectedWorkflowId, startDate, endDate])
+  }, [page, selectedWorkflowId, selectedStatus, startDate, endDate])
 
   useEffect(() => {
     loadExecutions()
   }, [loadExecutions])
 
+  // 检测是否有运行中的工作流，自动开启刷新
+  useEffect(() => {
+    const hasRunning = executions.some((e) => e.status === 'RUNNING' || e.status === 'PENDING')
+    if (hasRunning && !autoRefresh) {
+      setAutoRefresh(true)
+    }
+  }, [executions, autoRefresh])
+
+  // 自动刷新逻辑
+  useEffect(() => {
+    if (autoRefresh) {
+      intervalRef.current = setInterval(() => {
+        loadExecutions()
+      }, 5000) // 每5秒刷新一次
+    } else {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+    }
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+      }
+    }
+  }, [autoRefresh, loadExecutions])
+
   // 重置筛选
   const resetFilters = () => {
     setSelectedWorkflowId('')
+    setSelectedStatus('')
     setStartDate('')
     setEndDate('')
     setPage(1)
   }
 
   // 检查是否有筛选条件
-  const hasFilters = selectedWorkflowId || startDate || endDate
+  const hasFilters = selectedWorkflowId || selectedStatus || startDate || endDate
 
   const formatDuration = (ms: number | null): string => {
     if (!ms) return '-'
@@ -187,10 +232,30 @@ export default function ExecutionsPage() {
           <h1 className="text-2xl font-bold">执行历史</h1>
           <span className="text-sm text-muted-foreground">共 {total} 条记录</span>
         </div>
-        <Button variant="outline" size="sm" onClick={loadExecutions} disabled={isLoading}>
-          <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-          刷新
-        </Button>
+        <div className="flex items-center gap-4">
+          {/* 自动刷新开关 */}
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="auto-refresh"
+              checked={autoRefresh}
+              onCheckedChange={(checked) => setAutoRefresh(!!checked)}
+            />
+            <label
+              htmlFor="auto-refresh"
+              className="flex cursor-pointer items-center gap-1 text-sm font-medium"
+            >
+              <Timer className={`h-4 w-4 ${autoRefresh ? 'animate-pulse text-primary' : ''}`} />
+              自动刷新
+              {autoRefresh && (
+                <span className="text-xs text-muted-foreground">（5秒）</span>
+              )}
+            </label>
+          </div>
+          <Button variant="outline" size="sm" onClick={loadExecutions} disabled={isLoading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            刷新
+          </Button>
+        </div>
       </div>
 
       {/* 筛选栏 */}
@@ -218,6 +283,27 @@ export default function ExecutionsPage() {
                 {workflow.name}
               </SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+
+        {/* 状态筛选 */}
+        <Select
+          value={selectedStatus}
+          onValueChange={(value) => {
+            setSelectedStatus(value === 'all' ? '' : value)
+            setPage(1)
+          }}
+        >
+          <SelectTrigger className="w-[160px]" size="sm">
+            <SelectValue placeholder="选择状态" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全部状态</SelectItem>
+            <SelectItem value="RUNNING">运行中</SelectItem>
+            <SelectItem value="PENDING">等待中</SelectItem>
+            <SelectItem value="COMPLETED">成功</SelectItem>
+            <SelectItem value="FAILED">失败</SelectItem>
+            <SelectItem value="CANCELLED">已取消</SelectItem>
           </SelectContent>
         </Select>
 

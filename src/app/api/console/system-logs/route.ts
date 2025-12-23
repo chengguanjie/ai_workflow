@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
 import { consoleAuth } from '@/lib/console-auth'
+import { ApiResponse } from '@/lib/api/api-response'
 import { LogLevel } from '@prisma/client'
 
 // 获取系统日志列表
@@ -8,7 +9,7 @@ export async function GET(request: NextRequest) {
   try {
     const session = await consoleAuth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const { searchParams } = new URL(request.url)
@@ -39,7 +40,7 @@ export async function GET(request: NextRequest) {
       if (endDate) {
         const end = new Date(endDate)
         end.setHours(23, 59, 59, 999)
-        ;(where.createdAt as Record<string, Date>).lte = end
+          ; (where.createdAt as Record<string, Date>).lte = end
       }
     }
 
@@ -65,7 +66,7 @@ export async function GET(request: NextRequest) {
       _count: true,
     })
 
-    return NextResponse.json({
+    return ApiResponse.success({
       logs,
       pagination: {
         page,
@@ -85,7 +86,7 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error('获取系统日志失败:', error)
-    return NextResponse.json({ error: '获取失败' }, { status: 500 })
+    return ApiResponse.error('获取失败', 500)
   }
 }
 
@@ -97,15 +98,12 @@ export async function POST(request: NextRequest) {
     const { level, category, message, detail, source, traceId } = body
 
     if (!category || !message) {
-      return NextResponse.json(
-        { error: '缺少必要参数' },
-        { status: 400 }
-      )
+      return ApiResponse.error('缺少必要参数', 400)
     }
 
     const validLevels: LogLevel[] = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL']
     if (level && !validLevels.includes(level)) {
-      return NextResponse.json({ error: '无效的日志级别' }, { status: 400 })
+      return ApiResponse.error('无效的日志级别', 400)
     }
 
     const log = await prisma.systemLog.create({
@@ -119,10 +117,10 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    return NextResponse.json(log)
+    return ApiResponse.created(log)
   } catch (error) {
     console.error('创建系统日志失败:', error)
-    return NextResponse.json({ error: '创建失败' }, { status: 500 })
+    return ApiResponse.error('创建失败', 500)
   }
 }
 
@@ -131,12 +129,12 @@ export async function DELETE(request: NextRequest) {
   try {
     const session = await consoleAuth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 只有超管可以清理日志
     if (session.user.role !== 'SUPER_ADMIN') {
-      return NextResponse.json({ error: '权限不足' }, { status: 403 })
+      return ApiResponse.error('权限不足', 403)
     }
 
     const { searchParams } = new URL(request.url)
@@ -151,12 +149,12 @@ export async function DELETE(request: NextRequest) {
       },
     })
 
-    return NextResponse.json({
+    return ApiResponse.success({
       success: true,
       deletedCount: result.count,
     })
   } catch (error) {
     console.error('清理系统日志失败:', error)
-    return NextResponse.json({ error: '清理失败' }, { status: 500 })
+    return ApiResponse.error('清理失败', 500)
   }
 }

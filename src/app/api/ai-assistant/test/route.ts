@@ -1,22 +1,23 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { executeWorkflow } from '@/lib/workflow/engine'
 import type { WorkflowConfig } from '@/types/workflow'
+import { ApiResponse } from '@/lib/api/api-response'
 
 export async function POST(request: NextRequest) {
   try {
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const body = await request.json()
     const { workflowId, testInput, timeout = 60 } = body
 
     if (!workflowId) {
-      return NextResponse.json({ error: '工作流ID不能为空' }, { status: 400 })
+      return ApiResponse.error('工作流ID不能为空', 400)
     }
 
     const workflow = await prisma.workflow.findFirst({
@@ -28,12 +29,12 @@ export async function POST(request: NextRequest) {
     })
 
     if (!workflow) {
-      return NextResponse.json({ error: '工作流不存在' }, { status: 404 })
+      return ApiResponse.error('工作流不存在', 404)
     }
 
     const config = workflow.config as unknown as WorkflowConfig
     if (!config || !config.nodes || config.nodes.length === 0) {
-      return NextResponse.json({ 
+      return ApiResponse.success({
         success: false,
         error: '工作流配置为空，请先添加节点',
         analysis: '工作流没有任何节点，无法执行测试。请先通过AI助手生成工作流或手动添加节点。'
@@ -42,7 +43,7 @@ export async function POST(request: NextRequest) {
 
     const inputNodes = config.nodes.filter(n => n.type === 'INPUT')
     const missingInputs: string[] = []
-    
+
     for (const node of inputNodes) {
       const fields = (node.config as { fields?: Array<{ name: string; required?: boolean; value?: string }> })?.fields || []
       for (const field of fields) {
@@ -53,7 +54,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (missingInputs.length > 0) {
-      return NextResponse.json({
+      return ApiResponse.success({
         success: false,
         error: '缺少必填输入',
         missingInputs,
@@ -67,7 +68,7 @@ export async function POST(request: NextRequest) {
     })
 
     const startTime = Date.now()
-    
+
     let result
     try {
       result = await Promise.race([
@@ -77,8 +78,8 @@ export async function POST(request: NextRequest) {
     } catch (error) {
       const duration = Date.now() - startTime
       const errorMessage = error instanceof Error ? error.message : '执行失败'
-      
-      return NextResponse.json({
+
+      return ApiResponse.success({
         success: false,
         duration,
         error: errorMessage,
@@ -109,7 +110,7 @@ export async function POST(request: NextRequest) {
 
     const analysis = analyzeResult(result, nodeResults, config)
 
-    return NextResponse.json({
+    return ApiResponse.success({
       success: result.status === 'COMPLETED',
       executionId: result.executionId,
       status: result.status,
@@ -123,13 +124,13 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('Test execution error:', error)
-    return NextResponse.json(
-      { 
+    return ApiResponse.error(
+      error instanceof Error ? error.message : '测试执行失败',
+      500,
+      {
         success: false,
-        error: error instanceof Error ? error.message : '测试执行失败',
         analysis: '发生未知错误，请检查工作流配置是否正确。'
-      },
-      { status: 500 }
+      }
     )
   }
 }
@@ -197,13 +198,13 @@ function analyzeResult(
 
   if (result.status === 'COMPLETED') {
     analysis.push(`执行成功！共 ${nodeResults.length} 个节点全部执行完成。`)
-    
+
     if (result.output && Object.keys(result.output).length > 0) {
       analysis.push('\n输出结果分析：')
-      const outputContent = typeof result.output.content === 'string' 
-        ? result.output.content 
+      const outputContent = typeof result.output.content === 'string'
+        ? result.output.content
         : JSON.stringify(result.output, null, 2)
-      
+
       if (outputContent.length > 500) {
         analysis.push(`输出内容较长（${outputContent.length} 字符），请查看完整输出。`)
       } else {
@@ -214,7 +215,7 @@ function analyzeResult(
     }
   } else {
     analysis.push(`执行失败。成功 ${successNodes.length} 个节点，失败 ${failedNodes.length} 个节点。`)
-    
+
     if (failedNodes.length > 0) {
       analysis.push('\n失败节点分析：')
       for (const node of failedNodes) {
@@ -231,7 +232,7 @@ function analyzeResult(
   if (processNodes.length > 0) {
     const processResults = nodeResults.filter(n => n.nodeType === 'PROCESS')
     const allProcessSuccess = processResults.every(n => n.status === 'success')
-    
+
     if (!allProcessSuccess) {
       analysis.push('\nAI处理节点优化建议：')
       analysis.push('1. 检查系统提示词是否清晰定义了AI的角色和任务')

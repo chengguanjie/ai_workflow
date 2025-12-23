@@ -13,6 +13,7 @@ import type {
   VectorUpsertResult,
   VectorStoreConfig,
 } from './types'
+import { getSafeTableName, getSafeIndexName, SQLValidationError } from '@/lib/security/sql-validator'
 
 export interface PgVectorConfig {
   connectionString?: string
@@ -49,7 +50,9 @@ export class PgVectorStore implements VectorStore {
 
   constructor(config: PgVectorConfig) {
     this.config = config
-    this.tableName = config.tableName || 'vector_embeddings'
+    // Validate table name to prevent SQL injection
+    const tableName = config.tableName || 'vector_embeddings'
+    this.tableName = getSafeTableName(tableName)
     this.dimensions = config.dimensions || 1536
     this.indexType = config.indexType || 'hnsw'
   }
@@ -135,15 +138,17 @@ export class PgVectorStore implements VectorStore {
       // 创建索引
       await this.createVectorIndex(client)
 
-      // 创建 collection_id 索引
+      // 创建 collection_id 索引 - validate index name
+      const collectionIndexName = getSafeIndexName(`idx_${this.tableName}_collection`)
       await client.query(`
-        CREATE INDEX IF NOT EXISTS idx_${this.tableName}_collection
+        CREATE INDEX IF NOT EXISTS ${collectionIndexName}
         ON ${this.tableName} (collection_id)
       `)
 
-      // 创建元数据 GIN 索引（用于 JSONB 查询）
+      // 创建元数据 GIN 索引（用于 JSONB 查询）- validate index name
+      const metadataIndexName = getSafeIndexName(`idx_${this.tableName}_metadata`)
       await client.query(`
-        CREATE INDEX IF NOT EXISTS idx_${this.tableName}_metadata
+        CREATE INDEX IF NOT EXISTS ${metadataIndexName}
         ON ${this.tableName} USING gin (metadata)
       `)
 
@@ -158,7 +163,8 @@ export class PgVectorStore implements VectorStore {
    * 创建向量索引
    */
   private async createVectorIndex(client: PoolClient): Promise<void> {
-    const indexName = `idx_${this.tableName}_embedding_${this.indexType}`
+    // Validate index name to prevent SQL injection
+    const indexName = getSafeIndexName(`idx_${this.tableName}_embedding_${this.indexType}`)
 
     // 检查索引是否存在
     const { rows } = await client.query(`

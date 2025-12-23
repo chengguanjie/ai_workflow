@@ -1,12 +1,7 @@
-/**
- * 公开表单信息 API（无需认证）
- *
- * GET /api/public/forms/[token] - 获取表单信息
- */
-
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { FormMode } from '@prisma/client'
+import { ApiResponse } from '@/lib/api/api-response'
 
 interface RouteParams {
   params: Promise<{ token: string }>
@@ -40,34 +35,22 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     })
 
     if (!form) {
-      return NextResponse.json(
-        { error: '表单不存在或已失效' },
-        { status: 404 }
-      )
+      return ApiResponse.error('表单不存在或已失效', 404)
     }
 
     // 检查表单是否激活
     if (!form.isActive) {
-      return NextResponse.json(
-        { error: '表单已停用' },
-        { status: 403 }
-      )
+      return ApiResponse.error('表单已停用', 403)
     }
 
     // 检查是否过期
     if (form.expiresAt && new Date(form.expiresAt) < new Date()) {
-      return NextResponse.json(
-        { error: '表单已过期' },
-        { status: 403 }
-      )
+      return ApiResponse.error('表单已过期', 403)
     }
 
     // 检查提交次数限制
     if (form.maxSubmissions && form.submissionCount >= form.maxSubmissions) {
-      return NextResponse.json(
-        { error: '表单已达到最大提交次数' },
-        { status: 403 }
-      )
+      return ApiResponse.error('表单已达到最大提交次数', 403)
     }
 
     // 从工作流配置中提取输入节点信息
@@ -112,7 +95,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       })
 
     // 返回表单信息（不包含敏感数据）
-    return NextResponse.json({
+    return ApiResponse.success({
       form: {
         id: form.id,
         name: form.name,
@@ -138,10 +121,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     })
   } catch (error) {
     console.error('Get public form error:', error)
-    return NextResponse.json(
-      { error: '获取表单信息失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('获取表单信息失败', 500)
   }
 }
 

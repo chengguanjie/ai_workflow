@@ -145,9 +145,15 @@ export default function ApprovalsPage() {
       }
       const response = await fetch(`/api/approvals?${params.toString()}`)
       if (response.ok) {
-        const data = await response.json()
-        setApprovals(data.approvals)
-        setTotal(data.total)
+        const result = await response.json()
+        // API response is wrapped in { success: true, data: { approvals, total, ... } }
+        if (result.success && result.data) {
+          setApprovals(result.data.approvals || [])
+          setTotal(result.data.total || 0)
+        } else {
+          setApprovals([])
+          setTotal(0)
+        }
       }
     } catch (error) {
       console.error('Load approvals error:', error)
@@ -554,7 +560,7 @@ export default function ApprovalsPage() {
               </TabsContent>
 
               <TabsContent value="decisions" className="space-y-4">
-                {selectedApproval.decisions.length === 0 ? (
+                {!selectedApproval.decisions || selectedApproval.decisions.length === 0 ? (
                   <p className="text-sm text-muted-foreground">暂无审批记录</p>
                 ) : (
                   <div className="space-y-3">

@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import {
@@ -9,19 +9,20 @@ import {
   canManagePermission,
 } from '@/lib/permissions/resource'
 import { ResourcePermission, PermissionTargetType } from '@prisma/client'
+import { ApiResponse } from '@/lib/api/api-response'
 
 interface RouteParams {
   params: Promise<{ id: string }>
 }
 
 // GET: 获取知识库权限列表
-export async function GET(request: Request, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const session = await auth()
     const { id } = await params
 
     if (!session?.user?.id || !session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 检查知识库是否存在
@@ -33,7 +34,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     })
 
     if (!kb) {
-      return NextResponse.json({ error: '知识库不存在' }, { status: 404 })
+      return ApiResponse.error('知识库不存在', 404)
     }
 
     // 获取权限列表
@@ -47,31 +48,31 @@ export async function GET(request: Request, { params }: RouteParams) {
       'VIEWER'
     )
 
-    return NextResponse.json({
+    return ApiResponse.success({
       data: permissions,
       currentUserPermission: userPermission.permission,
       canManage: userPermission.permission === 'MANAGER',
     })
   } catch (error) {
     console.error('Failed to get knowledge base permissions:', error)
-    return NextResponse.json({ error: '获取权限列表失败' }, { status: 500 })
+    return ApiResponse.error('获取权限列表失败', 500)
   }
 }
 
 // POST: 添加/更新权限
-export async function POST(request: Request, { params }: RouteParams) {
+export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const session = await auth()
     const { id } = await params
 
     if (!session?.user?.id || !session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 检查用户是否有管理权限
     const canManage = await canManagePermission(session.user.id, 'KNOWLEDGE_BASE', id)
     if (!canManage) {
-      return NextResponse.json({ error: '权限不足' }, { status: 403 })
+      return ApiResponse.error('权限不足', 403)
     }
 
     const body = await request.json()
@@ -83,19 +84,19 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     // 验证参数
     if (!targetType || !permission) {
-      return NextResponse.json({ error: '缺少必要参数' }, { status: 400 })
+      return ApiResponse.error('缺少必要参数', 400)
     }
 
     if (!['USER', 'DEPARTMENT', 'ALL'].includes(targetType)) {
-      return NextResponse.json({ error: '无效的目标类型' }, { status: 400 })
+      return ApiResponse.error('无效的目标类型', 400)
     }
 
     if (!['VIEWER', 'EDITOR', 'MANAGER'].includes(permission)) {
-      return NextResponse.json({ error: '无效的权限级别' }, { status: 400 })
+      return ApiResponse.error('无效的权限级别', 400)
     }
 
     if (targetType !== 'ALL' && !targetId) {
-      return NextResponse.json({ error: '缺少目标 ID' }, { status: 400 })
+      return ApiResponse.error('缺少目标 ID', 400)
     }
 
     // 验证目标是否存在
@@ -107,7 +108,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         },
       })
       if (!user) {
-        return NextResponse.json({ error: '用户不存在' }, { status: 400 })
+        return ApiResponse.error('用户不存在', 400)
       }
     }
 
@@ -119,7 +120,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         },
       })
       if (!dept) {
-        return NextResponse.json({ error: '部门不存在' }, { status: 400 })
+        return ApiResponse.error('部门不存在', 400)
       }
     }
 
@@ -133,27 +134,27 @@ export async function POST(request: Request, { params }: RouteParams) {
       session.user.id
     )
 
-    return NextResponse.json({ success: true })
+    return ApiResponse.success({ success: true })
   } catch (error) {
     console.error('Failed to set knowledge base permission:', error)
-    return NextResponse.json({ error: '设置权限失败' }, { status: 500 })
+    return ApiResponse.error('设置权限失败', 500)
   }
 }
 
 // DELETE: 删除权限
-export async function DELETE(request: Request, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const session = await auth()
     const { id } = await params
 
     if (!session?.user?.id || !session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 检查用户是否有管理权限
     const canManage = await canManagePermission(session.user.id, 'KNOWLEDGE_BASE', id)
     if (!canManage) {
-      return NextResponse.json({ error: '权限不足' }, { status: 403 })
+      return ApiResponse.error('权限不足', 403)
     }
 
     const body = await request.json()
@@ -163,7 +164,7 @@ export async function DELETE(request: Request, { params }: RouteParams) {
     }
 
     if (!targetType) {
-      return NextResponse.json({ error: '缺少必要参数' }, { status: 400 })
+      return ApiResponse.error('缺少必要参数', 400)
     }
 
     // 删除权限
@@ -174,9 +175,9 @@ export async function DELETE(request: Request, { params }: RouteParams) {
       targetType === 'ALL' ? null : targetId
     )
 
-    return NextResponse.json({ success: true })
+    return ApiResponse.success({ success: true })
   } catch (error) {
     console.error('Failed to delete knowledge base permission:', error)
-    return NextResponse.json({ error: '删除权限失败' }, { status: 500 })
+    return ApiResponse.error('删除权限失败', 500)
   }
 }

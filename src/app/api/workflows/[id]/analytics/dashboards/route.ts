@@ -1,18 +1,10 @@
-/**
- * 工作流分析仪表板 API
- *
- * GET: 获取工作流的分析仪表板配置
- * POST: 创建新的分析仪表板
- * PUT: 更新分析仪表板
- * DELETE: 删除分析仪表板
- */
-
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { checkResourcePermission } from '@/lib/permissions/resource'
 import { z } from 'zod'
 import { VisualizationType } from '@prisma/client'
+import { ApiResponse } from '@/lib/api/api-response'
 
 // 仪表板小部件配置模式
 const widgetConfigSchema = z.object({
@@ -53,7 +45,7 @@ export async function GET(
   try {
     const session = await auth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const { id: workflowId } = await params
@@ -67,7 +59,7 @@ export async function GET(
     })
 
     if (!canRead) {
-      return NextResponse.json({ error: '无权限查看此工作流' }, { status: 403 })
+      return ApiResponse.error('无权限查看此工作流', 403)
     }
 
     // 获取仪表板配置
@@ -94,13 +86,10 @@ export async function GET(
       ],
     })
 
-    return NextResponse.json(dashboards)
+    return ApiResponse.success(dashboards)
   } catch (error) {
     console.error('获取仪表板配置失败:', error)
-    return NextResponse.json(
-      { error: '获取仪表板配置失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('获取仪表板配置失败', 500)
   }
 }
 
@@ -112,7 +101,7 @@ export async function POST(
   try {
     const session = await auth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const { id: workflowId } = await params
@@ -126,7 +115,7 @@ export async function POST(
     })
 
     if (!canUpdate) {
-      return NextResponse.json({ error: '无权限修改此工作流' }, { status: 403 })
+      return ApiResponse.error('无权限修改此工作流', 403)
     }
 
     // 验证请求体
@@ -159,20 +148,14 @@ export async function POST(
       },
     })
 
-    return NextResponse.json(dashboard)
+    return ApiResponse.success(dashboard)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: '请求数据验证失败', details: error.errors },
-        { status: 400 }
-      )
+      return ApiResponse.error('请求数据验证失败', 400, { details: error.errors })
     }
 
     console.error('创建仪表板失败:', error)
-    return NextResponse.json(
-      { error: '创建仪表板失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('创建仪表板失败', 500)
   }
 }
 
@@ -184,7 +167,7 @@ export async function PUT(
   try {
     const session = await auth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const { id: workflowId } = await params
@@ -194,10 +177,7 @@ export async function PUT(
     const dashboardId = searchParams.get('dashboardId')
 
     if (!dashboardId) {
-      return NextResponse.json(
-        { error: '缺少仪表板ID参数' },
-        { status: 400 }
-      )
+      return ApiResponse.error('缺少仪表板ID参数', 400)
     }
 
     // 检查仪表板所有权或管理权限
@@ -206,7 +186,7 @@ export async function PUT(
     })
 
     if (!dashboard) {
-      return NextResponse.json({ error: '仪表板不存在' }, { status: 404 })
+      return ApiResponse.error('仪表板不存在', 404)
     }
 
     // 只有创建者或有更新权限的用户可以修改
@@ -219,7 +199,7 @@ export async function PUT(
       })
 
     if (!canUpdate) {
-      return NextResponse.json({ error: '无权限修改此仪表板' }, { status: 403 })
+      return ApiResponse.error('无权限修改此仪表板', 403)
     }
 
     // 验证请求体
@@ -253,20 +233,14 @@ export async function PUT(
       },
     })
 
-    return NextResponse.json(updated)
+    return ApiResponse.success(updated)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: '请求数据验证失败', details: error.errors },
-        { status: 400 }
-      )
+      return ApiResponse.error('请求数据验证失败', 400, { details: error.errors })
     }
 
     console.error('更新仪表板失败:', error)
-    return NextResponse.json(
-      { error: '更新仪表板失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('更新仪表板失败', 500)
   }
 }
 
@@ -278,7 +252,7 @@ export async function DELETE(
   try {
     const session = await auth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const { id: workflowId } = await params
@@ -288,10 +262,7 @@ export async function DELETE(
     const dashboardId = searchParams.get('dashboardId')
 
     if (!dashboardId) {
-      return NextResponse.json(
-        { error: '缺少仪表板ID参数' },
-        { status: 400 }
-      )
+      return ApiResponse.error('缺少仪表板ID参数', 400)
     }
 
     // 检查仪表板所有权
@@ -300,7 +271,7 @@ export async function DELETE(
     })
 
     if (!dashboard) {
-      return NextResponse.json({ error: '仪表板不存在' }, { status: 404 })
+      return ApiResponse.error('仪表板不存在', 404)
     }
 
     // 只有创建者或有更新权限的用户可以删除
@@ -313,7 +284,7 @@ export async function DELETE(
       })
 
     if (!canDelete) {
-      return NextResponse.json({ error: '无权限删除此仪表板' }, { status: 403 })
+      return ApiResponse.error('无权限删除此仪表板', 403)
     }
 
     // 删除仪表板
@@ -321,12 +292,9 @@ export async function DELETE(
       where: { id: dashboardId },
     })
 
-    return NextResponse.json({ success: true })
+    return ApiResponse.success({ success: true })
   } catch (error) {
     console.error('删除仪表板失败:', error)
-    return NextResponse.json(
-      { error: '删除仪表板失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('删除仪表板失败', 500)
   }
 }

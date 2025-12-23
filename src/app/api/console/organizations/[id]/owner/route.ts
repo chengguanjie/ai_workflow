@@ -4,6 +4,7 @@ import { hasPermission } from '@/lib/console-auth/permissions'
 import { prisma } from '@/lib/db'
 import { hash } from 'bcryptjs'
 import type { PlatformRole } from '@prisma/client'
+import { ApiResponse } from '@/lib/api/api-response'
 
 // 生成随机密码
 function generatePassword(length = 12): string {
@@ -24,12 +25,12 @@ export async function POST(
   const session = await consoleAuth()
 
   if (!session?.user) {
-    return NextResponse.json({ error: '未登录' }, { status: 401 })
+    return ApiResponse.error('未登录', 401)
   }
 
   // 只有超级管理员可以管理企业主
   if (!hasPermission(session.user.role as PlatformRole, 'user:reset-password')) {
-    return NextResponse.json({ error: '权限不足' }, { status: 403 })
+    return ApiResponse.error('权限不足', 403)
   }
 
   const { id } = await params
@@ -54,16 +55,13 @@ export async function POST(
     })
 
     if (!organization) {
-      return NextResponse.json({ error: '企业不存在' }, { status: 404 })
+      return ApiResponse.error('企业不存在', 404)
     }
 
     if (action === 'create') {
       // 创建新企业主
       if (!email || !name) {
-        return NextResponse.json(
-          { error: '邮箱和姓名为必填项' },
-          { status: 400 }
-        )
+        return ApiResponse.error('邮箱和姓名为必填项', 400)
       }
 
       // 检查邮箱是否已存在
@@ -72,10 +70,7 @@ export async function POST(
       })
 
       if (existingUser) {
-        return NextResponse.json(
-          { error: '该邮箱已被使用' },
-          { status: 400 }
-        )
+        return ApiResponse.error('该邮箱已被使用', 400)
       }
 
       // 如果已有企业主，将其降级为管理员
@@ -123,7 +118,7 @@ export async function POST(
         },
       })
 
-      return NextResponse.json({
+      return ApiResponse.success({
         id: newOwner.id,
         email: newOwner.email,
         name: newOwner.name,
@@ -134,10 +129,7 @@ export async function POST(
       const owner = organization.users[0]
 
       if (!owner) {
-        return NextResponse.json(
-          { error: '该企业没有企业主' },
-          { status: 400 }
-        )
+        return ApiResponse.error('该企业没有企业主', 400)
       }
 
       // 生成新密码
@@ -165,22 +157,16 @@ export async function POST(
         },
       })
 
-      return NextResponse.json({
+      return ApiResponse.success({
         id: owner.id,
         email: owner.email,
         tempPassword: password ? undefined : tempPassword,
       })
     } else {
-      return NextResponse.json(
-        { error: '无效的操作类型' },
-        { status: 400 }
-      )
+      return ApiResponse.error('无效的操作类型', 400)
     }
   } catch (error) {
     console.error('企业主管理失败:', error)
-    return NextResponse.json(
-      { error: '操作失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('操作失败', 500)
   }
 }

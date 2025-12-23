@@ -1,13 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
 import { consoleAuth } from '@/lib/console-auth'
+import { ApiResponse } from '@/lib/api/api-response'
 
 // 获取审计日志列表
 export async function GET(request: NextRequest) {
   try {
     const session = await consoleAuth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const { searchParams } = new URL(request.url)
@@ -38,7 +39,7 @@ export async function GET(request: NextRequest) {
       if (endDate) {
         const end = new Date(endDate)
         end.setHours(23, 59, 59, 999)
-        ;(where.createdAt as Record<string, Date>).lte = end
+          ; (where.createdAt as Record<string, Date>).lte = end
       }
     }
 
@@ -76,7 +77,7 @@ export async function GET(request: NextRequest) {
       }),
     ])
 
-    return NextResponse.json({
+    return ApiResponse.success({
       logs,
       pagination: {
         page,
@@ -92,6 +93,6 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error('获取审计日志失败:', error)
-    return NextResponse.json({ error: '获取失败' }, { status: 500 })
+    return ApiResponse.error('获取失败', 500)
   }
 }

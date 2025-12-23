@@ -1,6 +1,6 @@
-import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 import { updateDepartmentPath, getDescendantDepartmentIds } from '@/lib/permissions/department'
 
 // GET: 获取单个部门详情
@@ -13,7 +13,7 @@ export async function GET(
     const { id } = await params
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const department = await prisma.department.findFirst({
@@ -44,7 +44,7 @@ export async function GET(
     })
 
     if (!department) {
-      return NextResponse.json({ error: '部门不存在' }, { status: 404 })
+      return ApiResponse.error('部门不存在', 404)
     }
 
     // 获取负责人信息
@@ -56,7 +56,7 @@ export async function GET(
       })
     }
 
-    return NextResponse.json({
+    return ApiResponse.success({
       department: {
         ...department,
         manager,
@@ -64,7 +64,7 @@ export async function GET(
     })
   } catch (error) {
     console.error('Failed to get department:', error)
-    return NextResponse.json({ error: '获取部门详情失败' }, { status: 500 })
+    return ApiResponse.error('获取部门详情失败', 500)
   }
 }
 
@@ -78,12 +78,12 @@ export async function PATCH(
     const { id } = await params
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 检查权限
     if (session.user.role !== 'OWNER' && session.user.role !== 'ADMIN') {
-      return NextResponse.json({ error: '权限不足' }, { status: 403 })
+      return ApiResponse.error('权限不足', 403)
     }
 
     const body = await request.json()
@@ -98,14 +98,14 @@ export async function PATCH(
     })
 
     if (!existingDept) {
-      return NextResponse.json({ error: '部门不存在' }, { status: 404 })
+      return ApiResponse.error('部门不存在', 404)
     }
 
     // 如果更新父部门，需要验证
     if (parentId !== undefined) {
       // 不能将自己设为父部门
       if (parentId === id) {
-        return NextResponse.json({ error: '不能将部门设为自己的子部门' }, { status: 400 })
+        return ApiResponse.error('不能将部门设为自己的子部门', 400)
       }
 
       // 如果设置了父部门，检查是否存在
@@ -117,13 +117,13 @@ export async function PATCH(
           },
         })
         if (!parentDept) {
-          return NextResponse.json({ error: '父部门不存在' }, { status: 400 })
+          return ApiResponse.error('父部门不存在', 400)
         }
 
         // 检查是否会形成循环引用（父部门不能是当前部门的子部门）
         const descendants = await getDescendantDepartmentIds(id)
         if (descendants.includes(parentId)) {
-          return NextResponse.json({ error: '不能将子部门设为父部门' }, { status: 400 })
+          return ApiResponse.error('不能将子部门设为父部门', 400)
         }
       }
     }
@@ -138,7 +138,7 @@ export async function PATCH(
         },
       })
       if (!managerUser) {
-        return NextResponse.json({ error: '指定的负责人不存在或已禁用' }, { status: 400 })
+        return ApiResponse.error('指定的负责人不存在或已禁用', 400)
       }
     }
 
@@ -172,7 +172,7 @@ export async function PATCH(
       })
     }
 
-    return NextResponse.json({
+    return ApiResponse.success({
       department: {
         ...department,
         manager,
@@ -180,7 +180,7 @@ export async function PATCH(
     })
   } catch (error) {
     console.error('Failed to update department:', error)
-    return NextResponse.json({ error: '更新部门失败' }, { status: 500 })
+    return ApiResponse.error('更新部门失败', 500)
   }
 }
 
@@ -194,12 +194,12 @@ export async function DELETE(
     const { id } = await params
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 检查权限
     if (session.user.role !== 'OWNER' && session.user.role !== 'ADMIN') {
-      return NextResponse.json({ error: '权限不足' }, { status: 403 })
+      return ApiResponse.error('权限不足', 403)
     }
 
     // 检查部门是否存在
@@ -216,33 +216,27 @@ export async function DELETE(
     })
 
     if (!department) {
-      return NextResponse.json({ error: '部门不存在' }, { status: 404 })
+      return ApiResponse.error('部门不存在', 404)
     }
 
     // 检查是否有成员
     if (department._count.users > 0) {
-      return NextResponse.json(
-        { error: `部门下还有 ${department._count.users} 名成员，请先移除成员` },
-        { status: 400 }
-      )
+      return ApiResponse.error(`部门下还有 ${department._count.users} 名成员，请先移除成员`, 400)
     }
 
     // 检查是否有子部门
     if (department._count.children > 0) {
-      return NextResponse.json(
-        { error: `部门下还有 ${department._count.children} 个子部门，请先删除子部门` },
-        { status: 400 }
-      )
+      return ApiResponse.error(`部门下还有 ${department._count.children} 个子部门，请先删除子部门`, 400)
     }
 
     await prisma.department.delete({
       where: { id },
     })
 
-    return NextResponse.json({ success: true })
+    return ApiResponse.success({ success: true })
   } catch (error) {
     console.error('Failed to delete department:', error)
-    return NextResponse.json({ error: '删除部门失败' }, { status: 500 })
+    return ApiResponse.error('删除部门失败', 500)
   }
 }
 

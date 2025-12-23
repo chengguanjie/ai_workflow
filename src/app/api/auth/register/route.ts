@@ -1,6 +1,6 @@
-import { NextResponse } from 'next/server'
 import { hash } from 'bcryptjs'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 import { z } from 'zod'
 
 const registerSchema = z.object({
@@ -26,10 +26,7 @@ export async function POST(request: Request) {
     })
 
     if (existingUser) {
-      return NextResponse.json(
-        { error: '该邮箱已被注册' },
-        { status: 400 }
-      )
+      return ApiResponse.error('该邮箱已被注册', 400)
     }
 
     // 创建企业和用户
@@ -38,6 +35,16 @@ export async function POST(request: Request) {
     const organization = await prisma.organization.create({
       data: {
         name: organizationName,
+        securitySettings: {
+          passwordMinLength: 8,
+          passwordRequireUppercase: false,
+          passwordRequireNumber: false,
+          passwordRequireSymbol: false,
+          sessionTimeout: 10080, // 7天
+          maxLoginAttempts: 5,
+          ipWhitelist: [],
+          twoFactorRequired: false,
+        },
         users: {
           create: {
             email,
@@ -54,7 +61,7 @@ export async function POST(request: Request) {
 
     const user = organization.users[0]
 
-    return NextResponse.json({
+    return ApiResponse.created({
       message: '注册成功',
       user: {
         id: user.id,
@@ -67,16 +74,10 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof z.ZodError) {
       const issues = error.issues
-      return NextResponse.json(
-        { error: issues[0]?.message || '输入验证失败' },
-        { status: 400 }
-      )
+      return ApiResponse.error(issues[0]?.message || '输入验证失败', 400)
     }
 
     console.error('Register error:', error)
-    return NextResponse.json(
-      { error: '注册失败，请稍后重试' },
-      { status: 500 }
-    )
+    return ApiResponse.error('注册失败，请稍后重试', 500)
   }
 }

@@ -1,13 +1,8 @@
-/**
- * 执行输出文件 API
- *
- * GET /api/executions/[id]/files - 获取某次执行的所有输出文件
- */
-
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { storageService } from '@/lib/storage'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -21,7 +16,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const session = await auth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未登录' }, { status: 401 })
+      return ApiResponse.error('未登录', 401)
     }
 
     const { id: executionId } = await params
@@ -43,10 +38,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     })
 
     if (!execution) {
-      return NextResponse.json(
-        { error: '执行记录不存在或无权访问' },
-        { status: 404 }
-      )
+      return ApiResponse.error('执行记录不存在或无权访问', 404)
     }
 
     // 获取输出文件
@@ -55,14 +47,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       session.user.organizationId
     )
 
-    return NextResponse.json({
+    return ApiResponse.success({
       execution: {
         id: execution.id,
         status: execution.status,
         workflowId: execution.workflowId,
         createdAt: execution.createdAt,
       },
-      files: files.map((file) => ({
+      files: files.map((file: any) => ({
         id: file.id,
         fileName: file.fileName,
         format: file.format,
@@ -78,9 +70,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     })
   } catch (error) {
     console.error('Get execution files error:', error)
-    return NextResponse.json(
-      { error: '获取输出文件失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('获取输出文件失败', 500)
   }
 }

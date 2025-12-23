@@ -21,15 +21,41 @@ import {
 
 /**
  * All node types that have registered processors in the backend
- * These are the types that MUST be available in the NodePanel
  */
-const BACKEND_PROCESSOR_TYPES = [
+const ALL_BACKEND_PROCESSOR_TYPES = [
+  'TRIGGER',
   'INPUT',
   'PROCESS',
   'CODE',
   'OUTPUT',
   'CONDITION',
   'LOOP',
+  'SWITCH',
+  'MERGE',
+  'HTTP',
+  'DATA',
+  'IMAGE',
+  'VIDEO',
+  'AUDIO',
+  'IMAGE_GEN',
+  'NOTIFICATION',
+  'GROUP',
+  'APPROVAL',
+] as const
+
+/**
+ * Node types that should be displayed in the NodePanel
+ * (excludes internal-only types like GROUP and APPROVAL)
+ */
+const PANEL_PROCESSOR_TYPES = [
+  'TRIGGER',
+  'INPUT',
+  'PROCESS',
+  'CODE',
+  'OUTPUT',
+  'CONDITION',
+  'LOOP',
+  'SWITCH',
   'MERGE',
   'HTTP',
   'DATA',
@@ -47,9 +73,11 @@ const BACKEND_PROCESSOR_TYPES = [
 const REQUIRED_ADVANCED_NODES = [
   'condition',
   'loop',
-  'http',
+  'switch',
   'merge',
+  'trigger',
   'notification',
+  'http',
 ] as const
 
 /**
@@ -75,17 +103,17 @@ describe('Property 1: Node Panel Completeness', () => {
    * For any node type that has a registered processor in the backend,
    * the NodePanel component should include that node type in its available nodes list.
    */
-  it('all backend processor types should have corresponding nodes in the panel', () => {
+  it('all panel processor types should have corresponding nodes in the panel', () => {
     const allPanelNodeTypes = allNodeTypes.map(n => n.type.toUpperCase())
-    
+
     fc.assert(
       fc.property(
-        fc.constantFrom(...BACKEND_PROCESSOR_TYPES),
+        fc.constantFrom(...PANEL_PROCESSOR_TYPES),
         (backendType) => {
           expect(allPanelNodeTypes).toContain(backendType)
         }
       ),
-      { numRuns: BACKEND_PROCESSOR_TYPES.length }
+      { numRuns: PANEL_PROCESSOR_TYPES.length }
     )
   })
 
@@ -94,7 +122,7 @@ describe('Property 1: Node Panel Completeness', () => {
    */
   it('all required advanced nodes should be in advancedNodes array', () => {
     const advancedNodeTypes = advancedNodes.map(n => n.type)
-    
+
     fc.assert(
       fc.property(
         fc.constantFrom(...REQUIRED_ADVANCED_NODES),
@@ -111,7 +139,7 @@ describe('Property 1: Node Panel Completeness', () => {
    */
   it('all required media/data nodes should be in mediaDataNodes array', () => {
     const mediaDataNodeTypes = mediaDataNodes.map(n => n.type)
-    
+
     fc.assert(
       fc.property(
         fc.constantFrom(...REQUIRED_MEDIA_DATA_NODES),
@@ -133,20 +161,20 @@ describe('Property 1: Node Panel Completeness', () => {
         (node: NodeType) => {
           expect(node.type).toBeDefined()
           expect(node.type.length).toBeGreaterThan(0)
-          
+
           expect(node.name).toBeDefined()
           expect(node.name.length).toBeGreaterThan(0)
-          
+
           expect(node.description).toBeDefined()
           expect(node.description.length).toBeGreaterThan(0)
-          
+
           expect(node.icon).toBeDefined()
           // React components can be functions or objects (forwardRef components)
           expect(['function', 'object'].includes(typeof node.icon)).toBe(true)
-          
+
           expect(node.color).toBeDefined()
           expect(node.color).toMatch(/^text-/)
-          
+
           expect(node.bgColor).toBeDefined()
           expect(node.bgColor).toMatch(/^bg-/)
         }
@@ -177,7 +205,7 @@ describe('Property 2: Drag Data Consistency', () => {
    * For any node dragged from the NodePanel, the dataTransfer type
    * should match the node's type property exactly.
    */
-  
+
   /**
    * Each node type should be a valid string that can be used as drag data
    */
@@ -189,7 +217,7 @@ describe('Property 2: Drag Data Consistency', () => {
           // Type should be a valid string
           expect(typeof node.type).toBe('string')
           expect(node.type.length).toBeGreaterThan(0)
-          
+
           // Type should not contain special characters that could break drag/drop
           expect(node.type).toMatch(/^[a-z_]+$/)
         }
@@ -225,13 +253,13 @@ describe('Property 2: Drag Data Consistency', () => {
           // Simulate what onDragStart does:
           // event.dataTransfer.setData('application/reactflow', nodeType)
           const dragData = node.type
-          
+
           // The drag data should exactly match the node's type
           expect(dragData).toBe(node.type)
-          
+
           // When converted to uppercase, it should match backend processor type
           const backendType = dragData.toUpperCase()
-          expect(BACKEND_PROCESSOR_TYPES).toContain(backendType)
+          expect(ALL_BACKEND_PROCESSOR_TYPES).toContain(backendType)
         }
       ),
       { numRuns: allNodeTypes.length }
@@ -268,7 +296,7 @@ describe('Node Panel Structure', () => {
   it('advanced nodes and media/data nodes should not overlap', () => {
     const advancedTypes = new Set(advancedNodes.map(n => n.type))
     const mediaDataTypes = new Set(mediaDataNodes.map(n => n.type))
-    
+
     // Check no overlap
     for (const type of advancedTypes) {
       expect(mediaDataTypes.has(type)).toBe(false)

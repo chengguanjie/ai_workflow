@@ -1,14 +1,9 @@
-/**
- * 工作流执行反馈 API
- *
- * POST: 提交执行反馈（评分、准确性、问题分类）
- */
-
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { z } from 'zod'
 import { createAnalyticsCollector } from '@/lib/workflow/analytics-collector'
+import { ApiResponse } from '@/lib/api/api-response'
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -31,10 +26,11 @@ export async function POST(
   try {
     const session = await auth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const { id: workflowId } = await params
+    const userId = session.user.id
 
     // 验证请求体
     const body = await request.json()
@@ -56,10 +52,7 @@ export async function POST(
     })
 
     if (!execution) {
-      return NextResponse.json(
-        { error: '执行记录不存在或不属于此工作流' },
-        { status: 404 }
-      )
+      return ApiResponse.error('执行记录不存在或不属于此工作流', 404)
     }
 
     // 检查是否已经有反馈
@@ -114,22 +107,16 @@ export async function POST(
       )
     }
 
-    return NextResponse.json({
+    return ApiResponse.success({
       success: true,
       feedback,
     })
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: '请求数据验证失败', details: error.errors },
-        { status: 400 }
-      )
+      return ApiResponse.error('请求数据验证失败', 400, { details: error.errors })
     }
 
     console.error('提交反馈失败:', error)
-    return NextResponse.json(
-      { error: '提交反馈失败' },
-      { status: 500 }
-    )
+    return ApiResponse.error('提交反馈失败', 500)
   }
 }

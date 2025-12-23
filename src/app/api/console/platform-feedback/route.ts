@@ -1,20 +1,15 @@
-/**
- * 平台管理后台 - 反馈管理 API
- *
- * GET  /api/console/platform-feedback - 获取所有企业的反馈列表
- */
-
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { consoleAuth } from '@/lib/console-auth'
 import { Prisma } from '@prisma/client'
+import { ApiResponse } from '@/lib/api/api-response'
 
 // 获取反馈列表
 export async function GET(request: NextRequest) {
   try {
     const session = await consoleAuth()
     if (!session?.user) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     const { searchParams } = new URL(request.url)
@@ -95,11 +90,11 @@ export async function GET(request: NextRequest) {
       RESOLVED: 0,
       CLOSED: 0,
     }
-    stats.forEach((s) => {
+    stats.forEach((s: any) => {
       statusCounts[s.status as keyof typeof statusCounts] = s._count
     })
 
-    return NextResponse.json({
+    return ApiResponse.success({
       feedbacks,
       pagination: {
         page,
@@ -111,6 +106,6 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error('获取反馈列表失败:', error)
-    return NextResponse.json({ error: '获取失败' }, { status: 500 })
+    return ApiResponse.error('获取失败', 500)
   }
 }

@@ -5,7 +5,6 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Select,
@@ -15,7 +14,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import {
-  ArrowLeft,
   Loader2,
   TrendingUp,
   TrendingDown,
@@ -28,6 +26,19 @@ import { toast } from 'sonner'
 import { format, subDays, startOfDay, endOfDay } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import AnalyticsChart from '@/components/workflow/analytics/analytics-chart'
+
+type AnalyticsChartType = 'LINE' | 'BAR' | 'PIE' | 'AREA' | 'SCATTER' | 'RADAR'
+
+function toAnalyticsChartType(value: unknown): AnalyticsChartType | null {
+  if (typeof value !== 'string') return null
+  if (value === 'LINE') return 'LINE'
+  if (value === 'BAR') return 'BAR'
+  if (value === 'PIE') return 'PIE'
+  if (value === 'AREA') return 'AREA'
+  if (value === 'SCATTER') return 'SCATTER'
+  if (value === 'RADAR') return 'RADAR'
+  return null
+}
 
 interface AnalyticsConfig {
   id: string
@@ -100,9 +111,18 @@ export default function EnhancedAnalyticsPage() {
     try {
       const response = await fetch(`/api/workflows/${workflowId}/analytics/config`)
       if (!response.ok) throw new Error('加载配置失败')
-      const data = await response.json()
-      setConfigs(data)
-    } catch (error) {
+      const result = await response.json()
+      // API 返回格式: { success: true, data: [...] }
+      const nextConfigs = result.data || []
+      setConfigs(nextConfigs)
+      if (nextConfigs.length === 0) {
+        setAnalyticsData(null)
+        setIsLoading(false)
+      }
+    } catch (_error) {
+      setConfigs([])
+      setAnalyticsData(null)
+      setIsLoading(false)
       toast.error('加载分析配置失败')
     }
   }
@@ -131,9 +151,10 @@ export default function EnhancedAnalyticsPage() {
         `/api/workflows/${workflowId}/analytics/data?${params}`
       )
       if (!response.ok) throw new Error('加载数据失败')
-      const data = await response.json()
-      setAnalyticsData(data)
-    } catch (error) {
+      const result = await response.json()
+      // API 返回格式: { success: true, data: {...} }
+      setAnalyticsData(result.data || null)
+    } catch (_error) {
       toast.error('加载分析数据失败')
     } finally {
       setIsLoading(false)
@@ -164,6 +185,10 @@ export default function EnhancedAnalyticsPage() {
   }
 
   useEffect(() => {
+    setIsLoading(true)
+    setSelectedConfig('all')
+    setConfigs([])
+    setAnalyticsData(null)
     loadConfigs()
   }, [workflowId])
 
@@ -345,7 +370,7 @@ export default function EnhancedAnalyticsPage() {
                   </CardHeader>
                   <CardContent>
                     <AnalyticsChart
-                      type={item.config.defaultVisualization as any || 'LINE'}
+                      type={toAnalyticsChartType(item.config.defaultVisualization) ?? 'LINE'}
                       data={item.data}
                       config={{
                         xKey: 'date',

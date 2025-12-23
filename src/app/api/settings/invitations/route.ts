@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 import { Role, InvitationType } from '@prisma/client'
 import { randomBytes } from 'crypto'
 
@@ -15,12 +16,12 @@ export async function GET() {
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 只有 OWNER 和 ADMIN 可以查看邀请
     if (!['OWNER', 'ADMIN'].includes(session.user.role)) {
-      return NextResponse.json({ error: '权限不足' }, { status: 403 })
+      return ApiResponse.error('权限不足', 403)
     }
 
     const invitations = await prisma.invitation.findMany({
@@ -51,10 +52,10 @@ export async function GET() {
       inviteUrl: `${process.env.NEXT_PUBLIC_APP_URL || ''}/invite/${inv.token}`,
     }))
 
-    return NextResponse.json({ invitations: processedInvitations })
+    return ApiResponse.success({ invitations: processedInvitations })
   } catch (error) {
     console.error('Failed to get invitations:', error)
-    return NextResponse.json({ error: '获取邀请列表失败' }, { status: 500 })
+    return ApiResponse.error('获取邀请列表失败', 500)
   }
 }
 
@@ -64,12 +65,12 @@ export async function POST(request: NextRequest) {
     const session = await auth()
 
     if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 })
+      return ApiResponse.error('未授权', 401)
     }
 
     // 只有 OWNER 和 ADMIN 可以邀请成员
     if (!['OWNER', 'ADMIN'].includes(session.user.role)) {
-      return NextResponse.json({ error: '权限不足' }, { status: 403 })
+      return ApiResponse.error('权限不足', 403)
     }
 
     const body = await request.json()
@@ -84,34 +85,34 @@ export async function POST(request: NextRequest) {
 
     // 验证类型
     if (!Object.values(InvitationType).includes(type)) {
-      return NextResponse.json({ error: '无效的邀请类型' }, { status: 400 })
+      return ApiResponse.error('无效的邀请类型', 400)
     }
 
     // 验证角色
     if (!Object.values(Role).includes(role)) {
-      return NextResponse.json({ error: '无效的角色' }, { status: 400 })
+      return ApiResponse.error('无效的角色', 400)
     }
 
     // 不能邀请 OWNER
     if (role === 'OWNER') {
-      return NextResponse.json({ error: '不能邀请 OWNER 角色' }, { status: 400 })
+      return ApiResponse.error('不能邀请 OWNER 角色', 400)
     }
 
     // ADMIN 不能邀请 ADMIN
     if (session.user.role === 'ADMIN' && role === 'ADMIN') {
-      return NextResponse.json({ error: 'ADMIN 不能邀请 ADMIN 角色' }, { status: 403 })
+      return ApiResponse.error('ADMIN 不能邀请 ADMIN 角色', 403)
     }
 
     // 邮件邀请必须提供邮箱
     if (type === 'EMAIL') {
       if (!email || !email.trim()) {
-        return NextResponse.json({ error: '邮件邀请需要提供邮箱地址' }, { status: 400 })
+        return ApiResponse.error('邮件邀请需要提供邮箱地址', 400)
       }
 
       // 验证邮箱格式
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
       if (!emailRegex.test(email)) {
-        return NextResponse.json({ error: '无效的邮箱格式' }, { status: 400 })
+        return ApiResponse.error('无效的邮箱格式', 400)
       }
 
       // 检查邮箱是否已是成员
@@ -124,7 +125,7 @@ export async function POST(request: NextRequest) {
       })
 
       if (existingMember) {
-        return NextResponse.json({ error: '该邮箱已是团队成员' }, { status: 400 })
+        return ApiResponse.error('该邮箱已是团队成员', 400)
       }
 
       // 检查是否有待处理的邀请
@@ -138,7 +139,7 @@ export async function POST(request: NextRequest) {
       })
 
       if (existingInvitation) {
-        return NextResponse.json({ error: '该邮箱已有待处理的邀请' }, { status: 400 })
+        return ApiResponse.error('该邮箱已有待处理的邀请', 400)
       }
     }
 
@@ -151,7 +152,7 @@ export async function POST(request: NextRequest) {
         },
       })
       if (!department) {
-        return NextResponse.json({ error: '部门不存在' }, { status: 400 })
+        return ApiResponse.error('部门不存在', 400)
       }
     }
 
@@ -198,7 +199,7 @@ export async function POST(request: NextRequest) {
     //   await sendInvitationEmail(email, inviteUrl, session.user.organizationName)
     // }
 
-    return NextResponse.json({
+    return ApiResponse.success({
       invitation: {
         id: invitation.id,
         email: invitation.email,
@@ -211,6 +212,6 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('Failed to create invitation:', error)
-    return NextResponse.json({ error: '创建邀请失败' }, { status: 500 })
+    return ApiResponse.error('创建邀请失败', 500)
   }
 }

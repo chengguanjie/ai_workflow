@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { consoleAuth } from '@/lib/console-auth'
 import { hasPermission } from '@/lib/console-auth/permissions'
 import { prisma } from '@/lib/db'
+import { ApiResponse } from '@/lib/api/api-response'
 import type { PlatformRole, ApplicationStatus } from '@prisma/client'
 
 // GET - 获取申请列表
@@ -9,11 +10,11 @@ export async function GET(request: NextRequest) {
   const session = await consoleAuth()
 
   if (!session?.user) {
-    return NextResponse.json({ error: '未登录' }, { status: 401 })
+    return ApiResponse.error('未登录', 401)
   }
 
   if (!hasPermission(session.user.role as PlatformRole, 'organization:read')) {
-    return NextResponse.json({ error: '权限不足' }, { status: 403 })
+    return ApiResponse.error('权限不足', 403)
   }
 
   const { searchParams } = new URL(request.url)
@@ -53,7 +54,7 @@ export async function GET(request: NextRequest) {
     prisma.orgApplication.count({ where }),
   ])
 
-  return NextResponse.json({
+  return ApiResponse.success({
     data: applications,
     pagination: {
       page,

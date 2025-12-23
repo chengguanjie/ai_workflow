@@ -1,16 +1,9 @@
-/**
- * Webhook 触发端点
- *
- * POST /api/webhooks/[path]
- *
- * 外部系统通过 Webhook 触发工作流执行
- */
-
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { executeWorkflow } from '@/lib/workflow/engine'
 import { executionQueue } from '@/lib/workflow/queue'
 import { verifySignature } from '@/lib/webhook/signature'
+import { ApiResponse } from '@/lib/api/api-response'
 
 interface RouteParams {
   params: Promise<{ path: string }>
@@ -65,18 +58,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   })
 
   if (!trigger) {
-    return NextResponse.json(
-      { error: 'Webhook 不存在' },
-      { status: 404 }
-    )
+    return ApiResponse.error('Webhook 不存在', 404)
   }
 
   // 检查触发器是否启用
   if (!trigger.enabled) {
-    return NextResponse.json(
-      { error: 'Webhook 已禁用' },
-      { status: 403 }
-    )
+    return ApiResponse.error('Webhook 已禁用', 403)
   }
 
   // 检查工作流状态
@@ -95,10 +82,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       },
     })
 
-    return NextResponse.json(
-      { error: '工作流未激活' },
-      { status: 400 }
-    )
+    return ApiResponse.error('工作流未激活', 400)
   }
 
   // 获取请求体
@@ -108,10 +92,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     rawBody = await request.text()
     body = rawBody ? JSON.parse(rawBody) : {}
   } catch {
-    return NextResponse.json(
-      { error: '请求体格式无效' },
-      { status: 400 }
-    )
+    return ApiResponse.error('请求体格式无效', 400)
   }
 
   // 验证签名（如果配置了密钥）
@@ -141,10 +122,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         },
       })
 
-      return NextResponse.json(
-        { error: `签名验证失败: ${verifyResult.error}` },
-        { status: 401 }
-      )
+      return ApiResponse.error(`签名验证失败: ${verifyResult.error}`, 401)
     }
   }
 
@@ -212,13 +190,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         data: { lastSuccessAt: new Date() },
       })
 
-      return NextResponse.json({
-        success: true,
+      return ApiResponse.success({
         taskId,
         status: 'pending',
         message: '工作流已加入执行队列',
         pollUrl: `/api/v1/tasks/${taskId}`,
-      }, { status: 202 })
+      }, 202)
     } else {
       // 同步执行
       const result = await executeWorkflow(
@@ -252,16 +229,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       })
 
       if (!isSuccess) {
-        return NextResponse.json({
-          success: false,
+        return ApiResponse.error(result.error || '执行失败', 500, {
           status: result.status,
-          error: result.error,
           executionId: result.executionId,
-        }, { status: 500 })
+        })
       }
 
-      return NextResponse.json({
-        success: true,
+      return ApiResponse.success({
         status: result.status,
         output: result.output,
         executionId: result.executionId,
@@ -290,10 +264,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       data: { lastFailureAt: new Date() },
     })
 
-    return NextResponse.json({
-      success: false,
-      error: error instanceof Error ? error.message : '工作流执行失败',
-    }, { status: 500 })
+    return ApiResponse.error(error instanceof Error ? error.message : '工作流执行失败', 500)
   }
 }
 
@@ -317,13 +288,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   })
 
   if (!trigger) {
-    return NextResponse.json(
-      { error: 'Webhook 不存在' },
-      { status: 404 }
-    )
+    return ApiResponse.error('Webhook 不存在', 404)
   }
 
-  return NextResponse.json({
+  return ApiResponse.success({
     exists: true,
     name: trigger.name,
     enabled: trigger.enabled,

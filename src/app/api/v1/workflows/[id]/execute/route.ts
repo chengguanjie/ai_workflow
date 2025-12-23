@@ -1,21 +1,20 @@
-/**
- * 公开的工作流执行 API (使用 API Token 认证)
- *
- * POST /api/v1/workflows/[id]/execute
- */
-
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { executeWorkflow } from '@/lib/workflow/engine'
 import { executionQueue } from '@/lib/workflow/queue'
 import { createHash } from 'crypto'
+import { ApiResponse } from '@/lib/api/api-response'
 
 interface RouteParams {
   params: Promise<{ id: string }>
 }
 
+type AuthResult =
+  | { organizationId: string; createdById: string; token: any }
+  | { error: string; status: number }
+
 // 验证 API Token
-async function verifyApiToken(authHeader: string | null) {
+async function verifyApiToken(authHeader: string | null): Promise<AuthResult> {
   if (!authHeader?.startsWith('Bearer ')) {
     return { error: '缺少 Authorization 头', status: 401 }
   }
@@ -71,42 +70,13 @@ async function verifyApiToken(authHeader: string | null) {
 /**
  * POST /api/v1/workflows/[id]/execute
  * 使用 API Token 执行工作流
- *
- * Headers:
- *   Authorization: Bearer YOUR_API_TOKEN
- *
- * Request body:
- * {
- *   input?: Record<string, unknown>  // 初始输入
- *   async?: boolean                   // 是否异步执行（默认 false）
- * }
- *
- * Response (同步执行):
- * {
- *   status: 'COMPLETED' | 'FAILED'
- *   output?: Record<string, unknown>
- *   error?: string
- *   duration?: number
- *   totalTokens?: number
- * }
- *
- * Response (异步执行):
- * {
- *   taskId: string
- *   status: 'pending'
- *   message: string
- *   pollUrl: string
- * }
  */
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     // 验证 Token
     const authResult = await verifyApiToken(request.headers.get('Authorization'))
     if ('error' in authResult) {
-      return NextResponse.json(
-        { error: authResult.error },
-        { status: authResult.status }
-      )
+      return ApiResponse.error(authResult.error, authResult.status)
     }
 
     const { token, organizationId, createdById } = authResult
@@ -122,10 +92,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     })
 
     if (!workflow) {
-      return NextResponse.json(
-        { error: '工作流不存在或无权访问' },
-        { status: 404 }
-      )
+      return ApiResponse.error('工作流不存在或无权访问', 404)
     }
 
     // 解析请求体
@@ -153,7 +120,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         input
       )
 
-      return NextResponse.json({
+      return ApiResponse.success({
         taskId,
         status: 'pending',
         message: '任务已加入队列',
@@ -169,7 +136,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       input
     )
 
-    return NextResponse.json({
+    return ApiResponse.success({
       status: result.status,
       output: result.output,
       error: result.error,
@@ -186,12 +153,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     })
   } catch (error) {
     console.error('Public API execute workflow error:', error)
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : '执行工作流失败',
-        status: 'FAILED',
-      },
-      { status: 500 }
+    return ApiResponse.error(
+      error instanceof Error ? error.message : '执行工作流失败',
+      500,
+      { status: 'FAILED' }
     )
   }
 }
