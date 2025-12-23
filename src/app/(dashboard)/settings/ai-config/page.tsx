@@ -25,15 +25,15 @@ const MODALITY_CONFIG: {
   description: string
   icon: React.ComponentType<{ className?: string }>
 }[] = [
-  { id: 'text', label: '文本', description: '聊天、推理、内容生成', icon: Type },
-  { id: 'code', label: '代码', description: '代码生成与优化', icon: Code },
-  { id: 'image-gen', label: '图片生成', description: '文生图、图生图', icon: ImageIcon },
-  { id: 'video-gen', label: '视频生成', description: '文生视频、图生视频', icon: Video },
-  { id: 'audio-transcription', label: '音频转录', description: '语音转文字', icon: Mic },
-  { id: 'audio-tts', label: '语音合成', description: '文字转语音', icon: Mic },
-  { id: 'embedding', label: '向量嵌入', description: '文本向量化', icon: FileText },
-  { id: 'ocr', label: '图文识别', description: 'OCR、图片理解', icon: FileText },
-]
+    { id: 'text', label: '文本', description: '聊天、推理、内容生成', icon: Type },
+    { id: 'code', label: '代码', description: '代码生成与优化', icon: Code },
+    { id: 'image-gen', label: '图片生成', description: '文生图、图生图', icon: ImageIcon },
+    { id: 'video-gen', label: '视频生成', description: '文生视频、图生视频', icon: Video },
+    { id: 'audio-transcription', label: '音频转录', description: '语音转文字', icon: Mic },
+    { id: 'audio-tts', label: '语音合成', description: '文字转语音', icon: Mic },
+    { id: 'embedding', label: '向量嵌入', description: '文本向量化', icon: FileText },
+    { id: 'ocr', label: '图文识别', description: 'OCR、图片理解', icon: FileText },
+  ]
 
 // AI 服务商配置 - 包含预设模型（按模态分组）
 const AI_PROVIDERS = [
@@ -410,8 +410,11 @@ export default function AIConfigPage() {
       })
 
       if (!res.ok) {
-        const error = await res.json()
-        throw new Error(error.error || '添加失败')
+        const errorData = await res.json()
+        const errorMessage = typeof errorData.error === 'string'
+          ? errorData.error
+          : errorData.error?.message || '添加失败'
+        throw new Error(errorMessage)
       }
 
       toast.success('配置已添加')
@@ -550,8 +553,11 @@ export default function AIConfigPage() {
       })
 
       if (!res.ok) {
-        const error = await res.json()
-        throw new Error(error.error || '更新失败')
+        const errorData = await res.json()
+        const errorMessage = typeof errorData.error === 'string'
+          ? errorData.error
+          : errorData.error?.message || '更新失败'
+        throw new Error(errorMessage)
       }
 
       toast.success('配置已更新')
@@ -611,7 +617,10 @@ export default function AIConfigPage() {
       const data = await res.json()
 
       if (!res.ok) {
-        throw new Error(data.error || '连接测试失败')
+        const errorMessage = typeof data.error === 'string'
+          ? data.error
+          : data.error?.message || '连接测试失败'
+        throw new Error(errorMessage)
       }
 
       toast.success(`连接成功！模型: ${data.model}`)

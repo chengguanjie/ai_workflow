@@ -77,6 +77,8 @@ export const PUT = withAuth(async (request: NextRequest, { user, params }: AuthC
     isActive: data.isActive,
     category: data.category,
     tags: data.tags,
+    expectedVersion: data.expectedVersion,
+    forceOverwrite: data.forceOverwrite,
   })
 
   return ApiResponse.success(workflow)

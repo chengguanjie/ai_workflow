@@ -304,8 +304,6 @@ export function useWorkflowSave({
    */
   const resolveConflict = useCallback(
     async (resolution: 'local' | 'server'): Promise<boolean> => {
-      if (!conflict) return false
-
       setIsSaving(true)
 
       try {
@@ -337,7 +335,7 @@ export function useWorkflowSave({
         setIsSaving(false)
       }
     },
-    [conflict, workflowId]
+    [workflowId]
   )
 
   /**

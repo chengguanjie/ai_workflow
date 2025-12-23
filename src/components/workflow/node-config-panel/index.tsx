@@ -50,14 +50,27 @@ function NodeConfigPanelInner() {
     e.preventDefault()
     const startX = e.clientX
     const startWidth = panelWidth
+    let animationFrameId: number
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
-      const deltaX = startX - moveEvent.clientX // 向左拖变宽
-      const newWidth = Math.max(400, Math.min(900, startWidth + deltaX))
-      setPanelWidth(newWidth)
+      // Capture currentX immediately to ensure accuracy within the frame
+      const currentX = moveEvent.clientX
+
+      // Prevent stacking animation frames
+      if (animationFrameId) return
+
+      animationFrameId = requestAnimationFrame(() => {
+        const deltaX = startX - currentX // 向左拖变宽
+        const newWidth = Math.max(400, Math.min(900, startWidth + deltaX))
+        setPanelWidth(newWidth)
+        animationFrameId = 0
+      })
     }
 
     const handleMouseUp = () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId)
+      }
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }

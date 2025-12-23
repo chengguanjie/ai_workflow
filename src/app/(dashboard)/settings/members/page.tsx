@@ -184,8 +184,11 @@ export default function MembersPage() {
       })
 
       if (!res.ok) {
-        const error = await res.json()
-        throw new Error(error.error || '修改失败')
+        const errorData = await res.json()
+        const errorMessage = typeof errorData.error === 'string'
+          ? errorData.error
+          : errorData.error?.message || '修改失败'
+        throw new Error(errorMessage)
       }
 
       toast.success('部门已更新')
@@ -207,8 +210,11 @@ export default function MembersPage() {
       })
 
       if (!res.ok) {
-        const error = await res.json()
-        throw new Error(error.error || '修改失败')
+        const errorData = await res.json()
+        const errorMessage = typeof errorData.error === 'string'
+          ? errorData.error
+          : errorData.error?.message || '修改失败'
+        throw new Error(errorMessage)
       }
 
       toast.success('角色已更新')
@@ -230,8 +236,11 @@ export default function MembersPage() {
       })
 
       if (!res.ok) {
-        const error = await res.json()
-        throw new Error(error.error || '移除失败')
+        const errorData = await res.json()
+        const errorMessage = typeof errorData.error === 'string'
+          ? errorData.error
+          : errorData.error?.message || '移除失败'
+        throw new Error(errorMessage)
       }
 
       toast.success('成员已移除')
@@ -268,8 +277,11 @@ export default function MembersPage() {
         })
 
         if (!res.ok) {
-          const error = await res.json()
-          throw new Error(error.error || '创建成员失败')
+          const errorData = await res.json()
+          const errorMessage = typeof errorData.error === 'string'
+            ? errorData.error
+            : errorData.error?.message || '创建成员失败'
+          throw new Error(errorMessage)
         }
 
         toast.success('成员创建成功，初始密码为 123456')
@@ -306,8 +318,11 @@ export default function MembersPage() {
       })
 
       if (!res.ok) {
-        const error = await res.json()
-        throw new Error(error.error || '创建邀请失败')
+        const errorData = await res.json()
+        const errorMessage = typeof errorData.error === 'string'
+          ? errorData.error
+          : errorData.error?.message || '创建邀请失败'
+        throw new Error(errorMessage)
       }
 
       const data = await res.json()
@@ -339,7 +354,11 @@ export default function MembersPage() {
       })
 
       if (!res.ok) {
-        throw new Error('撤销失败')
+        const errorData = await res.json()
+        const errorMessage = typeof errorData.error === 'string'
+          ? errorData.error
+          : errorData.error?.message || '撤销失败'
+        throw new Error(errorMessage)
       }
 
       toast.success('邀请已撤销')
@@ -634,11 +653,11 @@ export default function MembersPage() {
                               <SelectItem value="30">30 天</SelectItem>
                             </SelectContent>
                           </Select>
-                      </div>
-                    </>
-                  )}
-                </TabsContent>
-              </Tabs>
+                        </div>
+                      </>
+                    )}
+                  </TabsContent>
+                </Tabs>
               ) : (
                 /* 部门负责人只能直接创建成员 */
                 <div className="space-y-4 mt-4">
@@ -779,52 +798,52 @@ export default function MembersPage() {
                     </Select>
                   )}
 
-                {/* 只有管理员可以修改角色和移除成员 */}
-                {isAdminUser && member.role !== 'OWNER' && member.id !== session?.user?.id && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" disabled={saving === member.id}>
-                        {saving === member.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <MoreHorizontal className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        className="cursor-pointer"
-                        disabled={session?.user?.role === 'ADMIN' && member.role === 'ADMIN'}
-                      >
-                        <UserCog className="mr-2 h-4 w-4" />
-                        修改角色
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      {ROLES.map((role) => (
+                  {/* 只有管理员可以修改角色和移除成员 */}
+                  {isAdminUser && member.role !== 'OWNER' && member.id !== session?.user?.id && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" disabled={saving === member.id}>
+                          {saving === member.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <MoreHorizontal className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
                         <DropdownMenuItem
-                          key={role.value}
                           className="cursor-pointer"
-                          disabled={
-                            member.role === role.value ||
-                            (session?.user?.role === 'ADMIN' && role.value === 'ADMIN')
-                          }
-                          onClick={() => handleChangeRole(member.id, role.value)}
+                          disabled={session?.user?.role === 'ADMIN' && member.role === 'ADMIN'}
                         >
-                          <role.icon className="mr-2 h-4 w-4" />
-                          设为{role.label}
+                          <UserCog className="mr-2 h-4 w-4" />
+                          修改角色
                         </DropdownMenuItem>
-                      ))}
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        className="cursor-pointer text-destructive"
-                        onClick={() => handleRemoveMember(member.id, member.name)}
-                      >
-                        <UserMinus className="mr-2 h-4 w-4" />
-                        移除成员
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
+                        <DropdownMenuSeparator />
+                        {ROLES.map((role) => (
+                          <DropdownMenuItem
+                            key={role.value}
+                            className="cursor-pointer"
+                            disabled={
+                              member.role === role.value ||
+                              (session?.user?.role === 'ADMIN' && role.value === 'ADMIN')
+                            }
+                            onClick={() => handleChangeRole(member.id, role.value)}
+                          >
+                            <role.icon className="mr-2 h-4 w-4" />
+                            设为{role.label}
+                          </DropdownMenuItem>
+                        ))}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="cursor-pointer text-destructive"
+                          onClick={() => handleRemoveMember(member.id, member.name)}
+                        >
+                          <UserMinus className="mr-2 h-4 w-4" />
+                          移除成员
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                 </div>
               </div>
             ))}
@@ -849,9 +868,8 @@ export default function MembersPage() {
                   className="flex items-center justify-between rounded-lg border p-4"
                 >
                   <div className="flex items-center gap-4">
-                    <div className={`rounded-full p-2 ${
-                      invitation.type === 'EMAIL' ? 'bg-blue-100' : 'bg-green-100'
-                    }`}>
+                    <div className={`rounded-full p-2 ${invitation.type === 'EMAIL' ? 'bg-blue-100' : 'bg-green-100'
+                      }`}>
                       {invitation.type === 'EMAIL' ? (
                         <Mail className="h-4 w-4 text-blue-600" />
                       ) : (

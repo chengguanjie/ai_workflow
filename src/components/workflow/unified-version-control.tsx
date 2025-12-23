@@ -174,8 +174,11 @@ export function UnifiedVersionControl({
       })
 
       if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || '发布失败')
+        const errorData = await response.json()
+        const errorMessage = typeof errorData.error === 'string'
+          ? errorData.error
+          : errorData.error?.message || '发布失败'
+        throw new Error(errorMessage)
       }
 
       toast.success('工作流已发布到生产环境')
@@ -208,8 +211,11 @@ export function UnifiedVersionControl({
       })
 
       if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || '提交失败')
+        const errorData = await response.json()
+        const errorMessage = typeof errorData.error === 'string'
+          ? errorData.error
+          : errorData.error?.message || '提交失败'
+        throw new Error(errorMessage)
       }
 
       toast.success('版本已提交')
@@ -235,8 +241,11 @@ export function UnifiedVersionControl({
       })
 
       if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || '丢弃草稿失败')
+        const errorData = await response.json()
+        const errorMessage = typeof errorData.error === 'string'
+          ? errorData.error
+          : errorData.error?.message || '丢弃草稿失败'
+        throw new Error(errorMessage)
       }
 
       toast.success('草稿已丢弃，已恢复到已发布版本')
@@ -263,8 +272,11 @@ export function UnifiedVersionControl({
       )
 
       if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || '回滚失败')
+        const errorData = await response.json()
+        const errorMessage = typeof errorData.error === 'string'
+          ? errorData.error
+          : errorData.error?.message || '回滚失败'
+        throw new Error(errorMessage)
       }
 
       toast.success('已回滚到指定版本')

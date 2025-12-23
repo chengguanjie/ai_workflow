@@ -248,7 +248,17 @@ class SyncManager {
           return { success: false, error: 'Version conflict', conflict }
         }
 
-        throw new Error(errorData.error || 'Sync failed')
+        let errorMessage = typeof errorData.error === 'string'
+          ? errorData.error
+          : errorData.error?.message || 'Sync failed'
+
+        // Append validation details if available
+        if (typeof errorData.error === 'object' && errorData.error && 'details' in errorData.error && Array.isArray((errorData.error as any).details)) {
+          const details = (errorData.error as any).details.map((d: any) => `${d.field}: ${d.message}`).join(', ')
+          errorMessage += ` (${details})`
+        }
+
+        throw new Error(errorMessage)
       }
 
       const result = await response.json()
@@ -333,9 +343,7 @@ class SyncManager {
    * 解决冲突：使用本地版本
    */
   async resolveConflictWithLocal(workflowId: string): Promise<boolean> {
-    const conflict = this.conflicts.get(workflowId)
-    if (!conflict) return false
-
+    // 直接从 IndexedDB 获取本地工作流数据，不依赖内存中的 conflicts Map
     const workflow = await getWorkflowOffline(workflowId)
     if (!workflow) return false
 
@@ -370,21 +378,29 @@ class SyncManager {
    * 解决冲突：使用服务器版本
    */
   async resolveConflictWithServer(workflowId: string): Promise<boolean> {
-    const conflict = this.conflicts.get(workflowId)
-    if (!conflict) return false
+    if (!isIndexedDBSupported()) return false
 
-    // 丢弃本地更改，使用服务器版本
-    if (conflict.serverData && isIndexedDBSupported()) {
+    // 从服务器获取最新版本
+    try {
+      const response = await fetch(`/api/workflows/${workflowId}`)
+      if (!response.ok) return false
+
+      const result = await response.json()
+      const serverData = result.data
+
+      if (!serverData) return false
+
+      // 使用服务器版本覆盖本地
       const serverWorkflow: OfflineWorkflow = {
         id: workflowId,
-        name: conflict.serverData.name || '',
-        description: conflict.serverData.description || '',
-        manual: conflict.serverData.manual || '',
-        config: conflict.serverData.config!,
-        version: conflict.serverVersion,
+        name: serverData.name || '',
+        description: serverData.description || '',
+        manual: serverData.manual || '',
+        config: serverData.config,
+        version: serverData.version || 1,
         lastModified: Date.now(),
         syncStatus: 'synced',
-        serverVersion: conflict.serverVersion,
+        serverVersion: serverData.version || 1,
       }
 
       await saveWorkflowOffline(serverWorkflow)
@@ -393,9 +409,9 @@ class SyncManager {
       this.status = 'idle'
 
       return true
+    } catch {
+      return false
     }
-
-    return false
   }
 
   /**

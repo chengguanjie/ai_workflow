@@ -55,7 +55,10 @@ interface WorkflowState {
   viewport: Viewport
 
   // 选中状态
+  // 选中状态
   selectedNodeId: string | null
+  connectedNodeIds: string[]
+  connectedEdgeIds: string[]
 
   // 调试状态
   debugNodeId: string | null
@@ -129,6 +132,8 @@ const initialState = {
   edges: [] as Edge[],
   viewport: { x: 0, y: 0, zoom: 1 } as Viewport,
   selectedNodeId: null as string | null,
+  connectedNodeIds: [] as string[],
+  connectedEdgeIds: [] as string[],
   debugNodeId: null as string | null,
   isDebugPanelOpen: false,
   lastSavedAt: null as number | null,
@@ -142,6 +147,7 @@ export const useWorkflowStore = create<WorkflowState>()(
       ...initialState,
 
       setWorkflow: (config) => {
+
         // 首先找出所有组节点及其子节点关系，以及折叠状态
         const groupChildMap = new Map<string, { groupId: string; relativePositions?: Record<string, NodePosition>; isCollapsed: boolean }>()
         config.nodes.forEach((node) => {
@@ -197,9 +203,9 @@ export const useWorkflowStore = create<WorkflowState>()(
               style: isCollapsed
                 ? { width: 180, height: 60 }
                 : {
-                    width: childCount * nodeWidth + (childCount - 1) * nodeGap + padding * 2,
-                    height: 100 + padding * 2 + headerHeight
-                  },
+                  width: childCount * nodeWidth + (childCount - 1) * nodeGap + padding * 2,
+                  height: 100 + padding * 2 + headerHeight
+                },
             }
           }
 
@@ -437,7 +443,33 @@ export const useWorkflowStore = create<WorkflowState>()(
         })
       },
 
-      selectNode: (nodeId) => set({ selectedNodeId: nodeId }),
+      selectNode: (nodeId) => {
+        if (!nodeId) {
+          set({ selectedNodeId: null, connectedNodeIds: [], connectedEdgeIds: [] })
+          return
+        }
+
+        const edges = get().edges
+        const connectedEdgeIds: string[] = []
+        const connectedNodeIds = new Set<string>()
+
+        // Include the selected node itself
+        connectedNodeIds.add(nodeId)
+
+        edges.forEach((edge) => {
+          if (edge.source === nodeId || edge.target === nodeId) {
+            connectedEdgeIds.push(edge.id)
+            connectedNodeIds.add(edge.source)
+            connectedNodeIds.add(edge.target)
+          }
+        })
+
+        set({
+          selectedNodeId: nodeId,
+          connectedNodeIds: Array.from(connectedNodeIds),
+          connectedEdgeIds,
+        })
+      },
 
       // 字段引用更新：当输入节点字段名称变更时，更新所有引用该字段的节点配置
       renameInputField: (nodeName, oldFieldName, newFieldName) => {
@@ -740,9 +772,9 @@ export const useWorkflowStore = create<WorkflowState>()(
               style: newCollapsedState
                 ? { width: 180, height: 60 } // 折叠后的小尺寸
                 : {
-                    width: childCount * nodeWidth + (childCount - 1) * nodeGap + padding * 2,
-                    height: 100 + padding * 2 + headerHeight
-                  }, // 展开后的尺寸
+                  width: childCount * nodeWidth + (childCount - 1) * nodeGap + padding * 2,
+                  height: 100 + padding * 2 + headerHeight
+                }, // 展开后的尺寸
             }
           }
 

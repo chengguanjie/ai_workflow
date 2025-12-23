@@ -47,7 +47,7 @@ export async function POST(
         messages: [
           { role: 'user', content: 'Hello, this is a test. Please respond with "OK".' }
         ],
-        maxTokens: 10,
+        maxTokens: 4096,
       },
       apiKey,
       baseUrl

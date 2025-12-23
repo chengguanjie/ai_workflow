@@ -1,7 +1,7 @@
 'use client'
 
 import React, { FC, useMemo } from 'react'
-import { getBezierPath, EdgeProps, BaseEdge } from '@xyflow/react'
+import { getSmoothStepPath, EdgeProps, BaseEdge } from '@xyflow/react'
 import { useWorkflowStore } from '@/stores/workflow-store'
 
 export const AnimatedEdge: FC<EdgeProps> = ({
@@ -18,7 +18,7 @@ export const AnimatedEdge: FC<EdgeProps> = ({
   source,
   target,
 }) => {
-  const { nodeExecutionStatus } = useWorkflowStore()
+  const { nodeExecutionStatus, connectedEdgeIds, selectedNodeId } = useWorkflowStore()
 
   // Get the execution status of source and target nodes
   const sourceStatus = nodeExecutionStatus[source] || 'idle'
@@ -32,49 +32,42 @@ export const AnimatedEdge: FC<EdgeProps> = ({
     )
   }, [sourceStatus, targetStatus])
 
-  const [edgePath, _labelX, _labelY] = getBezierPath({
+  const isSelected = connectedEdgeIds.includes(id)
+  const hasSelection = !!selectedNodeId
+
+  const [edgePath, _labelX, _labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
     sourcePosition,
     targetX,
     targetY,
     targetPosition,
+    borderRadius: 20,
   })
 
   return (
     <>
       {/* Background path for animation */}
-      {isActive && (
+      {(isActive || isSelected) && (
         <>
           <defs>
             <linearGradient id={`gradient-${id}`} x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#3b82f6" stopOpacity={0} />
-              <stop offset="50%" stopColor="#3b82f6" stopOpacity={1} />
-              <stop offset="100%" stopColor="#3b82f6" stopOpacity={0} />
+              <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0} />
+              <stop offset="50%" stopColor="#8b5cf6" stopOpacity={0.8} />
+              <stop offset="100%" stopColor="#8b5cf6" stopOpacity={0} />
             </linearGradient>
           </defs>
           <path
             d={edgePath}
             style={{
-              strokeWidth: 6,
+              strokeWidth: 4,
               stroke: `url(#gradient-${id})`,
               fill: 'none',
-              filter: 'blur(4px)',
+              filter: 'drop-shadow(0 0 4px rgba(139, 92, 246, 0.5))',
+              opacity: isActive ? 1 : 0.6,
             }}
-          >
-            <animate
-              attributeName="stroke-dasharray"
-              values="0 100;20 80;0 100"
-              dur="1.5s"
-              repeatCount="indefinite"
-            />
-            <animate
-              attributeName="stroke-dashoffset"
-              values="0;-100"
-              dur="1.5s"
-              repeatCount="indefinite"
-            />
-          </path>
+            className={isActive ? "animate-flow-gradient" : ""}
+          />
         </>
       )}
 
@@ -85,9 +78,11 @@ export const AnimatedEdge: FC<EdgeProps> = ({
         markerEnd={markerEnd}
         style={{
           ...style,
-          strokeWidth: isActive ? 2.5 : 1.5,
-          stroke: isActive ? '#3b82f6' : '#b1b1b7',
+          strokeWidth: isActive || isSelected ? 2.5 : 1.5,
+          stroke: isActive || isSelected ? '#8b5cf6' : '#94a3b8',
+          opacity: isActive || isSelected ? 1 : (hasSelection ? 0.2 : 0.8),
           transition: 'all 0.3s ease',
+          zIndex: isActive || isSelected ? 10 : 0
         }}
       />
     </>

@@ -15,6 +15,11 @@ export async function GET(request: NextRequest) {
     const session = await auth()
 
     if (!session?.user?.organizationId) {
+      console.error('[AI Providers] 未授权访问，session:', {
+        hasSession: !!session,
+        hasUser: !!session?.user,
+        organizationId: session?.user?.organizationId,
+      })
       return ApiResponse.error('未授权', 401)
     }
 
@@ -80,6 +85,12 @@ export async function GET(request: NextRequest) {
     return ApiResponse.success({
       providers,
       defaultProvider: providers.find(p => p.isDefault) || providers[0] || null,
+      // 调试信息（生产环境可移除）
+      _debug: {
+        organizationId: session.user.organizationId,
+        configCount: configs.length,
+        providerCount: providers.length,
+      },
     })
   } catch (error) {
     console.error('Failed to get AI providers:', error)

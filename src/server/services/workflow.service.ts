@@ -8,7 +8,7 @@
  */
 
 import { prisma } from '@/lib/db'
-import { NotFoundError, ValidationError } from '@/lib/errors'
+import { NotFoundError, ValidationError, ConflictError } from '@/lib/errors'
 import { Prisma } from '@prisma/client'
 import type { Workflow, TriggerType } from '@prisma/client'
 import type { WorkflowConfig, TriggerNodeConfig, TriggerNodeConfigData } from '@/types/workflow'
@@ -50,6 +50,8 @@ export interface WorkflowUpdateParams {
   isActive?: boolean
   category?: string
   tags?: string[]
+  expectedVersion?: number
+  forceOverwrite?: boolean
 }
 
 /**
@@ -283,6 +285,23 @@ export class WorkflowService {
 
     if (!existing) {
       throw new NotFoundError('工作流不存在')
+    }
+
+    // Check for version conflict
+    if (
+      data.expectedVersion !== undefined &&
+      !data.forceOverwrite &&
+      existing.version > data.expectedVersion
+    ) {
+      throw new ConflictError('工作流已被其他用户修改，请刷新后重试', {
+        serverData: {
+          name: existing.name,
+          description: existing.description,
+          config: existing.config,
+          version: existing.version,
+          manual: '', // Assuming manual is not available or empty here
+        }
+      })
     }
 
     // Build update data

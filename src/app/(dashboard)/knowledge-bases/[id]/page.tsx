@@ -149,7 +149,10 @@ export default function KnowledgeBaseDetailPage() {
       if (data.success) {
         setKB(data.data)
       } else {
-        toast.error(data.error?.message || '获取知识库失败')
+        const errorMessage = typeof data.error === 'string'
+          ? data.error
+          : data.error?.message || '获取知识库失败'
+        toast.error(errorMessage)
         router.push('/knowledge-bases')
       }
     } catch {
@@ -210,7 +213,10 @@ export default function KnowledgeBaseDetailPage() {
         if (data.success) {
           toast.success(`${file.name} 上传成功`)
         } else {
-          toast.error(`${file.name}: ${data.error?.message || '上传失败'}`)
+          const errorMessage = typeof data.error === 'string'
+            ? data.error
+            : data.error?.message || '上传失败'
+          toast.error(`${file.name}: ${errorMessage}`)
         }
       }
 
@@ -244,7 +250,10 @@ export default function KnowledgeBaseDetailPage() {
         fetchDocuments()
         fetchKnowledgeBase()
       } else {
-        toast.error(data.error?.message || '删除失败')
+        const errorMessage = typeof data.error === 'string'
+          ? data.error
+          : data.error?.message || '删除失败'
+        toast.error(errorMessage)
       }
     } catch {
       toast.error('删除失败')
@@ -266,7 +275,10 @@ export default function KnowledgeBaseDetailPage() {
         toast.success(`${fileName} 已开始重新处理`)
         fetchDocuments()
       } else {
-        toast.error(data.error?.message || '重新处理失败')
+        const errorMessage = typeof data.error === 'string'
+          ? data.error
+          : data.error?.message || '重新处理失败'
+        toast.error(errorMessage)
       }
     } catch {
       toast.error('重新处理失败')
@@ -300,7 +312,10 @@ export default function KnowledgeBaseDetailPage() {
           toast.info('未找到相关内容')
         }
       } else {
-        toast.error(data.error?.message || '搜索失败')
+        const errorMessage = typeof data.error === 'string'
+          ? data.error
+          : data.error?.message || '搜索失败'
+        toast.error(errorMessage)
       }
     } catch {
       toast.error('搜索失败')

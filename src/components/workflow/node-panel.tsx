@@ -1,6 +1,6 @@
 'use client'
 
-import { DragEvent, useState } from 'react'
+import { DragEvent, useState, useEffect, useRef } from 'react'
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -11,7 +11,6 @@ import {
   Video,
   Music,
   ChevronDown,
-  ChevronUp,
   GitBranch,
   Repeat,
   Globe,
@@ -195,6 +194,42 @@ export const NodePanel = memo(function NodePanel() {
   const [logicExpanded, setLogicExpanded] = useState(false)
   const [connectionExpanded, setConnectionExpanded] = useState(false)
 
+  const mediaRef = useRef<HTMLDivElement>(null)
+  const logicRef = useRef<HTMLDivElement>(null)
+  const connectionRef = useRef<HTMLDivElement>(null)
+
+  // Handle click outside to close dropdowns
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        mediaRef.current &&
+        !mediaRef.current.contains(event.target as Node) &&
+        mediaExpanded
+      ) {
+        setMediaExpanded(false)
+      }
+      if (
+        logicRef.current &&
+        !logicRef.current.contains(event.target as Node) &&
+        logicExpanded
+      ) {
+        setLogicExpanded(false)
+      }
+      if (
+        connectionRef.current &&
+        !connectionRef.current.contains(event.target as Node) &&
+        connectionExpanded
+      ) {
+        setConnectionExpanded(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [mediaExpanded, logicExpanded, connectionExpanded])
+
   const onDragStart = (event: DragEvent, nodeType: string) => {
     event.dataTransfer.setData('application/reactflow', nodeType)
     event.dataTransfer.effectAllowed = 'move'
@@ -223,52 +258,85 @@ export const NodePanel = memo(function NodePanel() {
       {primaryNodes.map(renderNode)}
 
       {/* 多媒体节点按钮 */}
-      <button
-        onClick={() => setMediaExpanded(!mediaExpanded)}
-        className="flex items-center gap-1 rounded-lg border bg-card px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-      >
-        多媒体
-        {mediaExpanded ? (
-          <ChevronUp className="h-4 w-4" />
-        ) : (
-          <ChevronDown className="h-4 w-4" />
-        )}
-      </button>
-
-      {/* 展开的多媒体节点：代码、数据、图片、视频、音频 */}
-      {mediaExpanded && mediaNodes.map(renderNode)}
+      <div className="relative" ref={mediaRef}>
+        <button
+          onClick={() => setMediaExpanded(!mediaExpanded)}
+          className="flex items-center gap-1 rounded-lg border bg-card px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          多媒体
+          <ChevronDown
+            className={`h-4 w-4 transition-transform duration-200 ${
+              mediaExpanded ? 'rotate-180' : ''
+            }`}
+          />
+        </button>
+        {/* 展开的多媒体节点：代码、数据、图片、视频、音频 */}
+        <div
+          className={`absolute bottom-full left-0 z-10 mb-2 min-w-[160px] rounded-lg border bg-background p-2 shadow-lg transition-all duration-200 ease-out ${
+            mediaExpanded
+              ? 'pointer-events-auto translate-y-0 opacity-100'
+              : 'pointer-events-none translate-y-2 opacity-0'
+          }`}
+        >
+          <div className="flex flex-col gap-2">
+            {mediaNodes.map(renderNode)}
+          </div>
+        </div>
+      </div>
 
       {/* 逻辑类节点按钮 */}
-      <button
-        onClick={() => setLogicExpanded(!logicExpanded)}
-        className="flex items-center gap-1 rounded-lg border bg-card px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-      >
-        逻辑类
-        {logicExpanded ? (
-          <ChevronUp className="h-4 w-4" />
-        ) : (
-          <ChevronDown className="h-4 w-4" />
-        )}
-      </button>
-
-      {/* 展开的逻辑类节点：条件、循环、分支、合并 */}
-      {logicExpanded && logicNodes.map(renderNode)}
+      <div className="relative" ref={logicRef}>
+        <button
+          onClick={() => setLogicExpanded(!logicExpanded)}
+          className="flex items-center gap-1 rounded-lg border bg-card px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          逻辑类
+          <ChevronDown
+            className={`h-4 w-4 transition-transform duration-200 ${
+              logicExpanded ? 'rotate-180' : ''
+            }`}
+          />
+        </button>
+        {/* 展开的逻辑类节点：条件、循环、分支、合并 */}
+        <div
+          className={`absolute bottom-full left-0 z-10 mb-2 min-w-[160px] rounded-lg border bg-background p-2 shadow-lg transition-all duration-200 ease-out ${
+            logicExpanded
+              ? 'pointer-events-auto translate-y-0 opacity-100'
+              : 'pointer-events-none translate-y-2 opacity-0'
+          }`}
+        >
+          <div className="flex flex-col gap-2">
+            {logicNodes.map(renderNode)}
+          </div>
+        </div>
+      </div>
 
       {/* 连接类节点按钮 */}
-      <button
-        onClick={() => setConnectionExpanded(!connectionExpanded)}
-        className="flex items-center gap-1 rounded-lg border bg-card px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-      >
-        连接类
-        {connectionExpanded ? (
-          <ChevronUp className="h-4 w-4" />
-        ) : (
-          <ChevronDown className="h-4 w-4" />
-        )}
-      </button>
-
-      {/* 展开的连接类节点：触发器、通知、HTTP */}
-      {connectionExpanded && connectionNodes.map(renderNode)}
+      <div className="relative" ref={connectionRef}>
+        <button
+          onClick={() => setConnectionExpanded(!connectionExpanded)}
+          className="flex items-center gap-1 rounded-lg border bg-card px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          连接类
+          <ChevronDown
+            className={`h-4 w-4 transition-transform duration-200 ${
+              connectionExpanded ? 'rotate-180' : ''
+            }`}
+          />
+        </button>
+        {/* 展开的连接类节点：触发器、通知、HTTP */}
+        <div
+          className={`absolute bottom-full left-0 z-10 mb-2 min-w-[160px] rounded-lg border bg-background p-2 shadow-lg transition-all duration-200 ease-out ${
+            connectionExpanded
+              ? 'pointer-events-auto translate-y-0 opacity-100'
+              : 'pointer-events-none translate-y-2 opacity-0'
+          }`}
+        >
+          <div className="flex flex-col gap-2">
+            {connectionNodes.map(renderNode)}
+          </div>
+        </div>
+      </div>
     </div>
   )
 })

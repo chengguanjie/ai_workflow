@@ -37,7 +37,7 @@ const nodeAIConfigSchema = z.object({
 const triggerNodeSchema = baseNodeSchema.extend({
   type: z.literal('TRIGGER'),
   config: z.object({
-    triggerType: z.enum(['MANUAL', 'WEBHOOK', 'SCHEDULE']),
+    triggerType: z.enum(['MANUAL', 'WEBHOOK', 'SCHEDULE']).default('MANUAL'),
     enabled: z.boolean().optional(),
     cronExpression: z.string().optional(),
     timezone: z.string().optional(),
@@ -176,8 +176,8 @@ const audioNodeSchema = baseNodeSchema.extend({
 const conditionSchema = z.object({
   variable: z.string(),
   operator: z.enum([
-    'equals', 'notEquals', 'greaterThan', 'lessThan', 
-    'greaterOrEqual', 'lessOrEqual', 'contains', 'notContains', 
+    'equals', 'notEquals', 'greaterThan', 'lessThan',
+    'greaterOrEqual', 'lessOrEqual', 'contains', 'notContains',
     'startsWith', 'endsWith', 'isEmpty', 'isNotEmpty'
   ]),
   value: z.union([z.string(), z.number(), z.boolean()]).optional(),
@@ -187,8 +187,8 @@ const conditionSchema = z.object({
 const conditionNodeSchema = baseNodeSchema.extend({
   type: z.literal('CONDITION'),
   config: z.object({
-    conditions: z.array(conditionSchema),
-    evaluationMode: z.enum(['all', 'any']).optional(),
+    conditions: z.array(conditionSchema).default([]),
+    evaluationMode: z.enum(['all', 'any']).default('all').optional(),
   }),
 })
 
@@ -196,7 +196,7 @@ const conditionNodeSchema = baseNodeSchema.extend({
 const loopNodeSchema = baseNodeSchema.extend({
   type: z.literal('LOOP'),
   config: z.object({
-    loopType: z.enum(['FOR', 'WHILE']),
+    loopType: z.enum(['FOR', 'WHILE']).default('FOR'),
     forConfig: z.object({
       arrayVariable: z.string(),
       itemName: z.string(),
@@ -222,8 +222,8 @@ const switchCaseSchema = z.object({
 const switchNodeSchema = baseNodeSchema.extend({
   type: z.literal('SWITCH'),
   config: z.object({
-    switchVariable: z.string(),
-    cases: z.array(switchCaseSchema),
+    switchVariable: z.string().default(''),
+    cases: z.array(switchCaseSchema).default([]),
     matchType: z.enum(['exact', 'contains', 'regex', 'range']).optional(),
     caseSensitive: z.boolean().optional(),
     includeDefault: z.boolean().optional(),
@@ -234,7 +234,7 @@ const switchNodeSchema = baseNodeSchema.extend({
 const mergeNodeSchema = baseNodeSchema.extend({
   type: z.literal('MERGE'),
   config: z.object({
-    mergeStrategy: z.enum(['all', 'any', 'race']),
+    mergeStrategy: z.enum(['all', 'any', 'race']).default('all'),
     errorStrategy: z.enum(['fail_fast', 'continue', 'collect']).optional(),
     timeout: z.number().optional(),
     outputMode: z.enum(['merge', 'array', 'first']).optional(),
@@ -245,8 +245,8 @@ const mergeNodeSchema = baseNodeSchema.extend({
 const httpNodeSchema = baseNodeSchema.extend({
   type: z.literal('HTTP'),
   config: z.object({
-    method: z.enum(['GET', 'POST', 'PUT', 'DELETE', 'PATCH']),
-    url: z.string(),
+    method: z.enum(['GET', 'POST', 'PUT', 'DELETE', 'PATCH']).default('GET'),
+    url: z.string().default(''),
     headers: z.record(z.string(), z.string()).optional(),
     queryParams: z.record(z.string(), z.string()).optional(),
     body: z.object({
@@ -281,10 +281,10 @@ const imageGenNodeSchema = baseNodeSchema.extend({
 const notificationNodeSchema = baseNodeSchema.extend({
   type: z.literal('NOTIFICATION'),
   config: z.object({
-    platform: z.enum(['feishu', 'dingtalk', 'wecom']),
-    webhookUrl: z.string(),
-    messageType: z.enum(['text', 'markdown', 'card']),
-    content: z.string(),
+    platform: z.enum(['feishu', 'dingtalk', 'wecom']).default('feishu'),
+    webhookUrl: z.string().default(''),
+    messageType: z.enum(['text', 'markdown', 'card']).default('text'),
+    content: z.string().default(''),
     title: z.string().optional(),
     atMobiles: z.array(z.string()).optional(),
     atAll: z.boolean().optional(),
@@ -295,7 +295,7 @@ const notificationNodeSchema = baseNodeSchema.extend({
 const groupNodeSchema = baseNodeSchema.extend({
   type: z.literal('GROUP'),
   config: z.object({
-    childNodeIds: z.array(z.string()),
+    childNodeIds: z.array(z.string()).default([]),
     label: z.string().optional(),
     collapsed: z.boolean().optional(),
     childRelativePositions: z.record(z.string(), nodePositionSchema).optional(),
@@ -379,7 +379,9 @@ export const workflowCreateSchema = z.object({
     nodes: z.array(nodeSchema),
     edges: z.array(edgeSchema),
     globalVariables: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
-  }),
+    manual: z.string().optional(),
+    version: z.number().optional(),
+  }).passthrough(),
 })
 
 /**
@@ -406,10 +408,14 @@ export const workflowUpdateSchema = z.object({
     nodes: z.array(nodeSchema),
     edges: z.array(edgeSchema),
     globalVariables: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
-  }).optional(),
+    manual: z.string().optional(),
+    version: z.number().optional(),
+  }).passthrough().optional(),
   isActive: z.boolean().optional(),
   category: z.string().max(50).optional(),
   tags: z.array(z.string()).optional(),
+  expectedVersion: z.number().optional(),
+  forceOverwrite: z.boolean().optional(),
 })
 
 /**

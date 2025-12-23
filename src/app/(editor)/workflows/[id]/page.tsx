@@ -12,6 +12,7 @@ import {
   useReactFlow,
   ReactFlowProvider,
   SelectionMode,
+  BackgroundVariant,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
@@ -24,13 +25,21 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { useWorkflowStore } from '@/stores/workflow-store'
-import { Save, Play, ArrowLeft, Loader2, History, Link2, Group, Sparkles, Trash2, LayoutGrid, BarChart3, FileJson, MessageSquare, BookOpen, Share2 } from 'lucide-react'
+import { Save, Play, ArrowLeft, Loader2, History, Link2, Group, Sparkles, Trash2, LayoutGrid, BarChart3, FileJson, MessageSquare, BookOpen, Share2, Maximize2, Minimize2, Menu } from 'lucide-react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { NodePanel } from '@/components/workflow/node-panel'
 import { NodeConfigPanel } from '@/components/workflow/node-config-panel'
 import { toast } from 'sonner'
 import dynamic from 'next/dynamic'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 // Lazy load heavy components
 const ExecutionPanel = dynamic(() => import('@/components/workflow/execution-panel').then(mod => mod.ExecutionPanel), { ssr: false })
@@ -63,6 +72,7 @@ function WorkflowEditor() {
   const [showExecutionPanel, setShowExecutionPanel] = useState(false)
   const [showHistoryPanel, setShowHistoryPanel] = useState(false)
   const [showImportExportDialog, setShowImportExportDialog] = useState(false)
+  const [isZenMode, setIsZenMode] = useState(false) // Zen Mode State
 
   // 使用新的保存 Hook（集成乐观更新、防抖保存、离线支持、冲突检测）
   const {
@@ -357,13 +367,13 @@ function WorkflowEditor() {
 
   return (
     <div className="flex h-screen">
-      {/* 左侧工具栏 */}
-      <TooltipProvider delayDuration={100}>
-        <div className="flex w-14 flex-col items-center border-r bg-background py-4">
+      {/* 左侧工具栏 - Zen Mode hidden */}
+      <div className={`${isZenMode ? 'hidden' : 'flex'} w-14 flex-col items-center border-r bg-background py-4 transition-all duration-300 gap-2`}>
+        <TooltipProvider delayDuration={100}>
           <Tooltip>
             <TooltipTrigger asChild>
               <Link href="/workflows">
-                <Button variant="ghost" size="icon" className="mb-4">
+                <Button variant="ghost" size="icon" className="mb-2">
                   <ArrowLeft className="h-4 w-4" />
                 </Button>
               </Link>
@@ -373,7 +383,7 @@ function WorkflowEditor() {
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={handleSave} disabled={isSaving} className="mb-2">
+              <Button variant="ghost" size="icon" onClick={handleSave} disabled={isSaving}>
                 {isSaving ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
@@ -399,82 +409,48 @@ function WorkflowEditor() {
             <TooltipContent side="right">执行工作流</TooltipContent>
           </Tooltip>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowHistoryPanel(true)}
-                className="mt-2"
-              >
-                <History className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">执行历史</TooltipContent>
-          </Tooltip>
+          <div className="flex-1" />
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={copyApiUrl}
-                className="mt-2"
-              >
-                <Link2 className="h-4 w-4" />
+          {/* 更多菜单 */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon">
+                <Menu className="h-4 w-4" />
               </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">复制 API 链接</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowImportExportDialog(true)}
-                className="mt-2"
-              >
-                <FileJson className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">导入/导出</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowManualDialog(true)}
-                className="mt-2"
-              >
-                <BookOpen className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">说明手册</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowShareFormDialog(true)}
-                className="mt-2"
-              >
-                <Share2 className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">分享表单</TooltipContent>
-          </Tooltip>
-        </div>
-      </TooltipProvider>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="right" align="end" className="w-48">
+              <DropdownMenuLabel>工作流工具</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setShowHistoryPanel(true)}>
+                <History className="mr-2 h-4 w-4" />
+                执行历史
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={copyApiUrl}>
+                <Link2 className="mr-2 h-4 w-4" />
+                复制 API 链接
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setShowImportExportDialog(true)}>
+                <FileJson className="mr-2 h-4 w-4" />
+                导入/导出
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setShowManualDialog(true)}>
+                <BookOpen className="mr-2 h-4 w-4" />
+                说明手册
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setShowShareFormDialog(true)}>
+                <Share2 className="mr-2 h-4 w-4" />
+                分享表单
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </TooltipProvider>
+      </div>
 
       {/* 编辑器主体 */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* 顶部名称输入 */}
-        <div className="flex items-center justify-between border-b bg-background px-4 py-2">
+        <div className="flex items-center justify-between border-b bg-background px-4 py-2 transition-all duration-300">
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -504,6 +480,18 @@ function WorkflowEditor() {
               }}
             />
 
+            {/* Zen Mode Toggle */}
+            <Button
+              variant={isZenMode ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => setIsZenMode(!isZenMode)}
+              className="gap-2"
+              title={isZenMode ? "退出专注模式" : "专注模式"}
+            >
+              {isZenMode ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+              {!isZenMode && "专注"}
+            </Button>
+
             {/* 统计分析按钮 */}
             <Link href={`/workflows/${workflowId}/analytics`}>
               <Button variant="outline" size="sm" className="gap-2">
@@ -517,7 +505,7 @@ function WorkflowEditor() {
         {/* 中间区域：画布和右侧配置面板 */}
         <div className="flex min-h-0 flex-1 overflow-hidden">
           {/* 中间画布 */}
-          <div ref={reactFlowWrapper} className="flex-1">
+          <div ref={reactFlowWrapper} className="flex-1 transition-all duration-300">
             <ReactFlow
               nodes={nodes}
               edges={edges}
@@ -542,29 +530,42 @@ function WorkflowEditor() {
               onSelectionContextMenu={onSelectionContextMenu}
               onEdgeContextMenu={onEdgeContextMenu}
               onNodeContextMenu={onNodeContextMenu}
+              className="bg-white"
             >
-              <Background gap={15} />
-              <Controls>
-                <ControlButton onClick={() => autoLayout('LR')} title="自动布局">
-                  <LayoutGrid className="h-4 w-4" />
+              <Background gap={24} size={1.5} color="#E2E8F0" variant={BackgroundVariant.Dots} />
+              <Controls className="bg-white border-none shadow-lg rounded-xl overflow-hidden" showInteractive={false}>
+                <ControlButton onClick={() => autoLayout('LR')} title="自动布局" className="border-none hover:bg-slate-100">
+                  <LayoutGrid className="h-4 w-4 text-slate-600" />
                 </ControlButton>
               </Controls>
-              <MiniMap />
-              <Panel position="top-left" className="text-xs text-muted-foreground">
-                节点: {nodes.length} | 连接: {edges.length}
+              <MiniMap
+                className="!bg-white !border-none !shadow-lg !rounded-xl overflow-hidden"
+                maskColor="rgba(241, 245, 249, 0.7)"
+                nodeColor={() => '#cbd5e1'}
+              />
+              <Panel position="top-left" className="text-xs text-muted-foreground bg-white/50 backdrop-blur-sm px-3 py-1.5 rounded-full border border-slate-100 shadow-sm">
+                Nodes: {nodes.length} ·  Connections: {edges.length}
               </Panel>
             </ReactFlow>
           </div>
 
-          {/* 右侧配置面板 */}
-          {selectedNodeId && <NodeConfigPanel />}
+          {/* 右侧配置面板 - Zen Mode hidden */}
+          {!isZenMode && selectedNodeId && (
+            <div className="relative">
+              <NodeConfigPanel />
+            </div>
+          )}
         </div>
 
-        {/* 底部节点面板 */}
-        <NodePanel />
+        {/* 底部节点面板 - Zen Mode hidden */}
+        {!isZenMode && (
+          <div className="border-t bg-white z-10 transition-all duration-300">
+            <NodePanel />
+          </div>
+        )}
       </div>
 
-      {/* 执行面板 */}
+      {/* Execution Panels & Dialogs (unchanged) */}
       <ExecutionPanel
         workflowId={workflowId}
         isOpen={showExecutionPanel}
@@ -575,14 +576,12 @@ function WorkflowEditor() {
         onNodeStatusChange={(nodeId, status) => updateNodeExecutionStatus(nodeId, status)}
       />
 
-      {/* 执行历史面板 */}
       <ExecutionHistoryPanel
         workflowId={workflowId}
         isOpen={showHistoryPanel}
         onClose={() => setShowHistoryPanel(false)}
       />
 
-      {/* 导入/导出对话框 */}
       <WorkflowImportExportDialog
         isOpen={showImportExportDialog}
         onClose={() => setShowImportExportDialog(false)}
@@ -595,14 +594,16 @@ function WorkflowEditor() {
       {/* AI助手面板 */}
       <AIAssistantPanel workflowId={workflowId} />
 
-      {/* AI助手悬浮按钮 - 右下角 */}
-      <Button
-        onClick={openAIPanel}
-        title="AI 助手"
-        className="fixed bottom-6 right-6 z-40 h-12 w-12 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 shadow-lg hover:from-violet-600 hover:to-purple-700 hover:shadow-xl transition-all"
-      >
-        <Sparkles className="h-5 w-5 text-white" />
-      </Button>
+      {/* AI助手悬浮按钮 - Hides in Zen Mode normally, but let's keep it as it's an overlay */}
+      {!isZenMode && (
+        <Button
+          onClick={openAIPanel}
+          title="AI 助手"
+          className="fixed bottom-6 right-6 z-40 h-12 w-12 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 shadow-lg hover:from-violet-600 hover:to-purple-700 hover:shadow-xl transition-all"
+        >
+          <Sparkles className="h-5 w-5 text-white" />
+        </Button>
+      )}
 
       {/* 选区右键菜单 - 使用 Portal 渲染到 body */}
       {selectionContextMenu && typeof document !== 'undefined' && createPortal(
@@ -718,6 +719,7 @@ function getNodeName(type: string): string {
 
 function getDefaultConfig(type: string): Record<string, unknown> {
   switch (type) {
+    // === 基础节点 ===
     case 'input':
       return { fields: [] }
     case 'process':
@@ -736,7 +738,8 @@ function getDefaultConfig(type: string): Record<string, unknown> {
         model: 'deepseek/deepseek-coder',
         prompt: '',
         language: 'javascript',
-        generatedCode: '',
+        code: '',
+        timeout: 30000,
       }
     case 'output':
       return {
@@ -746,6 +749,115 @@ function getDefaultConfig(type: string): Record<string, unknown> {
         format: 'text',
         templateName: '',
       }
+
+    // === 多媒体/数据节点 ===
+    case 'data':
+      return {
+        files: [],
+        parseOptions: {
+          headerRow: 1,
+          skipEmptyRows: true,
+        },
+      }
+    case 'image':
+      return {
+        files: [],
+        processingOptions: {
+          outputFormat: 'png',
+          quality: 80,
+        },
+      }
+    case 'video':
+      return {
+        files: [],
+        processingOptions: {
+          extractFrames: false,
+          generateThumbnail: true,
+        },
+      }
+    case 'audio':
+      return {
+        files: [],
+        processingOptions: {
+          transcribe: true,
+        },
+      }
+
+    // === 逻辑节点 ===
+    case 'condition':
+      return {
+        conditions: [],
+        evaluationMode: 'all',
+      }
+    case 'loop':
+      return {
+        loopType: 'FOR',
+        maxIterations: 10,
+        continueOnError: true,
+        forConfig: {
+          arrayVariable: '',
+          itemName: 'item',
+          indexName: 'index',
+        },
+      }
+    case 'switch':
+      return {
+        switchVariable: '',
+        cases: [],
+        matchType: 'exact',
+        includeDefault: true,
+      }
+    case 'merge':
+      return {
+        mergeStrategy: 'all',
+        errorStrategy: 'fail_fast',
+        timeout: 30000,
+      }
+
+    // === 连接/其他节点 ===
+    case 'http':
+      return {
+        method: 'GET',
+        url: '',
+        headers: {},
+        timeout: 10000,
+        retry: {
+          maxRetries: 3,
+          retryDelay: 1000,
+        },
+      }
+    case 'image_gen':
+      return {
+        provider: 'OPENAI',
+        model: 'dall-e-3',
+        prompt: '',
+        size: '1024x1024',
+        n: 1,
+      }
+    case 'notification':
+      return {
+        platform: 'feishu',
+        webhookUrl: '',
+        messageType: 'text',
+        content: '',
+      }
+    case 'trigger':
+      return {
+        triggerType: 'MANUAL',
+        enabled: true,
+      }
+    case 'approval':
+      return {
+        title: '审批节点',
+        approvers: [],
+        timeout: 24,
+        timeoutAction: 'ESCALATE',
+        notificationChannels: ['IN_APP'],
+        requiredApprovals: 1,
+        allowComments: true,
+        customFields: [],
+      }
+
     default:
       return {}
   }
