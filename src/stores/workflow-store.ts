@@ -780,6 +780,27 @@ export const useWorkflowStore = create<WorkflowState>()(
 
           // 隐藏/显示子节点
           if (childNodeIds.includes(node.id)) {
+            // 如果展开，需要重新计算子节点的位置
+            if (!newCollapsedState) {
+              // 找到当前节点在子节点列表中的索引
+              const nodeIndex = childNodeIds.indexOf(node.id)
+              if (nodeIndex !== -1) {
+                // 使用存储的相对位置，如果没有则计算新位置
+                const relativePositions = config.childRelativePositions as Record<string, NodePosition> | undefined
+                const position = relativePositions?.[node.id] || {
+                  x: padding + nodeIndex * (nodeWidth + nodeGap),
+                  y: padding + headerHeight,
+                }
+
+                return {
+                  ...node,
+                  position,
+                  hidden: false,
+                }
+              }
+            }
+
+            // 折叠时只隐藏
             return {
               ...node,
               hidden: newCollapsedState,

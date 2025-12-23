@@ -40,6 +40,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { useWorkflowStore } from '@/stores/workflow-store'
+import { useNodeDebug } from '@/hooks/use-node-debug'
 import type { InputField, KnowledgeItem } from '@/types/workflow'
 
 export const nodeStyles: Record<string, { icon: React.ElementType; color: string; headerColor: string; borderColor: string }> = {
@@ -90,6 +91,7 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const { deleteNode, duplicateNode, openDebugPanel, groupNodes, nodes, nodeExecutionStatus, connectedNodeIds, selectedNodeId } = useWorkflowStore()
+  const { runNode, getDefaultInputs } = useNodeDebug()
 
   // Get execution status from store
   const executionStatus = nodeExecutionStatus[id] || 'idle'
@@ -164,10 +166,11 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
     setContextMenu(null)
   }
 
-  // 点击运行按钮时打开调试面板
+  // 点击运行按钮时直接执行节点
   const handleExecute = (e: React.MouseEvent) => {
     e.stopPropagation()
-    openDebugPanel(id)
+    const inputs = getDefaultInputs(id)
+    runNode(id, inputs)
   }
 
 

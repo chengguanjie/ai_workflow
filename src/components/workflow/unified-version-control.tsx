@@ -117,13 +117,27 @@ export function UnifiedVersionControl({
 
   // 加载发布状态
   const loadPublishInfo = useCallback(async () => {
+    if (!workflowId) return
+
     try {
       const response = await fetch(`/api/workflows/${workflowId}/publish`)
-      if (!response.ok) throw new Error('加载发布状态失败')
+      if (!response.ok) {
+        // 尝试解析错误信息
+        let errorMsg = '加载发布状态失败'
+        try {
+          const errorData = await response.json()
+          errorMsg = errorData.error?.message || errorData.error || errorMsg
+        } catch {
+          errorMsg = `${errorMsg} (${response.status})`
+        }
+        throw new Error(errorMsg)
+      }
       const result = await response.json()
       setPublishInfo(result.data)
     } catch (error) {
       console.error('Failed to load publish info:', error)
+      // 可以在这里加一个 toast.error，但为了避免页面加载时弹太多错，只在非 404/401 时提示?
+      // 或者保持控制台输出。
     } finally {
       setIsLoading(false)
     }
@@ -292,11 +306,12 @@ export function UnifiedVersionControl({
   const getStatusInfo = () => {
     if (!publishInfo) {
       return {
-        icon: CircleDot,
-        label: '加载中...',
+        icon: AlertCircle,
+        label: '状态未知',
         color: 'text-muted-foreground',
         bgColor: 'bg-muted',
         variant: 'outline' as const,
+        description: '无法获取发布状态',
       }
     }
 
