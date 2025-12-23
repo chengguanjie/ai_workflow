@@ -132,6 +132,7 @@ export default function KnowledgeBaseDetailPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [selectedDoc, setSelectedDoc] = useState<Document | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [reprocessing, setReprocessing] = useState<string | null>(null)
 
   // 搜索相关
   const [searchQuery, setSearchQuery] = useState('')
@@ -249,6 +250,28 @@ export default function KnowledgeBaseDetailPage() {
       toast.error('删除失败')
     } finally {
       setDeleting(false)
+    }
+  }
+
+  const handleReprocessDoc = async (docId: string, fileName: string) => {
+    try {
+      setReprocessing(docId)
+      const response = await fetch(
+        `/api/knowledge-bases/${kbId}/documents/${docId}/reprocess`,
+        { method: 'POST' }
+      )
+      const data = await response.json()
+
+      if (data.success) {
+        toast.success(`${fileName} 已开始重新处理`)
+        fetchDocuments()
+      } else {
+        toast.error(data.error?.message || '重新处理失败')
+      }
+    } catch {
+      toast.error('重新处理失败')
+    } finally {
+      setReprocessing(null)
     }
   }
 
@@ -451,17 +474,35 @@ export default function KnowledgeBaseDetailPage() {
                       </TableCell>
                       <TableCell>{formatDate(doc.createdAt)}</TableCell>
                       <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-destructive"
-                          onClick={() => {
-                            setSelectedDoc(doc)
-                            setDeleteDialogOpen(true)
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          {(doc.status === 'FAILED' || doc.status === 'PROCESSING') && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-blue-500 hover:text-blue-600"
+                              onClick={() => handleReprocessDoc(doc.id, doc.fileName)}
+                              disabled={reprocessing === doc.id}
+                              title="重新处理"
+                            >
+                              {reprocessing === doc.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <RefreshCw className="h-4 w-4" />
+                              )}
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-destructive"
+                            onClick={() => {
+                              setSelectedDoc(doc)
+                              setDeleteDialogOpen(true)
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

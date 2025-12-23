@@ -26,7 +26,7 @@ const API_KEY_VISIBLE_END = 4
 /**
  * Minimum length for masking to be applied
  */
-const MIN_MASK_LENGTH = 4
+const _MIN_MASK_LENGTH = 4
 
 /**
  * Masks an API key, showing only the first and last few characters.
@@ -103,7 +103,7 @@ export function maskEmail(email: string): string {
   }
 
   const atIndex = email.indexOf('@')
-  
+
   // If no @ found, treat as invalid email and mask entirely
   if (atIndex === -1) {
     return mask(email, 1, 0)
@@ -120,7 +120,7 @@ export function maskEmail(email: string): string {
   // Show first character, mask the rest
   const visibleChar = localPart[0]
   const maskedLength = Math.min(localPart.length - 1, 5) // Cap mask length for readability
-  
+
   return `${visibleChar}${MASK_CHAR.repeat(maskedLength)}${domain}`
 }
 
@@ -275,7 +275,7 @@ function redactRecursive(
 
   // Handle objects
   const result: Record<string, unknown> = {}
-  
+
   for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
     // Check if this key should be redacted (case-insensitive)
     if (sensitiveSet.has(key.toLowerCase())) {
@@ -332,7 +332,7 @@ export function looksLikeSensitiveValue(value: string): boolean {
     const hasUpper = /[A-Z]/.test(value)
     const hasNumber = /[0-9]/.test(value)
     const hasSpecial = /[^a-zA-Z0-9]/.test(value)
-    
+
     // If it has 3+ character types and is long, it might be a secret
     const charTypes = [hasLower, hasUpper, hasNumber, hasSpecial].filter(Boolean).length
     if (charTypes >= 3) {

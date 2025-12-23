@@ -41,6 +41,12 @@ export interface NodeExecutionInfo {
   duration?: number
   output?: Record<string, unknown>
   error?: string
+  errorDetail?: {
+    friendlyMessage: string
+    suggestions: string[]
+    code?: string
+    isRetryable?: boolean
+  }
   promptTokens?: number
   completionTokens?: number
 }
@@ -54,6 +60,12 @@ export interface ExecutionVisualizerState {
   totalDuration?: number
   totalTokens?: number
   error?: string
+  errorDetail?: {
+    friendlyMessage: string
+    suggestions: string[]
+    code?: string
+    isRetryable?: boolean
+  }
 }
 
 interface ExecutionVisualizerProps {
@@ -186,8 +198,18 @@ export function ExecutionVisualizer({
             status: 'failed',
             completedAt: event.timestamp,
             error: event.error,
+            errorDetail: event.errorDetail,
           })
         }
+      }
+
+      if (event.type === 'execution_error') {
+        setState((prev) => ({
+          ...prev,
+          status: 'failed',
+          error: event.error,
+          errorDetail: event.errorDetail,
+        }))
       }
     },
     [updateNodeStatus]
@@ -589,10 +611,23 @@ export function ExecutionVisualizer({
                     {state.status === 'completed'
                       ? '执行成功'
                       : state.status === 'failed'
-                        ? '执行失败'
+                        ? state.errorDetail?.friendlyMessage || '执行失败'
                         : '正在执行...'}
                   </p>
-                  {state.error && <p className="text-sm opacity-75">{state.error}</p>}
+                  {state.error && (
+                    <p className="text-sm opacity-75 mt-0.5">
+                      {state.errorDetail?.code ? `[${state.errorDetail.code}] ` : ''}
+                      {state.error}
+                    </p>
+                  )}
+                  {state.status === 'failed' &&
+                    state.errorDetail?.suggestions &&
+                    state.errorDetail.suggestions.length > 0 && (
+                      <div className="mt-2 rounded bg-red-100/50 p-2 text-xs text-red-800">
+                        <span className="font-semibold">建议: </span>
+                        {state.errorDetail.suggestions.join('; ')}
+                      </div>
+                    )}
                 </div>
                 {(state.totalDuration || state.totalTokens) && (
                   <div className="flex items-center gap-4 text-sm">
@@ -669,9 +704,31 @@ export function ExecutionVisualizer({
                   {showNodeDetails === nodeInfo.nodeId && (
                     <div className="border-t px-3 py-2">
                       {nodeInfo.error && (
-                        <div className="mb-2 text-sm text-red-600">
-                          <span className="font-medium">错误: </span>
-                          {nodeInfo.error}
+                        <div className="mb-2 rounded bg-red-50 p-2 text-sm text-red-600">
+                          <div className="flex items-center gap-2 font-medium">
+                            <XCircle className="h-4 w-4" />
+                            {nodeInfo.errorDetail?.friendlyMessage || '执行出错'}
+                          </div>
+                          <div className="mt-1 pl-6 text-xs opacity-90">
+                            {nodeInfo.errorDetail?.code && (
+                              <span className="mr-1 font-mono bg-red-100 px-1 rounded">
+                                {nodeInfo.errorDetail.code}
+                              </span>
+                            )}
+                            {nodeInfo.error}
+                          </div>
+
+                          {nodeInfo.errorDetail?.suggestions &&
+                            nodeInfo.errorDetail.suggestions.length > 0 && (
+                              <div className="mt-2 pl-6">
+                                <div className="text-xs font-semibold mb-1 text-red-700">优化建议:</div>
+                                <ul className="list-disc pl-4 space-y-0.5 text-xs text-red-700">
+                                  {nodeInfo.errorDetail.suggestions.map((s, i) => (
+                                    <li key={i}>{s}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
                         </div>
                       )}
                       {nodeInfo.output && (

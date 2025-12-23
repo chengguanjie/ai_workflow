@@ -16,6 +16,10 @@ import { NotFoundError } from '@/lib/errors'
 import { workflowService } from '@/server/services/workflow.service'
 import { workflowUpdateSchema } from '@/lib/validations/workflow'
 
+// Note: withAuth already handles errors internally, but we use NotFoundError
+// for proper error categorization. The enhanced error handling middleware
+// can be applied at a higher level if needed.
+
 /**
  * GET /api/workflows/[id]
  * 

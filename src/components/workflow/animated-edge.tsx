@@ -1,9 +1,8 @@
 'use client'
 
 import React, { FC, useMemo } from 'react'
-import { getBezierPath, EdgeProps, EdgeLabelRenderer, BaseEdge } from '@xyflow/react'
+import { getBezierPath, EdgeProps, BaseEdge } from '@xyflow/react'
 import { useWorkflowStore } from '@/stores/workflow-store'
-import { cn } from '@/lib/utils'
 
 export const AnimatedEdge: FC<EdgeProps> = ({
   id,
@@ -14,7 +13,7 @@ export const AnimatedEdge: FC<EdgeProps> = ({
   sourcePosition,
   targetPosition,
   style = {},
-  data,
+  data: _data,
   markerEnd,
   source,
   target,
@@ -33,7 +32,7 @@ export const AnimatedEdge: FC<EdgeProps> = ({
     )
   }, [sourceStatus, targetStatus])
 
-  const [edgePath, labelX, labelY] = getBezierPath({
+  const [edgePath, _labelX, _labelY] = getBezierPath({
     sourceX,
     sourceY,
     sourcePosition,

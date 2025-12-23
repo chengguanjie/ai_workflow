@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
@@ -107,7 +107,7 @@ export default function EnhancedAnalyticsPage() {
   const [analyticsData, setAnalyticsData] = useState<AnalyticsResponse | null>(null)
 
   // 加载分析配置
-  const loadConfigs = async () => {
+  const loadConfigs = useCallback(async () => {
     try {
       const response = await fetch(`/api/workflows/${workflowId}/analytics/config`)
       if (!response.ok) throw new Error('加载配置失败')
@@ -125,10 +125,10 @@ export default function EnhancedAnalyticsPage() {
       setIsLoading(false)
       toast.error('加载分析配置失败')
     }
-  }
+  }, [workflowId])
 
   // 加载分析数据
-  const loadAnalytics = async () => {
+  const loadAnalytics = useCallback(async () => {
     setIsLoading(true)
     try {
       // 计算日期范围
@@ -159,7 +159,7 @@ export default function EnhancedAnalyticsPage() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [workflowId, timeRange, groupBy, aggregationType, selectedConfig])
 
   // 刷新数据
   const handleRefresh = async () => {
@@ -190,13 +190,13 @@ export default function EnhancedAnalyticsPage() {
     setConfigs([])
     setAnalyticsData(null)
     loadConfigs()
-  }, [workflowId])
+  }, [loadConfigs])
 
   useEffect(() => {
     if (configs.length > 0) {
       loadAnalytics()
     }
-  }, [workflowId, selectedConfig, timeRange, groupBy, aggregationType, configs])
+  }, [loadAnalytics, configs])
 
   return (
     <div className="space-y-6">
@@ -330,11 +330,10 @@ export default function EnhancedAnalyticsPage() {
                         ) : (
                           <Minus className="h-4 w-4 text-muted-foreground" />
                         )}
-                        <span className={`text-sm ${
-                          trend.direction === 'up' ? 'text-green-500' :
+                        <span className={`text-sm ${trend.direction === 'up' ? 'text-green-500' :
                           trend.direction === 'down' ? 'text-red-500' :
-                          'text-muted-foreground'
-                        }`}>
+                            'text-muted-foreground'
+                          }`}>
                           {trend.value.toFixed(1)}%
                         </span>
                       </div>
@@ -371,7 +370,7 @@ export default function EnhancedAnalyticsPage() {
                   <CardContent>
                     <AnalyticsChart
                       type={toAnalyticsChartType(item.config.defaultVisualization) ?? 'LINE'}
-                      data={item.data}
+                      data={item.data as unknown as Record<string, unknown>[]}
                       config={{
                         xKey: 'date',
                         yKey: 'value',

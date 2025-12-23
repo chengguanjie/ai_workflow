@@ -23,6 +23,13 @@ export interface ExecutionProgressEvent {
   error?: string
   output?: Record<string, unknown>
   timestamp: string
+  /** 详细的错误信息（包含友好提示和建议） */
+  errorDetail?: {
+    friendlyMessage: string
+    suggestions: string[]
+    code?: string
+    isRetryable?: boolean
+  }
 }
 
 export interface UseExecutionStreamOptions {

@@ -81,7 +81,7 @@ export const SHENSUAN_MODELS = {
  * 各模态的默认模型
  */
 export const SHENSUAN_DEFAULT_MODELS: Record<ModelModality, string> = {
-  text: 'deepseek/deepseek-v3.2-think',
+  text: 'anthropic/claude-sonnet-4.5:thinking',
   code: 'anthropic/claude-opus-4.5',
   'image-gen': 'google/gemini-3-pro-image-preview',
   'video-gen': 'google/veo3.1-fast-preview',

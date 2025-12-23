@@ -2,8 +2,7 @@
  * 工作流引擎类型定义
  */
 
-import type { WorkflowConfig, NodeConfig, ParallelErrorStrategy } from '@/types/workflow'
-import type { NodeOutput } from '../types'
+import type { ParallelErrorStrategy } from '@/types/workflow'
 
 /**
  * 循环状态

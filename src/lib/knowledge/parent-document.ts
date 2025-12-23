@@ -301,10 +301,12 @@ export const DEFAULT_TWO_LEVEL_CONFIG: TwoLevelChunkConfig = {
   childChunkOverlap: 50,
 }
 
-export default {
+const ParentDocumentModule = {
   createTwoLevelChunks,
   aggregateToParentDocuments,
   highlightMatchedChildren,
   getParentContent,
   DEFAULT_TWO_LEVEL_CONFIG,
 }
+
+export default ParentDocumentModule

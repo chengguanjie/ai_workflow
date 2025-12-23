@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { checkResourcePermission } from '@/lib/permissions/resource'
@@ -20,7 +20,7 @@ const widgetConfigSchema = z.object({
     width: z.number(),
     height: z.number(),
   }),
-  settings: z.record(z.any()).optional(),
+  settings: z.record(z.string(), z.any()).optional(),
 })
 
 // 仪表板配置验证模式
@@ -28,7 +28,7 @@ const dashboardSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().optional(),
   layout: z.array(widgetConfigSchema),
-  settings: z.record(z.any()).optional(),
+  settings: z.record(z.string(), z.any()).optional(),
   isDefault: z.boolean().default(false),
   isPublic: z.boolean().default(false),
 })
@@ -51,14 +51,14 @@ export async function GET(
     const { id: workflowId } = await params
 
     // 检查权限
-    const canRead = await checkResourcePermission({
-      userId: session.user.id,
-      resourceType: 'workflow',
-      resourceId: workflowId,
-      action: 'read',
-    })
+    const permissionResult = await checkResourcePermission(
+      session.user.id,
+      'WORKFLOW',
+      workflowId,
+      'VIEWER'
+    )
 
-    if (!canRead) {
+    if (!permissionResult.allowed) {
       return ApiResponse.error('无权限查看此工作流', 403)
     }
 
@@ -67,18 +67,9 @@ export async function GET(
       where: {
         workflowId,
         OR: [
-          { createdById: session.user.id },
+          { creatorId: session.user.id },
           { isPublic: true },
         ],
-      },
-      include: {
-        createdBy: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
       },
       orderBy: [
         { isDefault: 'desc' },
@@ -107,14 +98,14 @@ export async function POST(
     const { id: workflowId } = await params
 
     // 检查权限
-    const canUpdate = await checkResourcePermission({
-      userId: session.user.id,
-      resourceType: 'workflow',
-      resourceId: workflowId,
-      action: 'update',
-    })
+    const permissionResult = await checkResourcePermission(
+      session.user.id,
+      'WORKFLOW',
+      workflowId,
+      'EDITOR'
+    )
 
-    if (!canUpdate) {
+    if (!permissionResult.allowed) {
       return ApiResponse.error('无权限修改此工作流', 403)
     }
 
@@ -131,27 +122,24 @@ export async function POST(
     }
 
     // 创建仪表板
+    const layoutJson = JSON.parse(JSON.stringify(validatedData.layout ?? []))
     const dashboard = await prisma.analyticsDashboard.create({
       data: {
-        ...validatedData,
+        name: validatedData.name,
+        description: validatedData.description,
+        layout: layoutJson,
+        widgets: layoutJson,
+        isDefault: validatedData.isDefault ?? false,
+        isPublic: validatedData.isPublic ?? false,
         workflowId,
-        createdById: session.user.id,
-      },
-      include: {
-        createdBy: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
+        creatorId: session.user.id,
       },
     })
 
     return ApiResponse.success(dashboard)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return ApiResponse.error('请求数据验证失败', 400, { details: error.errors })
+      return ApiResponse.error('请求数据验证失败', 400, { details: error.issues })
     }
 
     console.error('创建仪表板失败:', error)
@@ -190,13 +178,16 @@ export async function PUT(
     }
 
     // 只有创建者或有更新权限的用户可以修改
-    const canUpdate = dashboard.createdById === session.user.id ||
-      await checkResourcePermission({
-        userId: session.user.id,
-        resourceType: 'workflow',
-        resourceId: workflowId,
-        action: 'update',
-      })
+    let canUpdate = dashboard.creatorId === session.user.id
+    if (!canUpdate) {
+      const permissionResult = await checkResourcePermission(
+        session.user.id,
+        'WORKFLOW',
+        workflowId,
+        'EDITOR'
+      )
+      canUpdate = permissionResult.allowed
+    }
 
     if (!canUpdate) {
       return ApiResponse.error('无权限修改此仪表板', 403)
@@ -219,24 +210,25 @@ export async function PUT(
     }
 
     // 更新仪表板
+    const updateData: Record<string, unknown> = {}
+    if (validatedData.name !== undefined) updateData.name = validatedData.name
+    if (validatedData.isDefault !== undefined) updateData.isDefault = validatedData.isDefault
+    if (validatedData.isPublic !== undefined) updateData.isPublic = validatedData.isPublic
+    if (validatedData.layout !== undefined) {
+      const layoutJson = JSON.parse(JSON.stringify(validatedData.layout))
+      updateData.layout = layoutJson
+      updateData.widgets = layoutJson
+    }
+
     const updated = await prisma.analyticsDashboard.update({
       where: { id: dashboardId },
-      data: validatedData,
-      include: {
-        createdBy: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-      },
+      data: updateData,
     })
 
     return ApiResponse.success(updated)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return ApiResponse.error('请求数据验证失败', 400, { details: error.errors })
+      return ApiResponse.error('请求数据验证失败', 400, { details: error.issues })
     }
 
     console.error('更新仪表板失败:', error)
@@ -275,13 +267,16 @@ export async function DELETE(
     }
 
     // 只有创建者或有更新权限的用户可以删除
-    const canDelete = dashboard.createdById === session.user.id ||
-      await checkResourcePermission({
-        userId: session.user.id,
-        resourceType: 'workflow',
-        resourceId: workflowId,
-        action: 'update',
-      })
+    let canDelete = dashboard.creatorId === session.user.id
+    if (!canDelete) {
+      const permissionResult = await checkResourcePermission(
+        session.user.id,
+        'WORKFLOW',
+        workflowId,
+        'EDITOR'
+      )
+      canDelete = permissionResult.allowed
+    }
 
     if (!canDelete) {
       return ApiResponse.error('无权限删除此仪表板', 403)

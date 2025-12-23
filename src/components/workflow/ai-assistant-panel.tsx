@@ -114,10 +114,10 @@ function generateWorkflowContext(
 
   const edgeDescriptions = edges.length > 0
     ? edges.map((edge) => {
-        const sourceNode = nodes.find((n) => n.id === edge.source)
-        const targetNode = nodes.find((n) => n.id === edge.target)
-        return `- ${sourceNode?.data?.name || edge.source} → ${targetNode?.data?.name || edge.target}`
-      }).join('\n')
+      const sourceNode = nodes.find((n) => n.id === edge.source)
+      const targetNode = nodes.find((n) => n.id === edge.target)
+      return `- ${sourceNode?.data?.name || edge.source} → ${targetNode?.data?.name || edge.target}`
+    }).join('\n')
     : '无连接'
 
   return `当前工作流状态：
@@ -227,20 +227,15 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
     autoOptimization,
     startAutoOptimization,
     stopAutoOptimization,
-    addOptimizationIteration,
+    addOptimizationIteration: _addOptimizationIteration,
     isAutoMode,
     setAutoMode,
   } = useAIAssistantStore()
 
   const { nodes, edges, addNode, updateNode, onConnect } = useWorkflowStore()
 
-  useEffect(() => {
-    if (isOpen) {
-      fetchProviderConfigs()
-    }
-  }, [isOpen])
 
-  const fetchProviderConfigs = async () => {
+  const fetchProviderConfigs = useCallback(async () => {
     setIsLoadingModels(true)
     try {
       // AI 助手使用文本模态
@@ -293,7 +288,13 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
     } finally {
       setIsLoadingModels(false)
     }
-  }
+  }, [setAvailableModels, setSelectedModel])
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchProviderConfigs()
+    }
+  }, [isOpen, fetchProviderConfigs])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -430,6 +431,208 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
     }
   }, [nodes, addNode, updateNode, onConnect, setPhase])
 
+  const handleOptimize = useCallback(async (type: 'test' | 'aes' = 'test') => {
+    if (type === 'test' && !lastTestResult) {
+      toast.error('请先执行测试')
+      return
+    }
+    if (type === 'aes' && !lastAESReport) {
+      toast.error('请先执行 AES 评估')
+      return
+    }
+
+    setIsOptimizing(true)
+    setPhase('optimization')
+
+    addMessage({
+      role: 'system',
+      content: type === 'aes' ? '正在根据 AES 评估报告生成优化方案...' : '正在分析执行结果并生成优化建议...',
+      messageType: 'optimization',
+    })
+
+    try {
+      const body: Record<string, unknown> = {
+        workflowId,
+        targetCriteria,
+        model: selectedModel,
+        previousOptimizations: autoOptimization?.history.map(h => h.optimization) || [],
+      }
+
+      if (type === 'aes') {
+        body.aesDiagnosis = lastAESReport
+      } else {
+        body.testResult = lastTestResult
+      }
+
+      const response = await fetchWithTimeout('/api/ai-assistant/optimize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        timeoutMs: 120_000,
+      })
+
+      const data = await response.json()
+
+      if (data.success && data.optimization) {
+        const opt = data.optimization
+
+        let optimizationMessage = `## 优化方案 (${type === 'aes' ? '基于AES评估' : '基于测试结果'})\n\n${opt.summary || '分析完成'}\n`
+
+        if (opt.issues && opt.issues.length > 0) {
+          optimizationMessage += '\n### 解决的问题\n'
+          opt.issues.forEach((issue: { nodeName: string; issue: string; suggestion: string; priority: string }, index: number) => {
+            const priorityIcon = issue.priority === 'high' ? '🔴' : issue.priority === 'medium' ? '🟡' : '🟢'
+            optimizationMessage += `${index + 1}. ${priorityIcon} **${issue.nodeName}**: ${issue.issue}\n   建议: ${issue.suggestion}\n`
+          })
+        }
+
+        if (opt.expectedImprovement) {
+          optimizationMessage += `\n### 预期效果\n${opt.expectedImprovement}\n`
+        }
+
+        addMessage({
+          role: 'assistant',
+          content: optimizationMessage,
+          nodeActions: opt.nodeActions,
+          optimizationSuggestion: opt,
+          messageType: 'optimization',
+        })
+
+        // 自动模式仅在基于测试的循环中生效
+        if (type === 'test' && opt.nodeActions && opt.nodeActions.length > 0 && isAutoMode) {
+          applyNodeActions(opt.nodeActions)
+          // ... 自动循环逻辑
+        }
+      } else {
+        addMessage({
+          role: 'assistant',
+          content: `优化分析失败: ${data.error || '未知错误'}`,
+          messageType: 'optimization',
+        })
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '优化分析失败'
+      toast.error(errorMessage)
+      addMessage({
+        role: 'assistant',
+        content: `优化分析出错: ${errorMessage}`,
+        messageType: 'optimization',
+      })
+    } finally {
+      setIsOptimizing(false)
+    }
+  }, [lastTestResult, lastAESReport, workflowId, targetCriteria, selectedModel, addMessage, setPhase, isAutoMode, autoOptimization, applyNodeActions])
+
+  const handleAutoOptimize = useCallback(async (testResult: TestResult) => {
+    if (!autoOptimization?.isRunning) {
+      startAutoOptimization(targetCriteria, 5)
+    }
+
+    if (autoOptimization && autoOptimization.currentIteration >= autoOptimization.maxIterations) {
+      stopAutoOptimization()
+      addMessage({
+        role: 'assistant',
+        content: `已达到最大优化次数 (${autoOptimization.maxIterations} 次)。请检查工作流配置或调整优化目标。`,
+      })
+      return
+    }
+
+    setLastTestResult(testResult)
+    setTimeout(() => handleOptimize(), 1000)
+  }, [autoOptimization, targetCriteria, startAutoOptimization, stopAutoOptimization, addMessage, handleOptimize])
+
+  const handleTest = useCallback(async () => {
+    if (nodes.length === 0) {
+      toast.error('工作流为空，请先添加节点')
+      return
+    }
+
+    setIsTesting(true)
+    setPhase('testing')
+
+    const testInput: Record<string, unknown> = {}
+    inputNodeFields.forEach((field) => {
+      const key = field.fieldName
+      if (testInputFields[key]) {
+        testInput[key] = testInputFields[key]
+      }
+    })
+
+    addMessage({
+      role: 'system',
+      content: `正在执行工作流测试...\n测试输入: ${JSON.stringify(testInput, null, 2)}`,
+      messageType: 'test_result',
+    })
+
+    try {
+      const response = await fetchWithTimeout('/api/ai-assistant/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workflowId,
+          testInput,
+          timeout: 120,
+        }),
+        timeoutMs: 180_000,
+      })
+
+      const result = await response.json()
+      setLastTestResult(result)
+
+      const statusIcon = result.success ? '✅' : '❌'
+      let resultMessage = `${statusIcon} 测试${result.success ? '成功' : '失败'}\n\n`
+
+      if (result.duration) {
+        resultMessage += `执行时间: ${(result.duration / 1000).toFixed(2)}秒\n`
+      }
+
+      if (result.totalTokens) {
+        resultMessage += `Token消耗: ${result.totalTokens}\n`
+      }
+
+      if (result.error) {
+        resultMessage += `\n错误信息: ${result.error}\n`
+      }
+
+      if (result.analysis) {
+        resultMessage += `\n分析:\n${result.analysis}`
+      }
+
+      if (result.output && Object.keys(result.output).length > 0) {
+        resultMessage += `\n\n输出结果:\n\`\`\`json\n${JSON.stringify(result.output, null, 2)}\n\`\`\``
+      }
+
+      addMessage({
+        role: 'assistant',
+        content: resultMessage,
+        testResult: result,
+        messageType: 'test_result',
+      })
+
+      if (result.success) {
+        toast.success('测试执行成功')
+        if (isAutoMode && targetCriteria) {
+          handleAutoOptimize(result)
+        }
+      } else {
+        toast.error('测试执行失败')
+        if (isAutoMode) {
+          handleAutoOptimize(result)
+        }
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '测试失败'
+      toast.error(errorMessage)
+      addMessage({
+        role: 'assistant',
+        content: `测试执行出错: ${errorMessage}`,
+        messageType: 'test_result',
+      })
+    } finally {
+      setIsTesting(false)
+    }
+  }, [nodes, workflowId, testInputFields, inputNodeFields, addMessage, setPhase, isAutoMode, targetCriteria, handleAutoOptimize])
+
   const handleAbort = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort(new DOMException('用户取消请求', 'AbortError'))
@@ -508,98 +711,6 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
     }
   }, [inputValue, isLoading, selectedModel, workflowContext, workflowId, messages, addMessage, setLoading, setPhase])
 
-  const handleTest = useCallback(async () => {
-    if (nodes.length === 0) {
-      toast.error('工作流为空，请先添加节点')
-      return
-    }
-
-    setIsTesting(true)
-    setPhase('testing')
-
-    const testInput: Record<string, unknown> = {}
-    inputNodeFields.forEach((field) => {
-      const key = field.fieldName
-      if (testInputFields[key]) {
-        testInput[key] = testInputFields[key]
-      }
-    })
-
-    addMessage({
-      role: 'system',
-      content: `正在执行工作流测试...\n测试输入: ${JSON.stringify(testInput, null, 2)}`,
-      messageType: 'test_result',
-    })
-
-    try {
-      const response = await fetchWithTimeout('/api/ai-assistant/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          workflowId,
-          testInput,
-          timeout: 120,
-        }),
-        timeoutMs: 180_000,
-      })
-
-      const result = await response.json()
-      setLastTestResult(result)
-
-      const statusIcon = result.success ? '✅' : '❌'
-      let resultMessage = `${statusIcon} 测试${result.success ? '成功' : '失败'}\n\n`
-      
-      if (result.duration) {
-        resultMessage += `执行时间: ${(result.duration / 1000).toFixed(2)}秒\n`
-      }
-      
-      if (result.totalTokens) {
-        resultMessage += `Token消耗: ${result.totalTokens}\n`
-      }
-
-      if (result.error) {
-        resultMessage += `\n错误信息: ${result.error}\n`
-      }
-
-      if (result.analysis) {
-        resultMessage += `\n分析:\n${result.analysis}`
-      }
-
-      if (result.output && Object.keys(result.output).length > 0) {
-        resultMessage += `\n\n输出结果:\n\`\`\`json\n${JSON.stringify(result.output, null, 2)}\n\`\`\``
-      }
-
-      addMessage({
-        role: 'assistant',
-        content: resultMessage,
-        testResult: result,
-        messageType: 'test_result',
-      })
-
-      if (result.success) {
-        toast.success('测试执行成功')
-        if (isAutoMode && targetCriteria) {
-          handleAutoOptimize(result)
-        }
-      } else {
-        toast.error('测试执行失败')
-        if (isAutoMode) {
-          handleAutoOptimize(result)
-        }
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : '测试失败'
-      toast.error(errorMessage)
-      addMessage({
-        role: 'assistant',
-        content: `测试执行出错: ${errorMessage}`,
-        messageType: 'test_result',
-      })
-    } finally {
-      setIsTesting(false)
-    }
-  }, [nodes, workflowId, testInputFields, inputNodeFields, addMessage, setPhase, isAutoMode, targetCriteria])
-
   const handleAESEvaluate = useCallback(async () => {
     if (nodes.length === 0) {
       toast.error('工作流为空，请先添加节点')
@@ -628,11 +739,11 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
       })
 
       const data = await response.json()
-      
+
       if (data.success && data.evaluation) {
         const report = data.evaluation as AESReport
         setLastAESReport(report)
-        
+
         let reportContent = `## 🛡️ AES 评估报告\n\n`
         reportContent += `**总分**: ${report.scores.total}/100\n\n`
         reportContent += `### 维度得分\n`
@@ -641,7 +752,7 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
         reportContent += `- **C (Context)**: ${report.scores.C}/20\n`
         reportContent += `- **P (Prompt)**: ${report.scores.P}/15\n`
         reportContent += `- **R (Robustness)**: ${report.scores.R}/10\n\n`
-        
+
         reportContent += `### 诊断详情\n${report.report}\n`
 
         if (report.needOptimization) {
@@ -661,7 +772,7 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
           toast.success('AES 评估完成，工作流状态良好')
         }
       } else {
-         addMessage({
+        addMessage({
           role: 'assistant',
           content: `AES 评估失败: ${data.error || '未知错误'}`,
           messageType: 'aes_evaluation',
@@ -679,117 +790,8 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
     } finally {
       setIsEvaluating(false)
     }
-  }, [nodes, workflowId, workflowContext, selectedModel, addMessage, setPhase])
+  }, [nodes, workflowContext, selectedModel, addMessage, setPhase])
 
-  const handleOptimize = useCallback(async (type: 'test' | 'aes' = 'test') => {
-    if (type === 'test' && !lastTestResult) {
-      toast.error('请先执行测试')
-      return
-    }
-    if (type === 'aes' && !lastAESReport) {
-      toast.error('请先执行 AES 评估')
-      return
-    }
-
-    setIsOptimizing(true)
-    setPhase('optimization')
-
-    addMessage({
-      role: 'system',
-      content: type === 'aes' ? '正在根据 AES 评估报告生成优化方案...' : '正在分析执行结果并生成优化建议...',
-      messageType: 'optimization',
-    })
-
-    try {
-      const body: Record<string, unknown> = {
-        workflowId,
-        targetCriteria,
-        model: selectedModel,
-        previousOptimizations: autoOptimization?.history.map(h => h.optimization) || [],
-      }
-
-      if (type === 'aes') {
-        body.aesDiagnosis = lastAESReport
-      } else {
-        body.testResult = lastTestResult
-      }
-
-      const response = await fetchWithTimeout('/api/ai-assistant/optimize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        timeoutMs: 120_000,
-      })
-
-      const data = await response.json()
-
-      if (data.success && data.optimization) {
-        const opt = data.optimization
-        
-        let optimizationMessage = `## 优化方案 (${type === 'aes' ? '基于AES评估' : '基于测试结果'})\n\n${opt.summary || '分析完成'}\n`
-
-        if (opt.issues && opt.issues.length > 0) {
-          optimizationMessage += '\n### 解决的问题\n'
-          opt.issues.forEach((issue: { nodeName: string; issue: string; suggestion: string; priority: string }, index: number) => {
-            const priorityIcon = issue.priority === 'high' ? '🔴' : issue.priority === 'medium' ? '🟡' : '🟢'
-            optimizationMessage += `${index + 1}. ${priorityIcon} **${issue.nodeName}**: ${issue.issue}\n   建议: ${issue.suggestion}\n`
-          })
-        }
-
-        if (opt.expectedImprovement) {
-          optimizationMessage += `\n### 预期效果\n${opt.expectedImprovement}\n`
-        }
-
-        addMessage({
-          role: 'assistant',
-          content: optimizationMessage,
-          nodeActions: opt.nodeActions,
-          optimizationSuggestion: opt,
-          messageType: 'optimization',
-        })
-        
-        // 自动模式仅在基于测试的循环中生效
-        if (type === 'test' && opt.nodeActions && opt.nodeActions.length > 0 && isAutoMode) {
-          applyNodeActions(opt.nodeActions)
-          // ... 自动循环逻辑
-        }
-      } else {
-        addMessage({
-          role: 'assistant',
-          content: `优化分析失败: ${data.error || '未知错误'}`,
-          messageType: 'optimization',
-        })
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : '优化分析失败'
-      toast.error(errorMessage)
-      addMessage({
-        role: 'assistant',
-        content: `优化分析出错: ${errorMessage}`,
-        messageType: 'optimization',
-      })
-    } finally {
-      setIsOptimizing(false)
-    }
-  }, [lastTestResult, lastAESReport, workflowId, targetCriteria, selectedModel, addMessage, setPhase, isAutoMode, autoOptimization, applyNodeActions, addOptimizationIteration, stopAutoOptimization, handleTest])
-
-  const handleAutoOptimize = useCallback(async (testResult: TestResult) => {
-    if (!autoOptimization?.isRunning) {
-      startAutoOptimization(targetCriteria, 5)
-    }
-
-    if (autoOptimization && autoOptimization.currentIteration >= autoOptimization.maxIterations) {
-      stopAutoOptimization()
-      addMessage({
-        role: 'assistant',
-        content: `已达到最大优化次数 (${autoOptimization.maxIterations} 次)。请检查工作流配置或调整优化目标。`,
-      })
-      return
-    }
-
-    setLastTestResult(testResult)
-    setTimeout(() => handleOptimize(), 1000)
-  }, [autoOptimization, targetCriteria, startAutoOptimization, stopAutoOptimization, addMessage, handleOptimize])
 
   const handleStartAutoLoop = useCallback(() => {
     if (!targetCriteria.trim()) {
@@ -1339,7 +1341,7 @@ function MessageBubble({
 
   const handleSubmitAnswers = () => {
     if (!message.questionOptions) return
-    
+
     const answers: string[] = []
     message.questionOptions.questions.forEach((q) => {
       const selectedId = selectedOptions[q.id]
@@ -1354,7 +1356,7 @@ function MessageBubble({
         }
       }
     })
-    
+
     if (answers.length > 0) {
       onSelectOption(answers.join('\n'))
     }
@@ -1424,17 +1426,17 @@ function MessageBubble({
 
         {message.aesReport && (
           <div className="mt-3 border-t pt-3">
-             <div className="flex items-center gap-2 mb-2">
-               <Activity className="h-4 w-4 text-blue-500" />
-               <span className="text-xs font-medium">评估得分: {message.aesReport.scores.total} 分</span>
-             </div>
-             <div className="grid grid-cols-5 gap-1 text-[10px] text-center mb-2">
-               <div className="bg-muted p-1 rounded">L: {message.aesReport.scores.L}</div>
-               <div className="bg-muted p-1 rounded">A: {message.aesReport.scores.A}</div>
-               <div className="bg-muted p-1 rounded">C: {message.aesReport.scores.C}</div>
-               <div className="bg-muted p-1 rounded">P: {message.aesReport.scores.P}</div>
-               <div className="bg-muted p-1 rounded">R: {message.aesReport.scores.R}</div>
-             </div>
+            <div className="flex items-center gap-2 mb-2">
+              <Activity className="h-4 w-4 text-blue-500" />
+              <span className="text-xs font-medium">评估得分: {message.aesReport.scores.total} 分</span>
+            </div>
+            <div className="grid grid-cols-5 gap-1 text-[10px] text-center mb-2">
+              <div className="bg-muted p-1 rounded">L: {message.aesReport.scores.L}</div>
+              <div className="bg-muted p-1 rounded">A: {message.aesReport.scores.A}</div>
+              <div className="bg-muted p-1 rounded">C: {message.aesReport.scores.C}</div>
+              <div className="bg-muted p-1 rounded">P: {message.aesReport.scores.P}</div>
+              <div className="bg-muted p-1 rounded">R: {message.aesReport.scores.R}</div>
+            </div>
           </div>
         )}
 
@@ -1483,16 +1485,16 @@ function MessageBubble({
                     )
                   })}
                 </div>
-                {selectedOptions[question.id] && 
+                {selectedOptions[question.id] &&
                   question.options.find(o => o.id === selectedOptions[question.id])?.allowInput && (
-                  <Input
-                    className="mt-2 h-8 text-xs"
-                    placeholder="请输入你的描述..."
-                    value={customInputs[question.id] || ''}
-                    onChange={(e) => setCustomInputs(prev => ({ ...prev, [question.id]: e.target.value }))}
-                    disabled={isLoading}
-                  />
-                )}
+                    <Input
+                      className="mt-2 h-8 text-xs"
+                      placeholder="请输入你的描述..."
+                      value={customInputs[question.id] || ''}
+                      onChange={(e) => setCustomInputs(prev => ({ ...prev, [question.id]: e.target.value }))}
+                      disabled={isLoading}
+                    />
+                  )}
               </div>
             ))}
             <Button

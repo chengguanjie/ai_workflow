@@ -133,8 +133,8 @@ export async function processExpiredApprovals(): Promise<{
 
   console.log(
     `[ApprovalTimeout] Processed: ${results.length}, ` +
-      `Approved: ${approved}, Rejected: ${rejected}, ` +
-      `Escalated: ${escalated}, Failed: ${failed}`
+    `Approved: ${approved}, Rejected: ${rejected}, ` +
+    `Escalated: ${escalated}, Failed: ${failed}`
   )
 
   return {
@@ -174,11 +174,6 @@ export async function getUpcomingTimeouts(
         lte: warningTime,
       },
     },
-    include: {
-      workflow: {
-        select: { id: true, name: true },
-      },
-    },
   })
 
   return {
@@ -190,7 +185,7 @@ export async function getUpcomingTimeouts(
         (request.expiresAt!.getTime() - now.getTime()) / (60 * 1000)
       ),
       workflowId: request.workflowId,
-      workflowName: request.workflow.name,
+      workflowName: request.workflowName || 'Unknown Workflow',
     })),
   }
 }

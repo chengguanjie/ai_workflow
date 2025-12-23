@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
@@ -79,9 +79,9 @@ export function TriggerNodeConfigPanel({
     }
   }, [triggerConfig?.inputTemplate])
 
-  const updateConfig = (updates: Partial<TriggerNodeConfigData>) => {
+  const updateConfig = useCallback((updates: Partial<TriggerNodeConfigData>) => {
     onUpdate({ ...config, ...updates })
-  }
+  }, [onUpdate, config])
 
   const triggerType = triggerConfig?.triggerType || 'MANUAL'
   const enabled = triggerConfig?.enabled ?? true
@@ -98,7 +98,7 @@ export function TriggerNodeConfigPanel({
       const randomPath = `wh_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`
       updateConfig({ webhookPath: randomPath })
     }
-  }, [triggerType, webhookPath])
+  }, [triggerType, webhookPath, updateConfig])
 
   const handleTriggerTypeChange = (value: TriggerType) => {
     updateConfig({ triggerType: value })
@@ -139,11 +139,10 @@ export function TriggerNodeConfigPanel({
         {tabs.map((tab) => (
           <button
             key={tab.key}
-            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              activeTab === tab.key
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${activeTab === tab.key
                 ? 'border-primary text-primary'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
+              }`}
             onClick={() => setActiveTab(tab.key)}
           >
             {tab.label}
@@ -156,166 +155,165 @@ export function TriggerNodeConfigPanel({
         <div className="space-y-6">
           {/* Trigger Type Selection */}
           <div className="space-y-3">
-        <Label>触发类型</Label>
-        <div className="grid grid-cols-1 gap-2">
-          {TRIGGER_TYPES.map((type) => {
-            const Icon = type.icon
-            const isSelected = triggerType === type.value
-            return (
-              <button
-                key={type.value}
-                type="button"
-                onClick={() => handleTriggerTypeChange(type.value)}
-                className={`flex items-start gap-3 p-3 rounded-lg border text-left transition-colors ${
-                  isSelected
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border hover:border-primary/50 hover:bg-muted/50'
-                }`}
-              >
-                <Icon className={`h-5 w-5 mt-0.5 ${isSelected ? 'text-primary' : 'text-muted-foreground'}`} />
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium text-sm">{type.label}</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">{type.description}</div>
-                </div>
-                {isSelected && (
-                  <Badge variant="secondary" className="text-xs">
-                    已选择
-                  </Badge>
-                )}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* Enable/Disable Toggle */}
-      <div className="flex items-center justify-between rounded-lg border p-3">
-        <div className="space-y-0.5">
-          <Label className="text-sm font-medium">启用触发器</Label>
-          <p className="text-xs text-muted-foreground">
-            关闭后触发器将不会执行
-          </p>
-        </div>
-        <Switch
-          checked={enabled}
-          onCheckedChange={(value) => updateConfig({ enabled: value })}
-        />
-      </div>
-
-      {/* Webhook Configuration */}
-      {triggerType === 'WEBHOOK' && (
-        <div className="space-y-4 rounded-lg border p-4">
-          <div className="flex items-center gap-2">
-            <Webhook className="h-4 w-4 text-muted-foreground" />
-            <Label className="text-sm font-medium">Webhook 配置</Label>
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">Webhook URL</Label>
-            <div className="flex gap-2">
-              <Input
-                value={`${typeof window !== 'undefined' ? window.location.origin : ''}/api/webhooks/${webhookPath}`}
-                readOnly
-                className="font-mono text-xs flex-1"
-              />
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={handleCopyWebhook}
-                title="复制 URL"
-              >
-                {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={handleRegenerateWebhook}
-                title="重新生成"
-              >
-                <RefreshCw className="h-4 w-4" />
-              </Button>
+            <Label>触发类型</Label>
+            <div className="grid grid-cols-1 gap-2">
+              {TRIGGER_TYPES.map((type) => {
+                const Icon = type.icon
+                const isSelected = triggerType === type.value
+                return (
+                  <button
+                    key={type.value}
+                    type="button"
+                    onClick={() => handleTriggerTypeChange(type.value)}
+                    className={`flex items-start gap-3 p-3 rounded-lg border text-left transition-colors ${isSelected
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border hover:border-primary/50 hover:bg-muted/50'
+                      }`}
+                  >
+                    <Icon className={`h-5 w-5 mt-0.5 ${isSelected ? 'text-primary' : 'text-muted-foreground'}`} />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm">{type.label}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">{type.description}</div>
+                    </div>
+                    {isSelected && (
+                      <Badge variant="secondary" className="text-xs">
+                        已选择
+                      </Badge>
+                    )}
+                  </button>
+                )
+              })}
             </div>
           </div>
 
-          <div className="flex items-center justify-between">
+          {/* Enable/Disable Toggle */}
+          <div className="flex items-center justify-between rounded-lg border p-3">
             <div className="space-y-0.5">
-              <Label className="text-sm">启用密钥验证</Label>
+              <Label className="text-sm font-medium">启用触发器</Label>
               <p className="text-xs text-muted-foreground">
-                通过 X-Webhook-Secret 头验证请求
+                关闭后触发器将不会执行
               </p>
             </div>
             <Switch
-              checked={hasWebhookSecret}
-              onCheckedChange={(value) => updateConfig({ hasWebhookSecret: value })}
+              checked={enabled}
+              onCheckedChange={(value) => updateConfig({ enabled: value })}
             />
           </div>
 
-          {hasWebhookSecret && (
-            <div className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">
-              <p>保存工作流后，密钥将自动生成并显示在触发器管理页面。</p>
+          {/* Webhook Configuration */}
+          {triggerType === 'WEBHOOK' && (
+            <div className="space-y-4 rounded-lg border p-4">
+              <div className="flex items-center gap-2">
+                <Webhook className="h-4 w-4 text-muted-foreground" />
+                <Label className="text-sm font-medium">Webhook 配置</Label>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Webhook URL</Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={`${typeof window !== 'undefined' ? window.location.origin : ''}/api/webhooks/${webhookPath}`}
+                    readOnly
+                    className="font-mono text-xs flex-1"
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={handleCopyWebhook}
+                    title="复制 URL"
+                  >
+                    {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={handleRegenerateWebhook}
+                    title="重新生成"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label className="text-sm">启用密钥验证</Label>
+                  <p className="text-xs text-muted-foreground">
+                    通过 X-Webhook-Secret 头验证请求
+                  </p>
+                </div>
+                <Switch
+                  checked={hasWebhookSecret}
+                  onCheckedChange={(value) => updateConfig({ hasWebhookSecret: value })}
+                />
+              </div>
+
+              {hasWebhookSecret && (
+                <div className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">
+                  <p>保存工作流后，密钥将自动生成并显示在触发器管理页面。</p>
+                </div>
+              )}
             </div>
           )}
-        </div>
-      )}
 
-      {/* Schedule Configuration */}
-      {triggerType === 'SCHEDULE' && (
-        <div className="space-y-4 rounded-lg border p-4">
-          <div className="flex items-center gap-2">
-            <Clock className="h-4 w-4 text-muted-foreground" />
-            <Label className="text-sm font-medium">定时调度配置</Label>
-          </div>
+          {/* Schedule Configuration */}
+          {triggerType === 'SCHEDULE' && (
+            <div className="space-y-4 rounded-lg border p-4">
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                <Label className="text-sm font-medium">定时调度配置</Label>
+              </div>
 
-          <CronExpressionEditor
-            value={cronExpression}
-            onChange={(value) => updateConfig({ cronExpression: value })}
-          />
+              <CronExpressionEditor
+                value={cronExpression}
+                onChange={(value) => updateConfig({ cronExpression: value })}
+              />
 
-          <div className="space-y-2">
-            <Label className="text-sm">时区</Label>
-            <Select
-              value={timezone}
-              onValueChange={(value) => updateConfig({ timezone: value })}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="选择时区" />
-              </SelectTrigger>
-              <SelectContent>
-                {TIMEZONES.map((tz) => (
-                  <SelectItem key={tz.value} value={tz.value}>
-                    {tz.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      )}
-
-      {/* Input Template (for Webhook and Schedule) */}
-      {(triggerType === 'WEBHOOK' || triggerType === 'SCHEDULE') && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <Label>输入模板 (可选)</Label>
-            <Badge variant="outline" className="text-xs">JSON</Badge>
-          </div>
-          <Textarea
-            value={inputTemplateStr}
-            onChange={(e) => handleInputTemplateChange(e.target.value)}
-            placeholder={`{\n  "key": "默认值"\n}`}
-            className="font-mono text-sm min-h-[100px]"
-          />
-          {inputTemplateError && (
-            <div className="flex items-center gap-2 text-xs text-destructive">
-              <AlertCircle className="h-3 w-3" />
-              {inputTemplateError}
+              <div className="space-y-2">
+                <Label className="text-sm">时区</Label>
+                <Select
+                  value={timezone}
+                  onValueChange={(value) => updateConfig({ timezone: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="选择时区" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TIMEZONES.map((tz) => (
+                      <SelectItem key={tz.value} value={tz.value}>
+                        {tz.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           )}
-          <p className="text-xs text-muted-foreground">
-            定义触发时的默认输入数据。Webhook 触发可覆盖这些值。
-          </p>
-        </div>
-      )}
+
+          {/* Input Template (for Webhook and Schedule) */}
+          {(triggerType === 'WEBHOOK' || triggerType === 'SCHEDULE') && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label>输入模板 (可选)</Label>
+                <Badge variant="outline" className="text-xs">JSON</Badge>
+              </div>
+              <Textarea
+                value={inputTemplateStr}
+                onChange={(e) => handleInputTemplateChange(e.target.value)}
+                placeholder={`{\n  "key": "默认值"\n}`}
+                className="font-mono text-sm min-h-[100px]"
+              />
+              {inputTemplateError && (
+                <div className="flex items-center gap-2 text-xs text-destructive">
+                  <AlertCircle className="h-3 w-3" />
+                  {inputTemplateError}
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                定义触发时的默认输入数据。Webhook 触发可覆盖这些值。
+              </p>
+            </div>
+          )}
 
           {/* Retry Configuration */}
           <div className="space-y-4 rounded-lg border p-4">

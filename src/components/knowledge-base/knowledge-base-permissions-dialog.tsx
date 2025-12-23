@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -96,13 +96,7 @@ export function KnowledgeBasePermissionsDialog({
   const [addTargetId, setAddTargetId] = useState('')
   const [addPermission, setAddPermission] = useState<'VIEWER' | 'EDITOR' | 'MANAGER'>('VIEWER')
 
-  useEffect(() => {
-    if (open) {
-      loadData()
-    }
-  }, [open, knowledgeBaseId])
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true)
     try {
       const [permRes, deptRes, memberRes] = await Promise.all([
@@ -131,7 +125,13 @@ export function KnowledgeBasePermissionsDialog({
     } finally {
       setLoading(false)
     }
-  }
+  }, [knowledgeBaseId])
+
+  useEffect(() => {
+    if (open) {
+      loadData()
+    }
+  }, [open, loadData])
 
   const handleAddPermission = async () => {
     if (addType !== 'ALL' && !addTargetId) {

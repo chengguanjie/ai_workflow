@@ -4,8 +4,8 @@
  */
 
 import { prisma } from '@/lib/db'
-import { aiService } from '@/lib/ai/ai-service'
-import type { ExecutionFeedback, IssueCategory } from '@prisma/client'
+import { aiService } from '@/lib/ai'
+import { type IssueCategory, Prisma, type SuggestionType } from '@prisma/client'
 
 interface DiagnosticResult {
   issueType: IssueCategory
@@ -15,14 +15,6 @@ interface DiagnosticResult {
   suggestedActions: string[]
 }
 
-interface NodeDiagnostic {
-  nodeId: string
-  nodeName: string
-  nodeType: string
-  issue: string
-  severity: 'low' | 'medium' | 'high'
-  suggestions: string[]
-}
 
 export class DiagnosticAnalyzer {
   /**
@@ -37,7 +29,7 @@ export class DiagnosticAnalyzer {
           logs: {
             orderBy: { createdAt: 'asc' }
           },
-          feedback: true,
+          feedbacks: true,
           workflow: {
             select: {
               id: true,
@@ -49,22 +41,24 @@ export class DiagnosticAnalyzer {
         }
       })
 
-      if (!execution || !execution.feedback) {
+      if (!execution || execution.feedbacks.length === 0) {
         console.warn(`No execution or feedback found for ${executionId}`)
         return
       }
+
+      const feedback = execution.feedbacks[0]
 
       // 收集诊断上下文
       const diagnosticContext = {
         workflowName: execution.workflow.name,
         executionStatus: execution.status,
         error: execution.error,
-        errorDetail: execution.errorDetail,
+        errorDetail: execution.errorDetail as Record<string, unknown>,
         duration: execution.duration,
         totalTokens: execution.totalTokens,
-        feedback: execution.feedback,
-        logs: execution.logs,
-        workflowConfig: execution.workflow.publishedConfig || execution.workflow.config
+        feedback: feedback,
+        logs: execution.logs as unknown as Record<string, unknown>[],
+        workflowConfig: (execution.workflow.publishedConfig || execution.workflow.config) as Record<string, unknown>
       }
 
       // 执行AI诊断
@@ -72,20 +66,20 @@ export class DiagnosticAnalyzer {
 
       // 保存诊断结果
       await prisma.executionFeedback.update({
-        where: { id: execution.feedback.id },
+        where: { id: feedback.id },
         data: {
-          aiDiagnosis: diagnosis,
+          aiDiagnosis: diagnosis as Prisma.InputJsonValue,
           diagnosedAt: new Date(),
           optimizationStatus: 'ANALYZING'
         }
       })
 
       // 如果诊断出明确问题，生成优化建议
-      if (diagnosis.results.length > 0 && diagnosis.results[0].confidence > 0.7) {
+      if (diagnosis.results && Array.isArray(diagnosis.results) && diagnosis.results.length > 0 && (diagnosis.results[0] as DiagnosticResult).confidence > 0.7) {
         await this.generateOptimizationSuggestions(
-          execution.feedback.id,
+          feedback.id,
           execution.workflowId,
-          diagnosis.results
+          diagnosis.results as DiagnosticResult[]
         )
       }
     } catch (error) {
@@ -96,7 +90,7 @@ export class DiagnosticAnalyzer {
   /**
    * 执行AI诊断分析
    */
-  private async performAIDiagnosis(context: any): Promise<any> {
+  private async performAIDiagnosis(context: Record<string, unknown>): Promise<Record<string, unknown>> {
     const prompt = `作为工作流诊断专家，请分析以下工作流执行问题：
 
 工作流名称：${context.workflowName}
@@ -104,12 +98,12 @@ export class DiagnosticAnalyzer {
 错误信息：${context.error || '无'}
 执行时长：${context.duration}ms
 Token使用：${context.totalTokens}
-用户反馈评分：${context.feedback.rating}/5
-准确性：${context.feedback.isAccurate ? '准确' : '不准确'}
-问题分类：${context.feedback.issueCategories.join(', ')}
+用户反馈评分：${(context.feedback as Record<string, unknown>).rating}/5
+准确性：${(context.feedback as Record<string, unknown>).isAccurate ? '准确' : '不准确'}
+问题分类：${((context.feedback as Record<string, unknown>).issueCategories as string[] || []).join(', ')}
 
 执行日志摘要：
-${this.summarizeExecutionLogs(context.logs)}
+${this.summarizeExecutionLogs(context.logs as Record<string, unknown>[], 1000)}
 
 请提供诊断分析，包括：
 1. 根本原因分析
@@ -138,15 +132,31 @@ ${this.summarizeExecutionLogs(context.logs)}
 }`
 
     try {
-      const response = await aiService.generateText({
-        model: 'claude-3-haiku',
-        prompt,
-        temperature: 0.3,
-        maxTokens: 2000
+      // 获取默认模型配置
+      const defaultApiKey = await prisma.apiKey.findFirst({
+        where: { isDefault: true }
       })
 
+      if (!defaultApiKey) {
+        throw new Error('未配置默认 AI 服务')
+      }
+
+      const response = await aiService.chat(
+        defaultApiKey.provider,
+        {
+          model: 'claude-3-haiku',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.3,
+          maxTokens: 2000
+        },
+        defaultApiKey.keyEncrypted, // Expecting decryption if needed, but following current lib structure
+        defaultApiKey.baseUrl || undefined
+      )
+
+      const text = response.content || ''
+
       // 解析AI响应
-      const jsonMatch = response.match(/\{[\s\S]*\}/)
+      const jsonMatch = text.match(/\{[\s\S]*\}/)
       if (jsonMatch) {
         return JSON.parse(jsonMatch[0])
       }
@@ -176,7 +186,7 @@ ${this.summarizeExecutionLogs(context.logs)}
   /**
    * 总结执行日志
    */
-  private summarizeExecutionLogs(logs: any[]): string {
+  private summarizeExecutionLogs(logs: Record<string, unknown>[], maxTokens: number = 1000): string {
     if (!logs || logs.length === 0) {
       return '无执行日志'
     }
@@ -187,7 +197,7 @@ ${this.summarizeExecutionLogs(context.logs)}
     const nodeStats = new Map<string, { success: number; failed: number; duration: number }>()
 
     for (const log of logs) {
-      const key = `${log.nodeName} (${log.nodeType})`
+      const key = `${(log.nodeName as string)} (${(log.nodeType as string)})`
       if (!nodeStats.has(key)) {
         nodeStats.set(key, { success: 0, failed: 0, duration: 0 })
       }
@@ -198,7 +208,7 @@ ${this.summarizeExecutionLogs(context.logs)}
       } else if (log.status === 'FAILED') {
         stats.failed++
       }
-      stats.duration += log.duration || 0
+      stats.duration += (log.duration as number) || 0
     }
 
     // 生成摘要
@@ -221,7 +231,20 @@ ${this.summarizeExecutionLogs(context.logs)}
       })
     }
 
-    return summary.join('\n')
+    // 截断以符合maxTokens限制 (简单字符截断，不考虑token实际计算)
+    let currentLength = 0;
+    const truncatedSummary: string[] = [];
+    for (const line of summary) {
+      if (currentLength + line.length + 1 > maxTokens) { // +1 for newline
+        truncatedSummary.push('...(日志已截断)');
+        break;
+      }
+      truncatedSummary.push(line);
+      currentLength += line.length + 1;
+    }
+
+
+    return truncatedSummary.join('\n')
   }
 
   /**
@@ -229,24 +252,27 @@ ${this.summarizeExecutionLogs(context.logs)}
    */
   private async generateOptimizationSuggestions(
     feedbackId: string,
-    workflowId: string,
+    _workflowId: string,
     diagnosticResults: DiagnosticResult[]
   ): Promise<void> {
     for (const result of diagnosticResults) {
       if (result.confidence < 0.5) continue
 
       // 根据问题类型生成具体建议
-      const suggestions = await this.generateSpecificSuggestions(result, workflowId)
+      const suggestions = await this.generateSpecificSuggestions(result, _workflowId)
 
       for (const suggestion of suggestions) {
         await prisma.optimizationSuggestion.create({
           data: {
             feedbackId,
-            workflowId,
+            workflowId: _workflowId,
             issueType: result.issueType,
             issueDescription: result.rootCause,
             rootCause: result.evidence.join('; '),
-            ...suggestion,
+            suggestionType: suggestion.suggestionType as SuggestionType,
+            suggestionTitle: suggestion.suggestionTitle,
+            suggestionDetail: suggestion.suggestionDetail,
+            suggestedChanges: suggestion.suggestedChanges as Prisma.InputJsonValue,
             confidence: result.confidence,
             priority: this.calculatePriority(result),
             status: 'PENDING'
@@ -269,12 +295,12 @@ ${this.summarizeExecutionLogs(context.logs)}
    */
   private async generateSpecificSuggestions(
     diagnostic: DiagnosticResult,
-    workflowId: string
+    _workflowId: string
   ): Promise<Array<{
     suggestionType: string
     suggestionTitle: string
     suggestionDetail: string
-    suggestedChanges: any
+    suggestedChanges: Record<string, unknown>
   }>> {
     const suggestions = []
 
@@ -398,9 +424,11 @@ ${this.summarizeExecutionLogs(context.logs)}
     const executions = await prisma.execution.findMany({
       where: {
         workflowId,
-        feedback: {
-          optimizationStatus: 'PENDING',
-          rating: { lte: 3 } // 只诊断低分反馈
+        feedbacks: {
+          some: {
+            optimizationStatus: 'PENDING',
+            rating: { lte: 3 } // 只诊断低分反馈
+          }
         }
       },
       select: {

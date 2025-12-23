@@ -32,7 +32,7 @@ export type CategoryType = 'department' | 'skill'
 export interface Category {
   id: string
   name: string
-  icon: any
+  icon: React.ElementType
   type: CategoryType
   description?: string
 }
@@ -41,7 +41,7 @@ export interface Category {
 export interface CategoryGroup {
   id: string
   name: string
-  icon: any
+  icon: React.ElementType
   type: CategoryType
   categories: Category[]
 }
@@ -204,7 +204,7 @@ export const TEMPLATE_CATEGORIES = ALL_CATEGORIES.map(cat => ({
 }))
 
 // 分类图标映射（用于向后兼容）
-export const CATEGORY_ICONS: Record<string, any> = ALL_CATEGORIES.reduce(
+export const CATEGORY_ICONS: Record<string, React.ElementType> = ALL_CATEGORIES.reduce(
   (acc, cat) => ({
     ...acc,
     [cat.id]: cat.icon
@@ -222,7 +222,7 @@ export const getCategoryName = (categoryId: string): string => {
   return category?.name || categoryId
 }
 
-export const getCategoryIcon = (categoryId: string): any => {
+export const getCategoryIcon = (categoryId: string): React.ElementType => {
   const category = getCategoryById(categoryId)
   return category?.icon || MoreHorizontal
 }

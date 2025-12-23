@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -15,7 +15,6 @@ import {
   Plus,
   GripVertical,
   Type,
-  Image,
   FileText,
   FileSpreadsheet,
   Music,
@@ -25,6 +24,7 @@ import {
   Trash2,
   List,
   CheckSquare,
+  Image as ImageIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { InputField, InputFieldType, SelectOption } from '@/types/workflow'
@@ -37,16 +37,16 @@ const FIELD_TYPE_OPTIONS: Array<{
   icon: React.ReactNode
   accept: string
 }> = [
-  { value: 'text', label: '文本', icon: <Type className="h-4 w-4" />, accept: '' },
-  { value: 'select', label: '单选', icon: <List className="h-4 w-4" />, accept: '' },
-  { value: 'multiselect', label: '多选', icon: <CheckSquare className="h-4 w-4" />, accept: '' },
-  { value: 'image', label: '图片', icon: <Image className="h-4 w-4" />, accept: 'image/*' },
-  { value: 'pdf', label: 'PDF', icon: <FileText className="h-4 w-4" />, accept: '.pdf,application/pdf' },
-  { value: 'word', label: 'Word', icon: <FileText className="h-4 w-4" />, accept: '.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
-  { value: 'excel', label: 'Excel', icon: <FileSpreadsheet className="h-4 w-4" />, accept: '.xls,.xlsx,.csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv' },
-  { value: 'audio', label: '音频', icon: <Music className="h-4 w-4" />, accept: 'audio/*' },
-  { value: 'video', label: '视频', icon: <Video className="h-4 w-4" />, accept: 'video/*' },
-]
+    { value: 'text', label: '文本', icon: <Type className="h-4 w-4" />, accept: '' },
+    { value: 'select', label: '单选', icon: <List className="h-4 w-4" />, accept: '' },
+    { value: 'multiselect', label: '多选', icon: <CheckSquare className="h-4 w-4" />, accept: '' },
+    { value: 'image', label: '图片', icon: <ImageIcon className="h-4 w-4" />, accept: 'image/*' },
+    { value: 'pdf', label: 'PDF', icon: <FileText className="h-4 w-4" />, accept: '.pdf,application/pdf' },
+    { value: 'word', label: 'Word', icon: <FileText className="h-4 w-4" />, accept: '.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+    { value: 'excel', label: 'Excel', icon: <FileSpreadsheet className="h-4 w-4" />, accept: '.xls,.xlsx,.csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv' },
+    { value: 'audio', label: '音频', icon: <Music className="h-4 w-4" />, accept: 'audio/*' },
+    { value: 'video', label: '视频', icon: <Video className="h-4 w-4" />, accept: 'video/*' },
+  ]
 
 // 判断是否是选择类型
 const isSelectType = (fieldType?: InputFieldType): boolean => {
@@ -56,7 +56,7 @@ const isSelectType = (fieldType?: InputFieldType): boolean => {
 // 判断是否是文件类型
 const isFileType = (fieldType?: InputFieldType): boolean => {
   return fieldType === 'image' || fieldType === 'pdf' || fieldType === 'word' ||
-         fieldType === 'excel' || fieldType === 'audio' || fieldType === 'video'
+    fieldType === 'excel' || fieldType === 'audio' || fieldType === 'video'
 }
 
 // 获取字段类型的图标和标签
@@ -82,7 +82,7 @@ export function InputNodeConfigPanel({
   config,
   onUpdate,
 }: InputNodeConfigPanelProps) {
-  const fields = (config?.fields as InputField[]) || []
+  const fields = useMemo(() => (config?.fields as InputField[]) || [], [config?.fields])
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const [uploadingFields, setUploadingFields] = useState<Record<string, boolean>>({})
@@ -246,13 +246,11 @@ export function InputNodeConfigPanel({
               onDragLeave={handleDragLeave}
               onDrop={(e) => handleDrop(e, index)}
               onDragEnd={handleDragEnd}
-              className={`border rounded-lg p-3 space-y-2 transition-all ${
-                draggedIndex === index ? 'opacity-50 scale-[0.98]' : ''
-              } ${
-                dragOverIndex === index
+              className={`border rounded-lg p-3 space-y-2 transition-all ${draggedIndex === index ? 'opacity-50 scale-[0.98]' : ''
+                } ${dragOverIndex === index
                   ? 'border-primary border-2 bg-primary/5'
                   : ''
-              }`}
+                }`}
             >
               {/* 字段名称行 */}
               <div className="flex items-center gap-2">
@@ -435,9 +433,8 @@ export function InputNodeConfigPanel({
                   ) : (
                     // 上传按钮
                     <div
-                      className={`flex items-center justify-center gap-2 p-3 rounded-md border border-dashed cursor-pointer transition-colors hover:border-primary hover:bg-primary/5 ${
-                        uploadingFields[field.id] ? 'pointer-events-none opacity-50' : ''
-                      }`}
+                      className={`flex items-center justify-center gap-2 p-3 rounded-md border border-dashed cursor-pointer transition-colors hover:border-primary hover:bg-primary/5 ${uploadingFields[field.id] ? 'pointer-events-none opacity-50' : ''
+                        }`}
                       onClick={() => fileInputRefs.current[field.id]?.click()}
                     >
                       {uploadingFields[field.id] ? (

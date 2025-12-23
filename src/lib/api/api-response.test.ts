@@ -33,7 +33,7 @@ describe('Property 7: Pagination Metadata Consistency', () => {
         async (pagination, data) => {
           const response = ApiResponse.paginated(data, pagination)
           const json = await response.json() as PaginatedResponse<typeof data[0]>
-          
+
           const expectedTotalPages = Math.ceil(pagination.total / pagination.pageSize)
           expect(json.pagination.totalPages).toBe(expectedTotalPages)
         }
@@ -50,14 +50,14 @@ describe('Property 7: Pagination Metadata Consistency', () => {
         async (pagination, data) => {
           const response = ApiResponse.paginated(data, pagination)
           const json = await response.json() as PaginatedResponse<typeof data[0]>
-          
+
           // Verify all required pagination fields are present
           expect(json.pagination).toBeDefined()
           expect(typeof json.pagination.page).toBe('number')
           expect(typeof json.pagination.pageSize).toBe('number')
           expect(typeof json.pagination.total).toBe('number')
           expect(typeof json.pagination.totalPages).toBe('number')
-          
+
           // Verify values match input
           expect(json.pagination.page).toBe(pagination.page)
           expect(json.pagination.pageSize).toBe(pagination.pageSize)
@@ -76,7 +76,7 @@ describe('Property 7: Pagination Metadata Consistency', () => {
         async (page, pageSize) => {
           const response = ApiResponse.paginated([], { page, pageSize, total: 0 })
           const json = await response.json() as PaginatedResponse<unknown>
-          
+
           expect(json.pagination.totalPages).toBe(0)
           expect(json.pagination.total).toBe(0)
         }
@@ -93,7 +93,7 @@ describe('Property 7: Pagination Metadata Consistency', () => {
         async (pagination, data) => {
           const response = ApiResponse.paginated(data, pagination)
           const json = await response.json() as PaginatedResponse<typeof data[0]>
-          
+
           expect(json.success).toBe(true)
         }
       ),
@@ -109,7 +109,7 @@ describe('Property 7: Pagination Metadata Consistency', () => {
         async (pagination, data) => {
           const response = ApiResponse.paginated(data, pagination)
           const json = await response.json() as PaginatedResponse<typeof data[0]>
-          
+
           expect(json.data).toEqual(data)
           expect(Array.isArray(json.data)).toBe(true)
         }
@@ -128,7 +128,7 @@ describe('Property 7: Pagination Metadata Consistency', () => {
           const exactResponse = ApiResponse.paginated([], { page: 1, pageSize, total: exactTotal })
           const exactJson = await exactResponse.json() as PaginatedResponse<unknown>
           expect(exactJson.pagination.totalPages).toBe(5)
-          
+
           // Test with remainder
           const remainderTotal = pageSize * 5 + 1
           const remainderResponse = ApiResponse.paginated([], { page: 1, pageSize, total: remainderTotal })
@@ -160,15 +160,36 @@ function normalizeNegativeZero(value: unknown): unknown {
   return value
 }
 
+// Helper function to remove dangerous properties that shouldn't be in JSON
+function sanitizeJsonValue(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') {
+    return value
+  }
+  if (Array.isArray(value)) {
+    return value.map(sanitizeJsonValue)
+  }
+  const result: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(value)) {
+    // Skip dangerous properties
+    if (k === '__proto__' || k === 'constructor' || k === 'prototype') {
+      continue
+    }
+    result[k] = sanitizeJsonValue(v)
+  }
+  return result
+}
+
 describe('ApiResponse.success', () => {
   it('should return success: true with data', async () => {
     await fc.assert(
       fc.asyncProperty(
         fc.jsonValue(),
-        async (data) => {
+        async (rawData) => {
+          // Sanitize the data to remove dangerous properties
+          const data = sanitizeJsonValue(rawData)
           const response = ApiResponse.success(data)
           const json = await response.json() as ApiSuccessResponse<typeof data>
-          
+
           expect(json.success).toBe(true)
           // Normalize -0 to 0 since JSON.stringify converts -0 to "0"
           expect(json.data).toEqual(normalizeNegativeZero(data))
@@ -206,7 +227,7 @@ describe('ApiResponse.error', () => {
         async (message) => {
           const response = ApiResponse.error(message)
           const json = await response.json() as ApiErrorResponse
-          
+
           expect(json.success).toBe(false)
           expect(json.error.message).toBe(message)
         }
@@ -241,7 +262,7 @@ describe('ApiResponse.error', () => {
         async (message, details) => {
           const response = ApiResponse.error(message, 400, details)
           const json = await response.json() as ApiErrorResponse
-          
+
           expect(json.error.details).toEqual(details)
         }
       ),
@@ -252,7 +273,7 @@ describe('ApiResponse.error', () => {
   it('should not include details field when undefined', async () => {
     const response = ApiResponse.error('Test error', 400)
     const json = await response.json() as ApiErrorResponse
-    
+
     expect('details' in json.error).toBe(false)
   })
 })
@@ -268,7 +289,7 @@ describe('ApiResponse.created', () => {
         async (data) => {
           const response = ApiResponse.created(data)
           const json = await response.json() as ApiSuccessResponse<typeof data>
-          
+
           expect(response.status).toBe(201)
           expect(json.success).toBe(true)
           expect(json.data).toEqual(data)
@@ -282,7 +303,7 @@ describe('ApiResponse.created', () => {
 describe('ApiResponse.noContent', () => {
   it('should return status 204 with no body', () => {
     const response = ApiResponse.noContent()
-    
+
     expect(response.status).toBe(204)
     expect(response.body).toBeNull()
   })

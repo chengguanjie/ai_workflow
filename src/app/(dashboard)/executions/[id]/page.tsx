@@ -90,8 +90,11 @@ export default function ExecutionDetailPage() {
       try {
         const response = await fetch(`/api/executions/${executionId}`)
         if (response.ok) {
-          const data = await response.json()
-          setExecution(data.execution)
+          const result = await response.json()
+          // API 返回格式: { success: true, data: { execution: { ... } } }
+          if (result.success && result.data?.execution) {
+            setExecution(result.data.execution)
+          }
         }
       } catch (error) {
         console.error('Load execution error:', error)

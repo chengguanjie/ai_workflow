@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { PermissionLevel, PermissionTargetType } from '@prisma/client'
@@ -118,11 +118,11 @@ export async function POST(
     const { targetType, targetId, permission } = body
 
     // 验证参数
-    if (!Object.values(PermissionTargetType).includes(targetType as any)) {
+    if (!Object.values(PermissionTargetType).includes(targetType as PermissionTargetType)) {
       return ApiResponse.error('无效的目标类型', 400)
     }
 
-    if (!Object.values(PermissionLevel).includes(permission as any)) {
+    if (!Object.values(PermissionLevel).includes(permission as PermissionLevel)) {
       return ApiResponse.error('无效的权限级别', 400)
     }
 

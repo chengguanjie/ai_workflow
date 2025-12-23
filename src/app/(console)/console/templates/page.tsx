@@ -20,7 +20,6 @@ import {
   Star,
   Filter,
   RefreshCw,
-  ChevronDown,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -77,7 +76,6 @@ import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import {
   CATEGORY_GROUPS,
-  TEMPLATE_CATEGORIES,
   getCategoryName,
 } from '@/lib/constants/template-categories'
 
@@ -113,7 +111,7 @@ export default function ConsoleTemplatesPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+  const [_expandedGroups, setExpandedGroups] = useState<Set<string>>(
     new Set(CATEGORY_GROUPS.map(g => g.id))
   )
 
@@ -134,7 +132,7 @@ export default function ConsoleTemplatesPage() {
   })
 
   // 切换分组折叠状态
-  const toggleGroup = (groupId: string) => {
+  const _toggleGroup = (groupId: string) => {
     setExpandedGroups(prev => {
       const newSet = new Set(prev)
       if (newSet.has(groupId)) {
@@ -161,7 +159,7 @@ export default function ConsoleTemplatesPage() {
 
       if (res.ok) {
         setTemplates(data.data || [])
-        setPagination(data.pagination || pagination)
+        setPagination(prev => data.pagination || prev)
       } else {
         toast.error(data.error || '加载模板失败')
       }

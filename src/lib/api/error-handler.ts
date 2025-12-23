@@ -3,6 +3,10 @@
  * 
  * Provides centralized error handling for all API routes.
  * Converts various error types to standardized API responses.
+ * 
+ * This module provides backward-compatible error handling.
+ * For enhanced error responses with causes and solutions,
+ * use the error-middleware module instead.
  */
 
 import { NextResponse } from 'next/server'
@@ -13,9 +17,12 @@ import {
   ValidationError,
   InternalError,
 } from '@/lib/errors'
+import { EnhancedAppError } from '@/lib/errors/enhanced-errors'
+import { EnhancedApiResponse, generateRequestId } from './enhanced-api-response'
 
 /**
  * Generate a unique trace ID for request tracking
+ * @deprecated Use generateRequestId from enhanced-api-response instead
  */
 export function generateTraceId(): string {
   const timestamp = Date.now().toString(36)
@@ -26,15 +33,24 @@ export function generateTraceId(): string {
 /**
  * Handles API errors and returns standardized error responses
  * 
+ * This function now supports both legacy AppError and enhanced EnhancedAppError.
+ * For EnhancedAppError, it returns enhanced error responses with causes and solutions.
+ * 
  * @param error - The error to handle
  * @param traceId - Optional trace ID for request tracking
  * @returns NextResponse with appropriate status code and error body
  */
 export function handleApiError(error: unknown, traceId?: string): NextResponse<ApiErrorResponse> {
-  const requestTraceId = traceId || generateTraceId()
+  const requestTraceId = traceId || generateRequestId()
   
   // Log error for debugging (in production, use proper logging service)
   console.error(`[API Error] [${requestTraceId}]`, error)
+
+  // Handle EnhancedAppError instances (new enhanced error types)
+  if (error instanceof EnhancedAppError) {
+    // Use enhanced error response for EnhancedAppError
+    return EnhancedApiResponse.enhancedError(error, requestTraceId) as NextResponse<ApiErrorResponse>
+  }
 
   // Handle AppError instances (our custom error types)
   if (error instanceof AppError) {
@@ -103,7 +119,7 @@ export function createApiHandler<TRequest, TResponse>(
   handler: (request: TRequest) => Promise<NextResponse<TResponse>>
 ): (request: TRequest) => Promise<NextResponse<TResponse | ApiErrorResponse>> {
   return async (request: TRequest) => {
-    const traceId = generateTraceId()
+    const traceId = generateRequestId()
     try {
       return await handler(request)
     } catch (error) {

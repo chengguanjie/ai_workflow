@@ -206,7 +206,7 @@ export const HighlightedTextarea = forwardRef<HighlightedTextareaHandle, Highlig
         editor.innerHTML = getHighlightedHTML(value) || `<span class="text-muted-foreground">${placeholder || ''}</span>`
         lastValueRef.current = value
       }
-    }, [])
+    }, [value, placeholder, getHighlightedHTML])
 
     // 处理 focus 时清除 placeholder
     const handleFocus = useCallback(() => {

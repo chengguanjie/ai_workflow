@@ -181,7 +181,7 @@ export async function getResumableExecutions(
 export async function createResumedExecution(
   originalExecutionId: string,
   workflowId: string,
-  _organizationId: string,
+  organizationId: string,
   userId: string,
   input: Record<string, unknown>
 ): Promise<string> {
@@ -195,16 +195,17 @@ export async function createResumedExecution(
     throw new Error('原执行没有可用的检查点')
   }
 
-  // 创建新的执行记录
+  // 创建新的执行记录 (使用 unchecked 创建方式直接传入外键)
   const newExecution = await prisma.execution.create({
     data: {
       workflowId,
       userId,
+      organizationId,
       input: input as Prisma.InputJsonValue,
       status: 'PENDING',
       checkpoint: originalExecution.checkpoint as Prisma.InputJsonValue,
       resumedFromId: originalExecutionId,
-    },
+    } as Prisma.ExecutionUncheckedCreateInput,
   })
 
   // 标记原执行为已恢复（不再可恢复）

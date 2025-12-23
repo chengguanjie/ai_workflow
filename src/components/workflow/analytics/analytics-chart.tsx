@@ -30,7 +30,7 @@ import { zhCN } from 'date-fns/locale'
 
 interface AnalyticsChartProps {
   type: 'LINE' | 'BAR' | 'PIE' | 'AREA' | 'SCATTER' | 'RADAR'
-  data: any[]
+  data: Record<string, unknown>[]
   config: {
     xKey?: string
     yKey?: string
@@ -54,6 +54,48 @@ const DEFAULT_COLORS = [
   '#84cc16', // lime-500
 ]
 
+// 格式化日期
+const formatDate = (dateStr: string | number | undefined) => {
+  if (!dateStr) return ''
+  try {
+    return format(new Date(dateStr), 'MM-dd', { locale: zhCN })
+  } catch {
+    return String(dateStr)
+  }
+}
+
+// 格式化数值
+const formatValue = (value: number) => {
+  if (value >= 1000000) {
+    return `${(value / 1000000).toFixed(1)}M`
+  } else if (value >= 1000) {
+    return `${(value / 1000).toFixed(1)}K`
+  }
+  return value.toFixed(2)
+}
+
+interface PayloadItem {
+  color: string
+  name: string
+  value: number
+}
+
+// 自定义 Tooltip
+const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: PayloadItem[]; label?: string | number }) => {
+  if (!active || !payload || !payload.length) return null
+
+  return (
+    <div className="bg-background border rounded-lg p-3 shadow-lg">
+      <p className="text-sm font-medium">{formatDate(label)}</p>
+      {payload.map((entry, index) => (
+        <p key={index} className="text-sm" style={{ color: entry.color }}>
+          {entry.name}: {formatValue(entry.value)}
+        </p>
+      ))}
+    </div>
+  )
+}
+
 export default function AnalyticsChart({ type, data, config }: AnalyticsChartProps) {
   const {
     xKey = 'date',
@@ -65,40 +107,6 @@ export default function AnalyticsChart({ type, data, config }: AnalyticsChartPro
     height = 300,
   } = config
 
-  // 格式化日期
-  const formatDate = (dateStr: string) => {
-    try {
-      return format(new Date(dateStr), 'MM-dd', { locale: zhCN })
-    } catch {
-      return dateStr
-    }
-  }
-
-  // 格式化数值
-  const formatValue = (value: number) => {
-    if (value >= 1000000) {
-      return `${(value / 1000000).toFixed(1)}M`
-    } else if (value >= 1000) {
-      return `${(value / 1000).toFixed(1)}K`
-    }
-    return value.toFixed(2)
-  }
-
-  // 自定义 Tooltip
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (!active || !payload || !payload.length) return null
-
-    return (
-      <div className="bg-background border rounded-lg p-3 shadow-lg">
-        <p className="text-sm font-medium">{formatDate(label)}</p>
-        {payload.map((entry: any, index: number) => (
-          <p key={index} className="text-sm" style={{ color: entry.color }}>
-            {entry.name}: {formatValue(entry.value)}
-          </p>
-        ))}
-      </div>
-    )
-  }
 
   const renderChart = useMemo(() => {
     switch (type) {

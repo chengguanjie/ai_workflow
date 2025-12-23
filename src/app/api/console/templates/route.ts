@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
 import { consoleAuth } from '@/lib/console-auth'
 import { hasPermission, Permission } from '@/lib/console-auth/permissions'
@@ -24,7 +24,7 @@ async function checkPermission(permission: Permission) {
 export async function GET(request: NextRequest) {
   const check = await checkPermission('template:read')
   if (check.error) {
-    return ApiResponse.error(check.error, check.status as any)
+    return ApiResponse.error(check.error, check.status)
   }
 
   const { searchParams } = new URL(request.url)
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const check = await checkPermission('template:create')
   if (check.error) {
-    return ApiResponse.error(check.error, check.status as any)
+    return ApiResponse.error(check.error, check.status)
   }
 
   try {

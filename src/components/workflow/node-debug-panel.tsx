@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { X, Play, Loader2, CheckCircle2, XCircle, ChevronDown, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -32,10 +32,10 @@ export function NodeDebugPanel() {
 
   const debugNode = nodes.find(n => n.id === debugNodeId)
 
-  const predecessorNodes = edges
+  const predecessorNodes = useMemo(() => edges
     .filter(e => e.target === debugNodeId)
     .map(e => nodes.find(n => n.id === e.source))
-    .filter(Boolean)
+    .filter(Boolean), [edges, nodes, debugNodeId])
 
   useEffect(() => {
     if (debugNodeId && predecessorNodes.length > 0) {
@@ -52,7 +52,7 @@ export function NodeDebugPanel() {
       setMockInputs('{}')
     }
     setResult(null)
-  }, [debugNodeId])
+  }, [debugNodeId, predecessorNodes])
 
   const handleRunDebug = async () => {
     if (!workflowId || !debugNodeId) return

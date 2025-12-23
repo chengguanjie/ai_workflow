@@ -188,7 +188,9 @@ export const allMoreNodes: NodeType[] = [...mediaNodes, ...logicNodes, ...connec
 // 所有节点类型（用于测试完整性验证）
 export const allNodeTypes: NodeType[] = [...primaryNodes, ...mediaNodes, ...logicNodes, ...connectionNodes, imageGenNode]
 
-export function NodePanel() {
+import { memo } from 'react'
+
+export const NodePanel = memo(function NodePanel() {
   const [mediaExpanded, setMediaExpanded] = useState(false)
   const [logicExpanded, setLogicExpanded] = useState(false)
   const [connectionExpanded, setConnectionExpanded] = useState(false)
@@ -249,7 +251,7 @@ export function NodePanel() {
         )}
       </button>
 
-      {/* 展开的逻辑类节点：条件、循环、合并 */}
+      {/* 展开的逻辑类节点：条件、循环、分支、合并 */}
       {logicExpanded && logicNodes.map(renderNode)}
 
       {/* 连接类节点按钮 */}
@@ -269,4 +271,4 @@ export function NodePanel() {
       {connectionExpanded && connectionNodes.map(renderNode)}
     </div>
   )
-}
+})

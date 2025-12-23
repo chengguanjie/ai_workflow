@@ -8,6 +8,8 @@ import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { ApiResponse } from '@/lib/api/api-response'
+import { handleError } from '@/lib/api/error-middleware'
+import { AuthenticationError } from '@/lib/errors'
 
 /**
  * GET /api/executions
@@ -25,12 +27,13 @@ export async function GET(request: NextRequest) {
   try {
     const session = await auth()
     if (!session?.user) {
-      return ApiResponse.error('未登录', 401)
+      throw new AuthenticationError('未登录')
     }
 
     const { searchParams } = new URL(request.url)
     const workflowId = searchParams.get('workflowId')
     const status = searchParams.get('status')
+    const statusIn = searchParams.get('statusIn') // 支持多状态筛选，逗号分隔
     const startDate = searchParams.get('startDate')
     const endDate = searchParams.get('endDate')
     const limit = parseInt(searchParams.get('limit') || '20')
@@ -48,10 +51,21 @@ export async function GET(request: NextRequest) {
       dateFilter.lte = end
     }
 
+    // 构建状态筛选条件
+    type ExecutionStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
+    let statusFilter: { status?: ExecutionStatus | { in: ExecutionStatus[] } } = {}
+    if (status) {
+      statusFilter = { status: status as ExecutionStatus }
+    } else if (statusIn) {
+      // 支持多状态筛选，如 statusIn=COMPLETED,FAILED,CANCELLED
+      const statuses = statusIn.split(',').map(s => s.trim()) as ExecutionStatus[]
+      statusFilter = { status: { in: statuses } }
+    }
+
     const where = {
       organizationId: session.user.organizationId,
       ...(workflowId ? { workflowId } : {}),
-      ...(status ? { status: status as 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' } : {}),
+      ...statusFilter,
       ...(Object.keys(dateFilter).length > 0 ? { createdAt: dateFilter } : {}),
     }
 
@@ -109,7 +123,6 @@ export async function GET(request: NextRequest) {
       offset,
     })
   } catch (error) {
-    console.error('Get executions error:', error)
-    return ApiResponse.error('获取执行记录失败', 500)
+    return handleError(error, request)
   }
 }

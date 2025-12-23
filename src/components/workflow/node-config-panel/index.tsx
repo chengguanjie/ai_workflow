@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useMemo, memo } from 'react'
+import { useState, useCallback, memo } from 'react'
 import { useWorkflowStore } from '@/stores/workflow-store'
 import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
@@ -32,9 +32,12 @@ import {
 import { GroupNodeConfigPanel } from './group-node-config'
 
 function NodeConfigPanelInner() {
-  const { nodes, selectedNodeId, selectNode, updateNode } = useWorkflowStore(
+  const selectedNode = useWorkflowStore((state) =>
+    state.nodes.find((n) => n.id === state.selectedNodeId)
+  )
+
+  const { selectedNodeId, selectNode, updateNode } = useWorkflowStore(
     useShallow((state) => ({
-      nodes: state.nodes,
       selectedNodeId: state.selectedNodeId,
       selectNode: state.selectNode,
       updateNode: state.updateNode,
@@ -63,11 +66,7 @@ function NodeConfigPanelInner() {
     document.addEventListener('mouseup', handleMouseUp)
   }, [panelWidth])
 
-  const selectedNode = useMemo(
-    () => nodes.find((n) => n.id === selectedNodeId),
-    [nodes, selectedNodeId]
-  )
-  
+
   if (!selectedNode) return null
 
   const nodeData = selectedNode.data as {

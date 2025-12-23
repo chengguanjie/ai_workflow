@@ -322,7 +322,9 @@ export function getSearchQueries(enhanced: EnhancedQuery): string[] {
   return Array.from(new Set(queries))
 }
 
-export default {
+const QueryEnhanceModule = {
   enhanceQuery,
   getSearchQueries,
 }
+
+export default QueryEnhanceModule

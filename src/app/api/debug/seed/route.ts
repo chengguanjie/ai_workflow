@@ -1,4 +1,3 @@
-import { NextResponse } from 'next/server';
 import { seedOfficialTemplates } from '@/lib/templates/official-templates';
 import { ApiResponse } from '@/lib/api/api-response';
 

@@ -6,6 +6,368 @@
  */
 import { z } from 'zod'
 
+// ============================================
+// Shared Schemas
+// ============================================
+
+const nodePositionSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+})
+
+const baseNodeSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  position: nodePositionSchema,
+  comment: z.string().optional(),
+})
+
+const nodeAIConfigSchema = z.object({
+  aiConfigId: z.string().optional(),
+  model: z.string().optional(),
+  temperature: z.number().min(0).max(2).optional(),
+  maxTokens: z.number().optional(),
+})
+
+// ============================================
+// Node Specific Schemas
+// ============================================
+
+// TRIGGER
+const triggerNodeSchema = baseNodeSchema.extend({
+  type: z.literal('TRIGGER'),
+  config: z.object({
+    triggerType: z.enum(['MANUAL', 'WEBHOOK', 'SCHEDULE']),
+    enabled: z.boolean().optional(),
+    cronExpression: z.string().optional(),
+    timezone: z.string().optional(),
+    inputTemplate: z.record(z.string(), z.unknown()).optional(),
+    retryOnFail: z.boolean().optional(),
+    maxRetries: z.number().optional(),
+    triggerId: z.string().optional(),
+  }),
+})
+
+// INPUT
+const inputFieldSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  value: z.string(),
+  fieldType: z.enum(['text', 'image', 'pdf', 'word', 'excel', 'audio', 'video', 'select', 'multiselect']).optional(),
+  required: z.boolean().optional(),
+  description: z.string().optional(),
+  options: z.array(z.object({ label: z.string(), value: z.string() })).optional(),
+  placeholder: z.string().optional(),
+})
+
+const inputNodeSchema = baseNodeSchema.extend({
+  type: z.literal('INPUT'),
+  config: z.object({
+    fields: z.array(inputFieldSchema),
+  }),
+})
+
+// PROCESS
+const knowledgeItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  content: z.string(),
+})
+
+const processNodeSchema = baseNodeSchema.extend({
+  type: z.literal('PROCESS'),
+  config: nodeAIConfigSchema.extend({
+    knowledgeItems: z.array(knowledgeItemSchema).optional(),
+    knowledgeBaseId: z.string().optional(),
+    ragConfig: z.object({
+      topK: z.number().optional(),
+      threshold: z.number().optional(),
+      maxContextTokens: z.number().optional(),
+    }).optional(),
+    systemPrompt: z.string().optional(),
+    userPrompt: z.string().optional(),
+  }),
+})
+
+// CODE
+const codeNodeSchema = baseNodeSchema.extend({
+  type: z.literal('CODE'),
+  config: nodeAIConfigSchema.extend({
+    prompt: z.string().optional(),
+    language: z.enum(['javascript', 'typescript', 'python', 'sql', 'other']).optional(),
+    code: z.string().optional(),
+    timeout: z.number().optional(),
+    maxMemory: z.number().optional(),
+    maxOutputSize: z.number().optional(),
+  }),
+})
+
+// OUTPUT
+const outputNodeSchema = baseNodeSchema.extend({
+  type: z.literal('OUTPUT'),
+  config: nodeAIConfigSchema.extend({
+    prompt: z.string().optional(),
+    format: z.enum(['text', 'json', 'markdown', 'html', 'word', 'excel', 'pdf', 'image', 'audio', 'video']).optional(),
+    templateName: z.string().optional(),
+    fileName: z.string().optional(),
+    downloadUrl: z.string().optional(),
+  }),
+})
+
+// DATA, IMAGE, VIDEO, AUDIO (File Nodes)
+const importedFileSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  url: z.string(),
+  size: z.number().optional(),
+  type: z.string().optional(),
+})
+
+const fileNodeConfigSchema = z.object({
+  files: z.array(importedFileSchema).optional(),
+  prompt: z.string().optional(),
+})
+
+const dataNodeSchema = baseNodeSchema.extend({
+  type: z.literal('DATA'),
+  config: fileNodeConfigSchema.extend({
+    parseOptions: z.object({
+      headerRow: z.number().optional(),
+      skipEmptyRows: z.boolean().optional(),
+      dateFormat: z.string().optional(),
+    }).optional(),
+  }),
+})
+
+const imageNodeSchema = baseNodeSchema.extend({
+  type: z.literal('IMAGE'),
+  config: fileNodeConfigSchema.extend({
+    processingOptions: z.object({
+      maxWidth: z.number().optional(),
+      maxHeight: z.number().optional(),
+      outputFormat: z.enum(['jpeg', 'png', 'webp']).optional(),
+      quality: z.number().optional(),
+    }).optional(),
+  }),
+})
+
+const videoNodeSchema = baseNodeSchema.extend({
+  type: z.literal('VIDEO'),
+  config: fileNodeConfigSchema.extend({
+    processingOptions: z.object({
+      extractFrames: z.boolean().optional(),
+      frameInterval: z.number().optional(),
+      generateThumbnail: z.boolean().optional(),
+    }).optional(),
+  }),
+})
+
+const audioNodeSchema = baseNodeSchema.extend({
+  type: z.literal('AUDIO'),
+  config: fileNodeConfigSchema.extend({
+    processingOptions: z.object({
+      transcribe: z.boolean().optional(),
+      language: z.string().optional(),
+    }).optional(),
+  }),
+})
+
+// CONDITION
+const conditionSchema = z.object({
+  variable: z.string(),
+  operator: z.enum([
+    'equals', 'notEquals', 'greaterThan', 'lessThan', 
+    'greaterOrEqual', 'lessOrEqual', 'contains', 'notContains', 
+    'startsWith', 'endsWith', 'isEmpty', 'isNotEmpty'
+  ]),
+  value: z.union([z.string(), z.number(), z.boolean()]).optional(),
+  logic: z.enum(['AND', 'OR']).optional(),
+})
+
+const conditionNodeSchema = baseNodeSchema.extend({
+  type: z.literal('CONDITION'),
+  config: z.object({
+    conditions: z.array(conditionSchema),
+    evaluationMode: z.enum(['all', 'any']).optional(),
+  }),
+})
+
+// LOOP
+const loopNodeSchema = baseNodeSchema.extend({
+  type: z.literal('LOOP'),
+  config: z.object({
+    loopType: z.enum(['FOR', 'WHILE']),
+    forConfig: z.object({
+      arrayVariable: z.string(),
+      itemName: z.string(),
+      indexName: z.string().optional(),
+    }).optional(),
+    whileConfig: z.object({
+      condition: conditionSchema,
+      maxIterations: z.number(),
+    }).optional(),
+    maxIterations: z.number().optional(),
+    continueOnError: z.boolean().optional(),
+  }),
+})
+
+// SWITCH
+const switchCaseSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  value: z.union([z.string(), z.number(), z.boolean()]),
+  isDefault: z.boolean().optional(),
+})
+
+const switchNodeSchema = baseNodeSchema.extend({
+  type: z.literal('SWITCH'),
+  config: z.object({
+    switchVariable: z.string(),
+    cases: z.array(switchCaseSchema),
+    matchType: z.enum(['exact', 'contains', 'regex', 'range']).optional(),
+    caseSensitive: z.boolean().optional(),
+    includeDefault: z.boolean().optional(),
+  }),
+})
+
+// MERGE
+const mergeNodeSchema = baseNodeSchema.extend({
+  type: z.literal('MERGE'),
+  config: z.object({
+    mergeStrategy: z.enum(['all', 'any', 'race']),
+    errorStrategy: z.enum(['fail_fast', 'continue', 'collect']).optional(),
+    timeout: z.number().optional(),
+    outputMode: z.enum(['merge', 'array', 'first']).optional(),
+  }),
+})
+
+// HTTP
+const httpNodeSchema = baseNodeSchema.extend({
+  type: z.literal('HTTP'),
+  config: z.object({
+    method: z.enum(['GET', 'POST', 'PUT', 'DELETE', 'PATCH']),
+    url: z.string(),
+    headers: z.record(z.string(), z.string()).optional(),
+    queryParams: z.record(z.string(), z.string()).optional(),
+    body: z.object({
+      type: z.enum(['json', 'form', 'text', 'file', 'none']),
+      content: z.union([z.string(), z.record(z.string(), z.unknown())]).optional(),
+    }).optional(),
+    timeout: z.number().optional(),
+    retry: z.object({
+      maxRetries: z.number(),
+      retryDelay: z.number(),
+      retryOnStatus: z.array(z.number()).optional(),
+    }).optional(),
+  }),
+})
+
+// IMAGE_GEN
+const imageGenNodeSchema = baseNodeSchema.extend({
+  type: z.literal('IMAGE_GEN'),
+  config: nodeAIConfigSchema.extend({
+    prompt: z.string().optional(),
+    negativePrompt: z.string().optional(),
+    provider: z.enum(['OPENAI', 'STABILITYAI', 'ALIYUN_TONGYI', 'SHENSUAN']).optional(),
+    imageModel: z.string().optional(),
+    size: z.enum(['256x256', '512x512', '1024x1024', '1024x1792', '1792x1024']).optional(),
+    quality: z.enum(['standard', 'hd']).optional(),
+    n: z.number().optional(),
+    style: z.string().optional(),
+  }),
+})
+
+// NOTIFICATION
+const notificationNodeSchema = baseNodeSchema.extend({
+  type: z.literal('NOTIFICATION'),
+  config: z.object({
+    platform: z.enum(['feishu', 'dingtalk', 'wecom']),
+    webhookUrl: z.string(),
+    messageType: z.enum(['text', 'markdown', 'card']),
+    content: z.string(),
+    title: z.string().optional(),
+    atMobiles: z.array(z.string()).optional(),
+    atAll: z.boolean().optional(),
+  }),
+})
+
+// GROUP
+const groupNodeSchema = baseNodeSchema.extend({
+  type: z.literal('GROUP'),
+  config: z.object({
+    childNodeIds: z.array(z.string()),
+    label: z.string().optional(),
+    collapsed: z.boolean().optional(),
+    childRelativePositions: z.record(z.string(), nodePositionSchema).optional(),
+  }),
+})
+
+// APPROVAL
+const approverConfigSchema = z.object({
+  type: z.enum(['USER', 'ROLE', 'DEPARTMENT']),
+  targetId: z.string(),
+  displayName: z.string().optional(),
+})
+
+const approvalCustomFieldSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  type: z.enum(['TEXT', 'TEXTAREA', 'NUMBER', 'SELECT', 'CHECKBOX', 'DATE']),
+  required: z.boolean().optional(),
+  options: z.array(z.object({ label: z.string(), value: z.string() })).optional(),
+  defaultValue: z.union([z.string(), z.number(), z.boolean()]).optional(),
+  placeholder: z.string().optional(),
+})
+
+const approvalNodeSchema = baseNodeSchema.extend({
+  type: z.literal('APPROVAL'),
+  config: z.object({
+    title: z.string(),
+    description: z.string().optional(),
+    approvers: z.array(approverConfigSchema),
+    timeout: z.number(),
+    timeoutAction: z.enum(['APPROVE', 'REJECT', 'ESCALATE']),
+    notificationChannels: z.array(z.enum(['EMAIL', 'IN_APP', 'WEBHOOK'])),
+    requiredApprovals: z.number(),
+    allowComments: z.boolean(),
+    customFields: z.array(approvalCustomFieldSchema),
+  }),
+})
+
+// Union of all node types
+const nodeSchema = z.discriminatedUnion('type', [
+  triggerNodeSchema,
+  inputNodeSchema,
+  processNodeSchema,
+  codeNodeSchema,
+  outputNodeSchema,
+  dataNodeSchema,
+  imageNodeSchema,
+  videoNodeSchema,
+  audioNodeSchema,
+  conditionNodeSchema,
+  loopNodeSchema,
+  switchNodeSchema,
+  httpNodeSchema,
+  mergeNodeSchema,
+  imageGenNodeSchema,
+  notificationNodeSchema,
+  groupNodeSchema,
+  approvalNodeSchema,
+])
+
+const edgeSchema = z.object({
+  id: z.string(),
+  source: z.string(),
+  target: z.string(),
+  sourceHandle: z.string().nullable().optional(),
+  targetHandle: z.string().nullable().optional(),
+})
+
+// ============================================
+// API Schemas
+// ============================================
+
 /**
  * Schema for creating a new workflow
  * Validates name, optional description, and workflow configuration
@@ -14,9 +376,9 @@ export const workflowCreateSchema = z.object({
   name: z.string().min(1, '名称不能为空').max(100, '名称不能超过100字符'),
   description: z.string().max(500).optional(),
   config: z.object({
-    nodes: z.array(z.any()),
-    edges: z.array(z.any()),
-    globalVariables: z.record(z.string(), z.string()).optional(),
+    nodes: z.array(nodeSchema),
+    edges: z.array(edgeSchema),
+    globalVariables: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
   }),
 })
 
@@ -29,8 +391,8 @@ export const workflowListSchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   search: z.string().optional(),
   category: z.string().optional(),
-  creatorId: z.string().optional(),  // 按创建人筛选
-  departmentId: z.string().optional(),  // 按部门筛选
+  creatorId: z.string().optional(),
+  departmentId: z.string().optional(),
 })
 
 /**
@@ -41,9 +403,9 @@ export const workflowUpdateSchema = z.object({
   name: z.string().min(1, '名称不能为空').max(100, '名称不能超过100字符').optional(),
   description: z.string().max(500).optional(),
   config: z.object({
-    nodes: z.array(z.any()),
-    edges: z.array(z.any()),
-    globalVariables: z.record(z.string(), z.string()).optional(),
+    nodes: z.array(nodeSchema),
+    edges: z.array(edgeSchema),
+    globalVariables: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
   }).optional(),
   isActive: z.boolean().optional(),
   category: z.string().max(50).optional(),
@@ -58,7 +420,7 @@ export const workflowExecuteSchema = z.object({
   input: z.record(z.string(), z.unknown()).optional(),
   timeout: z.number().int().min(1).max(3600).optional(),
   async: z.boolean().optional(),
-  mode: z.enum(['production', 'draft']).optional(), // 执行模式：production 使用已发布配置，draft 使用草稿配置
+  mode: z.enum(['production', 'draft']).optional(),
 })
 
 // Inferred TypeScript types from Zod schemas

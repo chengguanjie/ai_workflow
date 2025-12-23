@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -142,11 +142,7 @@ export function TemplateRating({
   const [score, setScore] = useState(0)
   const [comment, setComment] = useState('')
 
-  useEffect(() => {
-    loadRatings()
-  }, [templateId])
-
-  const loadRatings = async () => {
+  const loadRatings = useCallback(async () => {
     try {
       const res = await fetch(`/api/templates/${templateId}/ratings`)
       if (res.ok) {
@@ -166,7 +162,11 @@ export function TemplateRating({
     } finally {
       setLoading(false)
     }
-  }
+  }, [templateId])
+
+  useEffect(() => {
+    loadRatings()
+  }, [loadRatings])
 
   const handleSubmit = async () => {
     if (score === 0) {

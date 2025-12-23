@@ -25,7 +25,6 @@ import {
   X,
   BarChart3,
   TrendingUp,
-  Settings,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import dynamic from 'next/dynamic'
@@ -243,279 +242,279 @@ export default function WorkflowAnalyticsPage() {
               <div className="space-y-6">
                 {/* 汇总卡片 */}
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="text-center">
-                    <p className="text-3xl font-bold">{analytics.summary.totalExecutions}</p>
-                    <p className="text-sm text-muted-foreground">总执行次数</p>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="text-center">
-                    <p className="text-3xl font-bold text-green-600">
-                      {(analytics.summary.successRate * 100).toFixed(1)}%
-                    </p>
-                    <p className="text-sm text-muted-foreground">成功率</p>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="text-center flex flex-col items-center">
-                    <div className="flex items-center gap-1">
-                      <Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
-                      <span className="text-3xl font-bold">
-                        {analytics.summary.avgRating.toFixed(1)}
-                      </span>
-                    </div>
-                    <p className="text-sm text-muted-foreground">平均评分</p>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="text-center">
-                    <p className="text-3xl font-bold">{analytics.summary.feedbackCount}</p>
-                    <p className="text-sm text-muted-foreground">反馈数</p>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="text-center">
-                    <p className="text-3xl font-bold">
-                      {(analytics.summary.avgDuration / 1000).toFixed(1)}s
-                    </p>
-                    <p className="text-sm text-muted-foreground">平均耗时</p>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="text-center">
-                    <p className="text-3xl font-bold">
-                      {analytics.summary.avgTokens.toLocaleString()}
-                    </p>
-                    <p className="text-sm text-muted-foreground">平均Token</p>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* 主要内容区 */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* 左侧：问题分类和评分分布 */}
-              <div className="space-y-6">
-                {/* 问题分类 */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">问题分类分布</CardTitle>
-                    <CardDescription>用户反馈中标记的问题类型</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {analytics.issueBreakdown.length === 0 ? (
-                      <p className="text-sm text-muted-foreground text-center py-4">
-                        暂无问题反馈
-                      </p>
-                    ) : (
-                      <div className="space-y-3">
-                        {analytics.issueBreakdown.map((item) => (
-                          <div key={item.category}>
-                            <div className="flex justify-between text-sm mb-1">
-                              <span>{ISSUE_CATEGORY_LABELS[item.category] || item.category}</span>
-                              <span className="text-muted-foreground">
-                                {item.count} ({item.percentage.toFixed(0)}%)
-                              </span>
-                            </div>
-                            <div className="h-2 bg-muted rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-primary rounded-full"
-                                style={{ width: `${item.percentage}%` }}
-                              />
-                            </div>
-                          </div>
-                        ))}
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="text-center">
+                        <p className="text-3xl font-bold">{analytics.summary.totalExecutions}</p>
+                        <p className="text-sm text-muted-foreground">总执行次数</p>
                       </div>
-                    )}
-                  </CardContent>
-                </Card>
+                    </CardContent>
+                  </Card>
 
-                {/* 评分分布 */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">评分分布</CardTitle>
-                    <CardDescription>用户对执行结果的评分</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      {analytics.ratingDistribution.reverse().map((item) => (
-                        <div key={item.rating} className="flex items-center gap-2">
-                          <div className="flex items-center gap-1 w-16">
-                            {[...Array(item.rating)].map((_, i) => (
-                              <Star
-                                key={i}
-                                className="h-3 w-3 text-yellow-500 fill-yellow-500"
-                              />
-                            ))}
-                          </div>
-                          <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-yellow-500 rounded-full"
-                              style={{ width: `${item.percentage}%` }}
-                            />
-                          </div>
-                          <span className="text-sm text-muted-foreground w-12 text-right">
-                            {item.count}
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="text-center">
+                        <p className="text-3xl font-bold text-green-600">
+                          {(analytics.summary.successRate * 100).toFixed(1)}%
+                        </p>
+                        <p className="text-sm text-muted-foreground">成功率</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="text-center flex flex-col items-center">
+                        <div className="flex items-center gap-1">
+                          <Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
+                          <span className="text-3xl font-bold">
+                            {analytics.summary.avgRating.toFixed(1)}
                           </span>
                         </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
+                        <p className="text-sm text-muted-foreground">平均评分</p>
+                      </div>
+                    </CardContent>
+                  </Card>
 
-              {/* 右侧：优化建议 */}
-              <div className="lg:col-span-2">
-                <Card className="h-full">
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle className="text-base flex items-center gap-2">
-                          <Lightbulb className="h-4 w-4" />
-                          待处理优化建议
-                        </CardTitle>
-                        <CardDescription>
-                          AI 根据用户反馈生成的优化建议
-                        </CardDescription>
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="text-center">
+                        <p className="text-3xl font-bold">{analytics.summary.feedbackCount}</p>
+                        <p className="text-sm text-muted-foreground">反馈数</p>
                       </div>
-                      {analytics.suggestions.pending > 0 && (
-                        <Badge variant="secondary">
-                          {analytics.suggestions.pending} 条待处理
-                        </Badge>
-                      )}
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    {isLoadingSuggestions ? (
-                      <div className="flex items-center justify-center py-8">
-                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                      </div>
-                    ) : suggestions.length === 0 ? (
-                      <div className="text-center py-8 text-muted-foreground">
-                        <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-green-500" />
-                        <p>暂无待处理的优化建议</p>
-                        <p className="text-xs mt-1">
-                          当用户提交反馈并请求AI诊断时，建议会出现在这里
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="text-center">
+                        <p className="text-3xl font-bold">
+                          {(analytics.summary.avgDuration / 1000).toFixed(1)}s
                         </p>
+                        <p className="text-sm text-muted-foreground">平均耗时</p>
                       </div>
-                    ) : (
-                      <ScrollArea className="h-[400px]">
-                        <div className="space-y-4 pr-4">
-                          {suggestions.map((suggestion) => (
-                            <div
-                              key={suggestion.id}
-                              className="rounded-lg border p-4 hover:bg-muted/50 transition-colors"
-                            >
-                              <div className="flex items-start justify-between gap-4">
-                                <div className="flex-1">
-                                  <div className="flex items-center gap-2 mb-1">
-                                    <h4 className="font-medium">{suggestion.suggestionTitle}</h4>
-                                    <Badge variant="outline" className="text-xs">
-                                      置信度 {(suggestion.confidence * 100).toFixed(0)}%
-                                    </Badge>
-                                  </div>
-                                  <p className="text-sm text-muted-foreground line-clamp-2">
-                                    {suggestion.suggestionDetail}
-                                  </p>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="text-center">
+                        <p className="text-3xl font-bold">
+                          {analytics.summary.avgTokens.toLocaleString()}
+                        </p>
+                        <p className="text-sm text-muted-foreground">平均Token</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* 主要内容区 */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* 左侧：问题分类和评分分布 */}
+                  <div className="space-y-6">
+                    {/* 问题分类 */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">问题分类分布</CardTitle>
+                        <CardDescription>用户反馈中标记的问题类型</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        {analytics.issueBreakdown.length === 0 ? (
+                          <p className="text-sm text-muted-foreground text-center py-4">
+                            暂无问题反馈
+                          </p>
+                        ) : (
+                          <div className="space-y-3">
+                            {analytics.issueBreakdown.map((item) => (
+                              <div key={item.category}>
+                                <div className="flex justify-between text-sm mb-1">
+                                  <span>{ISSUE_CATEGORY_LABELS[item.category] || item.category}</span>
+                                  <span className="text-muted-foreground">
+                                    {item.count} ({item.percentage.toFixed(0)}%)
+                                  </span>
                                 </div>
-                                <div className="flex gap-2">
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => handleRejectSuggestion(suggestion.id)}
-                                  >
-                                    <X className="h-4 w-4" />
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    onClick={() => handleApplySuggestion(suggestion.id)}
-                                  >
-                                    <Check className="h-4 w-4 mr-1" />
-                                    应用
-                                  </Button>
+                                <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full bg-primary rounded-full"
+                                    style={{ width: `${item.percentage}%` }}
+                                  />
                                 </div>
                               </div>
+                            ))}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    {/* 评分分布 */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">评分分布</CardTitle>
+                        <CardDescription>用户对执行结果的评分</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-2">
+                          {analytics.ratingDistribution.reverse().map((item) => (
+                            <div key={item.rating} className="flex items-center gap-2">
+                              <div className="flex items-center gap-1 w-16">
+                                {[...Array(item.rating)].map((_, i) => (
+                                  <Star
+                                    key={i}
+                                    className="h-3 w-3 text-yellow-500 fill-yellow-500"
+                                  />
+                                ))}
+                              </div>
+                              <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-yellow-500 rounded-full"
+                                  style={{ width: `${item.percentage}%` }}
+                                />
+                              </div>
+                              <span className="text-sm text-muted-foreground w-12 text-right">
+                                {item.count}
+                              </span>
                             </div>
                           ))}
                         </div>
-                      </ScrollArea>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-
-            {/* 执行趋势 */}
-            {analytics.trend.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">执行趋势</CardTitle>
-                  <CardDescription>每日执行次数和成功率变化</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b">
-                          <th className="text-left py-2 px-4">日期</th>
-                          <th className="text-right py-2 px-4">执行次数</th>
-                          <th className="text-right py-2 px-4">成功率</th>
-                          <th className="text-right py-2 px-4">平均评分</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {analytics.trend.map((item) => (
-                          <tr key={item.date} className="border-b">
-                            <td className="py-2 px-4">{item.date}</td>
-                            <td className="text-right py-2 px-4">{item.executions}</td>
-                            <td className="text-right py-2 px-4">
-                              <span
-                                className={
-                                  item.successRate >= 0.9
-                                    ? 'text-green-600'
-                                    : item.successRate >= 0.7
-                                    ? 'text-yellow-600'
-                                    : 'text-red-600'
-                                }
-                              >
-                                {(item.successRate * 100).toFixed(1)}%
-                              </span>
-                            </td>
-                            <td className="text-right py-2 px-4">
-                              {item.avgRating > 0 ? (
-                                <span className="flex items-center justify-end gap-1">
-                                  <Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />
-                                  {item.avgRating.toFixed(1)}
-                                </span>
-                              ) : (
-                                <span className="text-muted-foreground">-</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                      </CardContent>
+                    </Card>
                   </div>
-                </CardContent>
-              </Card>
-            )}
+
+                  {/* 右侧：优化建议 */}
+                  <div className="lg:col-span-2">
+                    <Card className="h-full">
+                      <CardHeader>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <CardTitle className="text-base flex items-center gap-2">
+                              <Lightbulb className="h-4 w-4" />
+                              待处理优化建议
+                            </CardTitle>
+                            <CardDescription>
+                              AI 根据用户反馈生成的优化建议
+                            </CardDescription>
+                          </div>
+                          {analytics.suggestions.pending > 0 && (
+                            <Badge variant="secondary">
+                              {analytics.suggestions.pending} 条待处理
+                            </Badge>
+                          )}
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        {isLoadingSuggestions ? (
+                          <div className="flex items-center justify-center py-8">
+                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                          </div>
+                        ) : suggestions.length === 0 ? (
+                          <div className="text-center py-8 text-muted-foreground">
+                            <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-green-500" />
+                            <p>暂无待处理的优化建议</p>
+                            <p className="text-xs mt-1">
+                              当用户提交反馈并请求AI诊断时，建议会出现在这里
+                            </p>
+                          </div>
+                        ) : (
+                          <ScrollArea className="h-[400px]">
+                            <div className="space-y-4 pr-4">
+                              {suggestions.map((suggestion) => (
+                                <div
+                                  key={suggestion.id}
+                                  className="rounded-lg border p-4 hover:bg-muted/50 transition-colors"
+                                >
+                                  <div className="flex items-start justify-between gap-4">
+                                    <div className="flex-1">
+                                      <div className="flex items-center gap-2 mb-1">
+                                        <h4 className="font-medium">{suggestion.suggestionTitle}</h4>
+                                        <Badge variant="outline" className="text-xs">
+                                          置信度 {(suggestion.confidence * 100).toFixed(0)}%
+                                        </Badge>
+                                      </div>
+                                      <p className="text-sm text-muted-foreground line-clamp-2">
+                                        {suggestion.suggestionDetail}
+                                      </p>
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => handleRejectSuggestion(suggestion.id)}
+                                      >
+                                        <X className="h-4 w-4" />
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        onClick={() => handleApplySuggestion(suggestion.id)}
+                                      >
+                                        <Check className="h-4 w-4 mr-1" />
+                                        应用
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </ScrollArea>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </div>
+                </div>
+
+                {/* 执行趋势 */}
+                {analytics.trend.length > 0 && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">执行趋势</CardTitle>
+                      <CardDescription>每日执行次数和成功率变化</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b">
+                              <th className="text-left py-2 px-4">日期</th>
+                              <th className="text-right py-2 px-4">执行次数</th>
+                              <th className="text-right py-2 px-4">成功率</th>
+                              <th className="text-right py-2 px-4">平均评分</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {analytics.trend.map((item) => (
+                              <tr key={item.date} className="border-b">
+                                <td className="py-2 px-4">{item.date}</td>
+                                <td className="text-right py-2 px-4">{item.executions}</td>
+                                <td className="text-right py-2 px-4">
+                                  <span
+                                    className={
+                                      item.successRate >= 0.9
+                                        ? 'text-green-600'
+                                        : item.successRate >= 0.7
+                                          ? 'text-yellow-600'
+                                          : 'text-red-600'
+                                    }
+                                  >
+                                    {(item.successRate * 100).toFixed(1)}%
+                                  </span>
+                                </td>
+                                <td className="text-right py-2 px-4">
+                                  {item.avgRating > 0 ? (
+                                    <span className="flex items-center justify-end gap-1">
+                                      <Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />
+                                      {item.avgRating.toFixed(1)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-muted-foreground">-</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
               </div>
             )}
           </TabsContent>

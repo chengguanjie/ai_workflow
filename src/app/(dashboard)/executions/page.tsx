@@ -2,74 +2,45 @@
 
 /**
  * 执行历史页面
+ * 
+ * 分为两个区域：
+ * - RunningSection: 正在执行的工作流（RUNNING/PENDING）
+ * - HistorySection: 历史记录（COMPLETED/FAILED/CANCELLED）
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import {
   History,
   RefreshCw,
-  CheckCircle2,
-  XCircle,
-  Clock,
-  Loader2,
-  FileText,
-  ExternalLink,
-  ChevronLeft,
-  ChevronRight,
-  Filter,
-  X,
-  Timer,
 } from 'lucide-react'
-import { Checkbox } from '@/components/ui/checkbox'
-import Link from 'next/link'
+import { RunningSection } from '@/components/execution/running-section'
+import { HistorySection, type HistoryFilters, type WorkflowOption } from '@/components/execution/history-section'
+import type { Execution } from '@/lib/execution/categorize'
 
-interface Execution {
-  id: string
-  status: string
-  input: Record<string, unknown>
-  output: Record<string, unknown> | null
-  startedAt: string | null
-  completedAt: string | null
-  duration: number | null
-  totalTokens: number
-  error: string | null
-  createdAt: string
-  workflowId: string
-  workflowName: string
-  outputFileCount: number
-}
-
-interface Workflow {
-  id: string
-  name: string
-}
+// 自动刷新间隔（毫秒）
+const AUTO_REFRESH_INTERVAL = 5000
 
 export default function ExecutionsPage() {
-  const [executions, setExecutions] = useState<Execution[]>([])
-  const [workflows, setWorkflows] = useState<Workflow[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [total, setTotal] = useState(0)
-  const [page, setPage] = useState(1)
-  const pageSize = 20
+  // 运行中的执行记录
+  const [runningExecutions, setRunningExecutions] = useState<Execution[]>([])
+  const [isLoadingRunning, setIsLoadingRunning] = useState(true)
+  
+  // 历史记录
+  const [historyExecutions, setHistoryExecutions] = useState<Execution[]>([])
+  const [historyTotal, setHistoryTotal] = useState(0)
+  const [historyPage, setHistoryPage] = useState(1)
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true)
+  const historyPageSize = 20
 
   // 筛选状态
-  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>('')
-  const [selectedStatus, setSelectedStatus] = useState<string>('')
-  const [startDate, setStartDate] = useState<string>('')
-  const [endDate, setEndDate] = useState<string>('')
+  const [filters, setFilters] = useState<HistoryFilters>({})
+
+  // 工作流列表
+  const [workflows, setWorkflows] = useState<WorkflowOption[]>([])
 
   // 自动刷新相关
-  const [autoRefresh, setAutoRefresh] = useState(false)
-  const intervalRef = useRef<NodeJS.Timeout | null>(null)
+  const runningIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   // 加载工作流列表
   useEffect(() => {
@@ -78,7 +49,6 @@ export default function ExecutionsPage() {
         const response = await fetch('/api/workflows')
         if (response.ok) {
           const data = await response.json()
-          // API 直接返回数组
           setWorkflows(Array.isArray(data) ? data : [])
         }
       } catch (error) {
@@ -88,140 +58,142 @@ export default function ExecutionsPage() {
     loadWorkflows()
   }, [])
 
-  const loadExecutions = useCallback(async () => {
-    setIsLoading(true)
+  // 加载运行中的执行记录
+  const loadRunningExecutions = useCallback(async () => {
     try {
-      const offset = (page - 1) * pageSize
+      // 获取运行中和等待中的执行记录
       const params = new URLSearchParams({
-        limit: String(pageSize),
-        offset: String(offset),
+        limit: '100', // 获取足够多的记录以包含所有运行中的
+        offset: '0',
       })
-      if (selectedWorkflowId) {
-        params.append('workflowId', selectedWorkflowId)
-      }
-      if (selectedStatus) {
-        params.append('status', selectedStatus)
-      }
-      if (startDate) {
-        params.append('startDate', startDate)
-      }
-      if (endDate) {
-        params.append('endDate', endDate)
-      }
+      
       const response = await fetch(`/api/executions?${params.toString()}`)
       if (response.ok) {
         const result = await response.json()
-        // API response is wrapped in { success: true, data: { executions, total, ... } }
         if (result.success && result.data) {
-          setExecutions(result.data.executions || [])
-          setTotal(result.data.total || 0)
+          // 过滤出运行中的执行记录
+          const allExecutions = result.data.executions || []
+          const running = allExecutions.filter(
+            (e: Execution) => e.status === 'RUNNING' || e.status === 'PENDING'
+          )
+          setRunningExecutions(running)
         } else {
-          setExecutions([])
-          setTotal(0)
+          setRunningExecutions([])
         }
       }
     } catch (error) {
-      console.error('Load executions error:', error)
+      console.error('Load running executions error:', error)
     } finally {
-      setIsLoading(false)
+      setIsLoadingRunning(false)
     }
-  }, [page, selectedWorkflowId, selectedStatus, startDate, endDate])
+  }, [])
 
-  useEffect(() => {
-    loadExecutions()
-  }, [loadExecutions])
-
-  // 检测是否有运行中的工作流，自动开启刷新
-  useEffect(() => {
-    const hasRunning = executions.some((e) => e.status === 'RUNNING' || e.status === 'PENDING')
-    if (hasRunning && !autoRefresh) {
-      setAutoRefresh(true)
+  // 加载历史记录
+  const loadHistoryExecutions = useCallback(async () => {
+    setIsLoadingHistory(true)
+    try {
+      const offset = (historyPage - 1) * historyPageSize
+      const params = new URLSearchParams({
+        limit: String(historyPageSize),
+        offset: String(offset),
+      })
+      
+      // 添加筛选条件
+      if (filters.workflowId) {
+        params.append('workflowId', filters.workflowId)
+      }
+      if (filters.status) {
+        params.append('status', filters.status)
+      } else {
+        // 默认只获取历史记录状态
+        params.append('statusIn', 'COMPLETED,FAILED,CANCELLED')
+      }
+      if (filters.startDate) {
+        params.append('startDate', filters.startDate)
+      }
+      if (filters.endDate) {
+        params.append('endDate', filters.endDate)
+      }
+      
+      const response = await fetch(`/api/executions?${params.toString()}`)
+      if (response.ok) {
+        const result = await response.json()
+        if (result.success && result.data) {
+          // 过滤确保只有历史记录状态
+          const executions = (result.data.executions || []).filter(
+            (e: Execution) => 
+              e.status === 'COMPLETED' || 
+              e.status === 'FAILED' || 
+              e.status === 'CANCELLED'
+          )
+          setHistoryExecutions(executions)
+          setHistoryTotal(result.data.total || 0)
+        } else {
+          setHistoryExecutions([])
+          setHistoryTotal(0)
+        }
+      }
+    } catch (error) {
+      console.error('Load history executions error:', error)
+    } finally {
+      setIsLoadingHistory(false)
     }
-  }, [executions, autoRefresh])
+  }, [historyPage, filters])
 
-  // 自动刷新逻辑
+  // 初始加载
   useEffect(() => {
-    if (autoRefresh) {
-      intervalRef.current = setInterval(() => {
-        loadExecutions()
-      }, 5000) // 每5秒刷新一次
+    loadRunningExecutions()
+  }, [loadRunningExecutions])
+
+  useEffect(() => {
+    loadHistoryExecutions()
+  }, [loadHistoryExecutions])
+
+  // 运行区域自动刷新逻辑（5秒间隔）
+  useEffect(() => {
+    // 只有当有运行中的执行记录时才启动自动刷新
+    if (runningExecutions.length > 0) {
+      runningIntervalRef.current = setInterval(() => {
+        loadRunningExecutions()
+        // 同时刷新历史记录，因为运行中的可能已完成
+        loadHistoryExecutions()
+      }, AUTO_REFRESH_INTERVAL)
     } else {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current)
-        intervalRef.current = null
+      // 没有运行中的执行记录时，清除定时器
+      if (runningIntervalRef.current) {
+        clearInterval(runningIntervalRef.current)
+        runningIntervalRef.current = null
       }
     }
 
     return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current)
+      if (runningIntervalRef.current) {
+        clearInterval(runningIntervalRef.current)
       }
     }
-  }, [autoRefresh, loadExecutions])
+  }, [runningExecutions.length, loadRunningExecutions, loadHistoryExecutions])
 
-  // 重置筛选
-  const resetFilters = () => {
-    setSelectedWorkflowId('')
-    setSelectedStatus('')
-    setStartDate('')
-    setEndDate('')
-    setPage(1)
+  // 手动刷新
+  const handleRefresh = () => {
+    setIsLoadingRunning(true)
+    setIsLoadingHistory(true)
+    loadRunningExecutions()
+    loadHistoryExecutions()
   }
 
-  // 检查是否有筛选条件
-  const hasFilters = selectedWorkflowId || selectedStatus || startDate || endDate
-
-  const formatDuration = (ms: number | null): string => {
-    if (!ms) return '-'
-    if (ms < 1000) return `${ms}ms`
-    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
-    return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`
+  // 处理筛选条件变化
+  const handleFiltersChange = (newFilters: HistoryFilters) => {
+    setFilters(newFilters)
+    setHistoryPage(1) // 重置到第一页
   }
 
-  const formatDate = (date: string | null): string => {
-    if (!date) return '-'
-    return new Date(date).toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
+  // 处理页码变化
+  const handlePageChange = (page: number) => {
+    setHistoryPage(page)
   }
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'COMPLETED':
-        return <CheckCircle2 className="h-4 w-4 text-green-500" />
-      case 'FAILED':
-        return <XCircle className="h-4 w-4 text-red-500" />
-      case 'RUNNING':
-        return <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
-      case 'PENDING':
-        return <Clock className="h-4 w-4 text-yellow-500" />
-      default:
-        return <Clock className="h-4 w-4 text-gray-500" />
-    }
-  }
-
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'COMPLETED':
-        return '成功'
-      case 'FAILED':
-        return '失败'
-      case 'RUNNING':
-        return '运行中'
-      case 'PENDING':
-        return '等待中'
-      case 'CANCELLED':
-        return '已取消'
-      default:
-        return status
-    }
-  }
-
-  const totalPages = Math.ceil(total / pageSize)
+  // 计算总记录数（运行中 + 历史）
+  const totalRecords = runningExecutions.length + historyTotal
 
   return (
     <div className="container mx-auto py-6">
@@ -230,221 +202,49 @@ export default function ExecutionsPage() {
         <div className="flex items-center gap-3">
           <History className="h-6 w-6 text-primary" />
           <h1 className="text-2xl font-bold">执行历史</h1>
-          <span className="text-sm text-muted-foreground">共 {total} 条记录</span>
+          <span className="text-sm text-muted-foreground">共 {totalRecords} 条记录</span>
         </div>
         <div className="flex items-center gap-4">
-          {/* 自动刷新开关 */}
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="auto-refresh"
-              checked={autoRefresh}
-              onCheckedChange={(checked) => setAutoRefresh(!!checked)}
-            />
-            <label
-              htmlFor="auto-refresh"
-              className="flex cursor-pointer items-center gap-1 text-sm font-medium"
-            >
-              <Timer className={`h-4 w-4 ${autoRefresh ? 'animate-pulse text-primary' : ''}`} />
-              自动刷新
-              {autoRefresh && (
-                <span className="text-xs text-muted-foreground">（5秒）</span>
-              )}
-            </label>
-          </div>
-          <Button variant="outline" size="sm" onClick={loadExecutions} disabled={isLoading}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+          {/* 自动刷新状态指示 */}
+          {runningExecutions.length > 0 && (
+            <span className="flex items-center gap-1 text-sm text-muted-foreground">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75"></span>
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-500"></span>
+              </span>
+              自动刷新中
+            </span>
+          )}
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={handleRefresh} 
+            disabled={isLoadingRunning || isLoadingHistory}
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${(isLoadingRunning || isLoadingHistory) ? 'animate-spin' : ''}`} />
             刷新
           </Button>
         </div>
       </div>
 
-      {/* 筛选栏 */}
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2">
-          <Filter className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">筛选:</span>
-        </div>
+      {/* 正在执行区域 - 视觉区分样式 */}
+      <RunningSection
+        executions={runningExecutions}
+        isLoading={isLoadingRunning}
+      />
 
-        {/* 工作流筛选 */}
-        <Select
-          value={selectedWorkflowId}
-          onValueChange={(value) => {
-            setSelectedWorkflowId(value === 'all' ? '' : value)
-            setPage(1)
-          }}
-        >
-          <SelectTrigger className="w-[200px]" size="sm">
-            <SelectValue placeholder="选择工作流" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">全部工作流</SelectItem>
-            {workflows.map((workflow) => (
-              <SelectItem key={workflow.id} value={workflow.id}>
-                {workflow.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {/* 状态筛选 */}
-        <Select
-          value={selectedStatus}
-          onValueChange={(value) => {
-            setSelectedStatus(value === 'all' ? '' : value)
-            setPage(1)
-          }}
-        >
-          <SelectTrigger className="w-[160px]" size="sm">
-            <SelectValue placeholder="选择状态" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">全部状态</SelectItem>
-            <SelectItem value="RUNNING">运行中</SelectItem>
-            <SelectItem value="PENDING">等待中</SelectItem>
-            <SelectItem value="COMPLETED">成功</SelectItem>
-            <SelectItem value="FAILED">失败</SelectItem>
-            <SelectItem value="CANCELLED">已取消</SelectItem>
-          </SelectContent>
-        </Select>
-
-        {/* 开始日期 */}
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">从</span>
-          <Input
-            type="date"
-            value={startDate}
-            onChange={(e) => {
-              setStartDate(e.target.value)
-              setPage(1)
-            }}
-            className="h-8 w-[140px]"
-          />
-        </div>
-
-        {/* 结束日期 */}
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">至</span>
-          <Input
-            type="date"
-            value={endDate}
-            onChange={(e) => {
-              setEndDate(e.target.value)
-              setPage(1)
-            }}
-            className="h-8 w-[140px]"
-          />
-        </div>
-
-        {/* 重置筛选 */}
-        {hasFilters && (
-          <Button variant="ghost" size="sm" onClick={resetFilters}>
-            <X className="mr-1 h-4 w-4" />
-            重置
-          </Button>
-        )}
-      </div>
-
-      {/* 表格 */}
-      <div className="rounded-lg border bg-background">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b bg-muted/50">
-              <th className="px-4 py-3 text-left text-sm font-medium">状态</th>
-              <th className="px-4 py-3 text-left text-sm font-medium">工作流</th>
-              <th className="px-4 py-3 text-left text-sm font-medium">执行时间</th>
-              <th className="px-4 py-3 text-left text-sm font-medium">耗时</th>
-              <th className="px-4 py-3 text-left text-sm font-medium">Tokens</th>
-              <th className="px-4 py-3 text-left text-sm font-medium">文件</th>
-              <th className="px-4 py-3 text-left text-sm font-medium">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading ? (
-              <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
-                  <Loader2 className="mx-auto h-6 w-6 animate-spin" />
-                </td>
-              </tr>
-            ) : executions.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
-                  暂无执行记录
-                </td>
-              </tr>
-            ) : (
-              executions.map((execution) => (
-                <tr key={execution.id} className="border-b last:border-0 hover:bg-muted/30">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      {getStatusIcon(execution.status)}
-                      <span className="text-sm">{getStatusText(execution.status)}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <Link
-                      href={`/workflows/${execution.workflowId}`}
-                      className="text-sm font-medium hover:text-primary hover:underline"
-                    >
-                      {execution.workflowName}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-muted-foreground">
-                    {formatDate(execution.startedAt || execution.createdAt)}
-                  </td>
-                  <td className="px-4 py-3 text-sm">{formatDuration(execution.duration)}</td>
-                  <td className="px-4 py-3 text-sm">{execution.totalTokens.toLocaleString()}</td>
-                  <td className="px-4 py-3">
-                    {execution.outputFileCount > 0 && (
-                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                        <FileText className="h-4 w-4" />
-                        <span>{execution.outputFileCount}</span>
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Link href={`/executions/${execution.id}`}>
-                      <Button variant="ghost" size="sm">
-                        <ExternalLink className="mr-1 h-4 w-4" />
-                        详情
-                      </Button>
-                    </Link>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* 分页 */}
-      {totalPages > 1 && (
-        <div className="mt-4 flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            显示 {(page - 1) * pageSize + 1} - {Math.min(page * pageSize, total)} 条，共 {total} 条
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => p - 1)}
-              disabled={page === 1}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="text-sm">
-              {page} / {totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => p + 1)}
-              disabled={page === totalPages}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
+      {/* 历史记录区域 */}
+      <HistorySection
+        executions={historyExecutions}
+        total={historyTotal}
+        page={historyPage}
+        pageSize={historyPageSize}
+        isLoading={isLoadingHistory}
+        filters={filters}
+        workflows={workflows}
+        onPageChange={handlePageChange}
+        onFiltersChange={handleFiltersChange}
+      />
     </div>
   )
 }

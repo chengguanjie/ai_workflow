@@ -8,6 +8,10 @@ datasource db {
   relationMode = "prisma"
 }
 
+// =========================================================================================
+// Core Identity & Access Management (IAM)
+// =========================================================================================
+
 model Organization {
   id                String             @id @default(cuid())
   name              String
@@ -164,6 +168,10 @@ model ApiToken {
   @@map("api_tokens")
 }
 
+// =========================================================================================
+// Workflow Core & Runtime
+// =========================================================================================
+
 model Workflow {
   id                  String               @id @default(cuid())
   name                String
@@ -276,6 +284,10 @@ model TriggerLog {
   @@map("trigger_logs")
 }
 
+// =========================================================================================
+// Workflow Templates & Marketplace
+// =========================================================================================
+
 model WorkflowTemplate {
   id                  String               @id @default(cuid())
   name                String
@@ -376,6 +388,7 @@ model Execution {
   outputFiles         OutputFile[]
   feedbacks           ExecutionFeedback[]
   analyticsDataPoints AnalyticsDataPoint[]
+  approvalRequests    ApprovalRequest[]
 
   @@index([workflowId])
   @@index([userId])
@@ -439,6 +452,10 @@ model OutputFile {
   @@map("output_files")
 }
 
+// =========================================================================================
+// System Audit & logging
+// =========================================================================================
+
 model AuditLog {
   id             String   @id @default(cuid())
   action         String
@@ -495,6 +512,10 @@ model PlatformAuditLog {
   @@map("platform_audit_logs")
 }
 
+// =========================================================================================
+// Platform Support & Feedback
+// =========================================================================================
+
 model PlatformFeedback {
   id             String                   @id @default(cuid())
   type           PlatformFeedbackType
@@ -542,6 +563,10 @@ model SystemLog {
   @@map("system_logs")
 }
 
+// =========================================================================================
+// Registration & Applications
+// =========================================================================================
+
 model OrgApplication {
   id             String            @id @default(cuid())
   orgName        String
@@ -566,6 +591,10 @@ model OrgApplication {
   @@index([createdAt])
   @@map("org_applications")
 }
+
+// =========================================================================================
+// Knowledge Base (RAG)
+// =========================================================================================
 
 model KnowledgeBase {
   id                String                    @id @default(cuid())
@@ -770,6 +799,10 @@ model OptimizationSuggestion {
   @@map("optimization_suggestions")
 }
 
+// =========================================================================================
+// Analytics & Reporting
+// =========================================================================================
+
 model WorkflowAnalytics {
   id               String          @id @default(cuid())
   periodType       AnalyticsPeriod
@@ -849,47 +882,78 @@ model WorkflowFormSubmission {
 }
 
 model ApprovalRequest {
-  id            String                 @id @default(cuid())
-  workflowId    String
-  workflowName  String
-  executionId   String                 @unique
-  title         String
-  description   String?                @db.Text
-  requestData   Json
-  approvers     Json
-  status        ApprovalStatus         @default(PENDING)
-  approvedBy    String?
-  approvedAt    DateTime?
-  rejectedBy    String?
-  rejectedAt    DateTime?
-  comment       String?                @db.Text
-  expiresAt     DateTime?
-  timeoutAction TimeoutAction?
-  createdAt     DateTime               @default(now())
-  updatedAt     DateTime               @updatedAt
-  notifications ApprovalNotification[]
+  id                String                 @id @default(cuid())
+  workflowId        String
+  workflowName      String?
+  executionId       String
+  nodeId            String                 // 审批节点ID
+  title             String
+  description       String?                @db.Text
+  requestData       Json?
+  approvers         Json?
+  status            ApprovalStatus         @default(PENDING)
+  requiredApprovals Int                    @default(1) // 需要的审批数量
+  finalDecision     String?                // 'APPROVE' | 'REJECT'
+  decidedAt         DateTime?              // 最终决定时间
+  requestedAt       DateTime?              // 请求创建时间
+  approvedBy        String?
+  approvedAt        DateTime?
+  rejectedBy        String?
+  rejectedAt        DateTime?
+  comment           String?                @db.Text
+  expiresAt         DateTime?
+  timeoutAction     TimeoutAction?
+  customFields      Json?                  // 自定义表单字段
+  inputSnapshot     Json?                  // 输入数据快照
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  notifications     ApprovalNotification[]
+  decisions         ApprovalDecision[]
+  execution         Execution?             @relation(fields: [executionId], references: [id], onDelete: Cascade)
 
   @@index([workflowId])
+  @@index([executionId])
+  @@index([nodeId])
   @@index([status])
   @@index([expiresAt])
   @@index([createdAt])
   @@map("approval_requests")
 }
 
+model ApprovalDecision {
+  id                String          @id @default(cuid())
+  decision          String          // 'APPROVE' | 'REJECT'
+  comment           String?         @db.Text
+  customFieldValues Json?           // 自定义字段值
+  userId            String
+  userName          String?
+  decidedAt         DateTime        @default(now())
+  createdAt         DateTime        @default(now())
+  requestId         String
+  request           ApprovalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+  @@index([userId])
+  @@index([decidedAt])
+  @@map("approval_decisions")
+}
+
 model ApprovalNotification {
   id             String             @id @default(cuid())
-  approvalId     String
-  type           NotificationType
+  requestId      String
+  channel        String             @default("IN_APP") // 'EMAIL' | 'IN_APP' | 'WEBHOOK'
   recipientId    String
   recipientEmail String?
+  subject        String?
+  content        String?            @db.Text
   status         NotificationStatus @default(PENDING)
   sentAt         DateTime?
   errorMessage   String?            @db.Text
   retryCount     Int                @default(0)
   createdAt      DateTime           @default(now())
-  approval       ApprovalRequest    @relation(fields: [approvalId], references: [id], onDelete: Cascade)
+  request        ApprovalRequest    @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
-  @@index([approvalId])
+  @@index([requestId])
   @@index([recipientId])
   @@index([status])
   @@map("approval_notifications")
@@ -1209,6 +1273,7 @@ enum FormSubmissionStatus {
 enum executions_status {
   PENDING
   RUNNING
+  PAUSED
   COMPLETED
   FAILED
   CANCELLED
@@ -1244,6 +1309,7 @@ enum ApprovalStatus {
   PENDING
   APPROVED
   REJECTED
+  TIMEOUT
   EXPIRED
   CANCELLED
 }
@@ -1251,6 +1317,7 @@ enum ApprovalStatus {
 enum TimeoutAction {
   APPROVE
   REJECT
+  ESCALATE
   NOTIFY
 }
 

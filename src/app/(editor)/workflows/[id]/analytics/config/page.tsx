@@ -16,7 +16,6 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
@@ -36,12 +35,8 @@ import {
 import {
   ArrowLeft,
   Plus,
-  Settings,
   Trash2,
   Edit,
-  Save,
-  X,
-  Info,
   Database,
   Activity,
   MessageSquare,
@@ -116,7 +111,7 @@ interface WorkflowNode {
 
 export default function AnalyticsConfigPage() {
   const params = useParams()
-  const router = useRouter()
+  const _router = useRouter()
   const workflowId = params.id as string
   const queryClient = useQueryClient()
 
@@ -149,7 +144,7 @@ export default function AnalyticsConfigPage() {
       .then(res => res.json())
       .then(data => {
         if (data.draftConfig?.nodes) {
-          const nodes = data.draftConfig.nodes.map((node: any) => ({
+          const nodes = data.draftConfig.nodes.map((node: WorkflowNode) => ({
             id: node.id,
             name: node.name,
             type: node.type,
@@ -161,7 +156,7 @@ export default function AnalyticsConfigPage() {
   }, [workflowId])
 
   // 查询分析配置
-  const { data: configs = [], isLoading } = useQuery({
+  const { data: configs = [], isLoading: _isLoading } = useQuery({
     queryKey: ['analytics-config', workflowId],
     queryFn: async () => {
       const res = await fetch(`/api/workflows/${workflowId}/analytics/config`)
@@ -359,7 +354,7 @@ export default function AnalyticsConfigPage() {
         <CardContent>
           {configs.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              尚未配置任何数据点，点击"添加数据点"开始配置
+              尚未配置任何数据点，点击&ldquo;添加数据点&rdquo;开始配置
             </div>
           ) : (
             <Table>

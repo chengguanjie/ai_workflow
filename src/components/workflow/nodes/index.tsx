@@ -75,11 +75,15 @@ interface NodeData {
     userPrompt?: string
     format?: string
     mode?: 'input' | 'output'
+    stopAutoOptimization?: boolean
+    addOptimizationIteration?: (iteration: number) => void
+    isAutoMode?: boolean
+    setAutoMode?: (mode: boolean) => void
   }
   [key: string]: unknown // Index signature for compatibility
 }
 
-type ExecutionStatus = 'idle' | 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'paused'
+
 
 function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
   const style = nodeStyles[data.type.toLowerCase()] || nodeStyles.input
@@ -736,10 +740,10 @@ function SwitchNodeBase({ data, selected, id }: NodeProps & { data: NodeData }) 
         {/* 多输出连接点 - 每个 case 一个 */}
         {cases.map((c, index) => (
           <Handle
-            key={c.id}
+            key={c.id || `switch-handle-${index}`}
             type="source"
             position={Position.Right}
-            id={c.id}
+            id={c.id || `case-${index}`}
             style={{ top: getHandlePosition(index, cases.length) }}
             className={cn(
               '!h-3 !w-3 !border-2 !border-background',

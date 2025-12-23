@@ -3,14 +3,13 @@
  */
 
 import { prisma } from '@/lib/db'
-import type { ExecutionContext } from './types'
-import type { AnalyticsConfig, DataPointType, Prisma } from '@prisma/client'
+import { type AnalyticsConfig, type DataPointType, Prisma } from '@prisma/client'
 import { get } from 'lodash'
 
 /**
  * 提取数据值的辅助函数
  */
-function extractValue(data: any, path: string): any {
+function extractValue(data: unknown, path: string): unknown {
   // 支持 JSONPath 语法
   if (path.startsWith('$.')) {
     const simplePath = path.substring(2).replace(/\[(\d+)\]/g, '.$1')
@@ -23,17 +22,17 @@ function extractValue(data: any, path: string): any {
 /**
  * 将值转换为指定类型
  */
-function convertValue(value: any, type: DataPointType): {
+function convertValue(value: unknown, type: DataPointType): {
   numberValue?: number | null
   stringValue?: string | null
   booleanValue?: boolean | null
-  jsonValue?: any
+  jsonValue?: Prisma.InputJsonValue
 } {
   const result: {
     numberValue?: number | null
     stringValue?: string | null
     booleanValue?: boolean | null
-    jsonValue?: any
+    jsonValue?: Prisma.InputJsonValue
   } = {}
 
   switch (type) {
@@ -58,12 +57,12 @@ function convertValue(value: any, type: DataPointType): {
 
     case 'ARRAY':
     case 'OBJECT':
-      result.jsonValue = value !== null && value !== undefined ? value : null
+      result.jsonValue = (value !== null && value !== undefined ? value : Prisma.JsonNull) as Prisma.InputJsonValue
       break
 
     default:
       // 默认存储为 JSON
-      result.jsonValue = value
+      result.jsonValue = value as Prisma.InputJsonValue
   }
 
   return result
@@ -106,7 +105,7 @@ export class AnalyticsCollector {
   async collectNodeOutput(
     nodeId: string,
     nodeName: string,
-    output: any
+    output: unknown
   ): Promise<void> {
     // 查找匹配此节点的配置
     const nodeConfigs = this.configs.filter(config => {
@@ -140,7 +139,7 @@ export class AnalyticsCollector {
           userId: this.userId,
           departmentId: this.departmentId,
           ...convertedValue,
-        })
+        } as Prisma.AnalyticsDataPointCreateManyInput)
       } catch (error) {
         console.error(`Error collecting analytics data point ${config.name}:`, error)
       }
@@ -149,7 +148,7 @@ export class AnalyticsCollector {
     // 批量插入数据点
     if (dataPoints.length > 0) {
       await prisma.analyticsDataPoint.createMany({
-        data: dataPoints,
+        data: dataPoints as Prisma.AnalyticsDataPointCreateManyInput[],
       })
     }
   }
@@ -177,14 +176,17 @@ export class AnalyticsCollector {
         const value = extractValue(metadata, config.sourcePath)
         const convertedValue = convertValue(value, config.type)
 
-        dataPoints.push({
+        const dataPoint: Prisma.AnalyticsDataPointCreateManyInput = {
           configId: config.id,
           executionId: this.executionId,
           userId: this.userId,
           departmentId: this.departmentId,
           ...convertedValue,
-          metadata: { executionStatus: status },
-        })
+          metadata: {
+            executionStatus: status
+          } as Prisma.InputJsonValue
+        }
+        dataPoints.push(dataPoint)
       } catch (error) {
         console.error(`Error collecting execution meta ${config.name}:`, error)
       }
@@ -192,7 +194,7 @@ export class AnalyticsCollector {
 
     if (dataPoints.length > 0) {
       await prisma.analyticsDataPoint.createMany({
-        data: dataPoints,
+        data: dataPoints as Prisma.AnalyticsDataPointCreateManyInput[],
       })
     }
   }
@@ -227,7 +229,7 @@ export class AnalyticsCollector {
           userId: this.userId,
           departmentId: this.departmentId,
           ...convertedValue,
-        })
+        } as Prisma.AnalyticsDataPointCreateManyInput)
       } catch (error) {
         console.error(`Error collecting feedback data ${config.name}:`, error)
       }
@@ -235,7 +237,7 @@ export class AnalyticsCollector {
 
     if (dataPoints.length > 0) {
       await prisma.analyticsDataPoint.createMany({
-        data: dataPoints,
+        data: dataPoints as Prisma.AnalyticsDataPointCreateManyInput[],
       })
     }
   }
@@ -245,8 +247,8 @@ export class AnalyticsCollector {
    */
   async collectCustomData(
     dataPointName: string,
-    value: any,
-    metadata?: Record<string, any>
+    value: unknown,
+    metadata?: Record<string, unknown>
   ): Promise<void> {
     const config = this.configs.find(c => c.name === dataPointName && c.source === 'CUSTOM')
     if (!config) {
@@ -264,7 +266,7 @@ export class AnalyticsCollector {
           userId: this.userId,
           departmentId: this.departmentId,
           ...convertedValue,
-          metadata,
+          metadata: metadata as Prisma.InputJsonValue,
         },
       })
     } catch (error) {

@@ -8,6 +8,8 @@ import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { ApiResponse } from '@/lib/api/api-response'
+import { handleError } from '@/lib/api/error-middleware'
+import { AuthenticationError, NotFoundError } from '@/lib/errors'
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -21,7 +23,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const session = await auth()
     if (!session?.user) {
-      return ApiResponse.error('未登录', 401)
+      throw new AuthenticationError('未登录')
     }
 
     const { id } = await params
@@ -85,7 +87,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     })
 
     if (!execution) {
-      return ApiResponse.error('执行记录不存在或无权访问', 404)
+      throw new NotFoundError('执行记录不存在或无权访问')
     }
 
     return ApiResponse.success({
@@ -111,7 +113,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       },
     })
   } catch (error) {
-    console.error('Get execution error:', error)
-    return ApiResponse.error('获取执行记录失败', 500)
+    return handleError(error, request)
   }
 }

@@ -204,7 +204,7 @@ describe('Approval Timeout Processor', () => {
           title: 'Urgent Approval',
           expiresAt,
           workflowId: 'wf-1',
-          workflow: { id: 'wf-1', name: 'Test Workflow' },
+          workflowName: 'Test Workflow',
         },
       ]
 
@@ -228,9 +228,6 @@ describe('Approval Timeout Processor', () => {
             gt: expect.any(Date),
             lte: expect.any(Date),
           }),
-        }),
-        include: expect.objectContaining({
-          workflow: expect.any(Object),
         }),
       })
     })

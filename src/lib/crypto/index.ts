@@ -8,21 +8,21 @@ let cachedKey: Buffer | null = null
 
 function getEncryptionKey(): Buffer {
   if (cachedKey) return cachedKey
-  
+
   const secret = process.env.ENCRYPTION_KEY
   if (!secret) {
     throw new Error('ENCRYPTION_KEY environment variable is required. Please set a secure 32+ character random string.')
   }
-  
+
   if (secret.length < 32) {
     throw new Error('ENCRYPTION_KEY must be at least 32 characters long.')
   }
-  
+
   const saltValue = process.env.ENCRYPTION_SALT
   if (!saltValue) {
     throw new Error('ENCRYPTION_SALT environment variable is required. Please set a unique random string for your deployment.')
   }
-  
+
   const salt = createHash('sha256').update(saltValue).digest()
   cachedKey = scryptSync(secret, salt, KEY_LENGTH)
   return cachedKey
@@ -80,8 +80,8 @@ export function maskApiKey(apiKey: string): string {
 export function safeDecryptApiKey(encryptedText: string): string {
   try {
     return decryptApiKey(encryptedText)
-  } catch (error: any) {
-    const errorMessage = error?.message || '未知错误'
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
 
     if (errorMessage.includes('Unsupported state or unable to authenticate data')) {
       throw new Error(

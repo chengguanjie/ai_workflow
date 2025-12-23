@@ -139,7 +139,7 @@ export async function POST(
     return ApiResponse.success(config)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return ApiResponse.error('请求数据验证失败', 400, { details: error.errors })
+      return ApiResponse.error('请求数据验证失败', 400, { details: error.issues })
     }
 
     console.error('创建分析配置失败:', error)
@@ -199,7 +199,7 @@ export async function PUT(
     return ApiResponse.success(updatedConfigs)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return ApiResponse.error('请求数据验证失败', 400, { details: error.errors })
+      return ApiResponse.error('请求数据验证失败', 400, { details: error.issues })
     }
 
     console.error('更新分析配置失败:', error)

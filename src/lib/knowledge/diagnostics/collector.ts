@@ -4,7 +4,7 @@
  */
 
 import { prisma } from '@/lib/db'
-import { redis } from '@/lib/redis'
+import { getRedisConnection } from '@/lib/redis'
 import type {
   SearchPerformanceMetrics,
   SearchEffectivenessMetrics,
@@ -180,11 +180,14 @@ export async function saveSearchSession(
   }
 
   // 保存到Redis（用于实时分析）
-  await redis.setex(
-    `search_session:${sessionId}`,
-    86400, // 保存24小时
-    JSON.stringify(sessionData)
-  )
+  const redis = getRedisConnection()
+  if (redis) {
+    await redis.setex(
+      `search_session:${sessionId}`,
+      86400, // 保存24小时
+      JSON.stringify(sessionData)
+    )
+  }
 
   // 异步保存到数据库（用于长期分析）
   saveToDatabase(sessionData).catch(console.error)
@@ -231,12 +234,16 @@ export async function collectUserFeedback(
 
   // 更新搜索会话
   const sessionKey = `search_session:${searchId}`
-  const sessionData = await redis.get(sessionKey)
+  const redis = getRedisConnection()
 
-  if (sessionData) {
-    const session = JSON.parse(sessionData) as SearchSession
-    session.feedback = feedbackData
-    await redis.setex(sessionKey, 86400, JSON.stringify(session))
+  if (redis) {
+    const sessionData = await redis.get(sessionKey)
+
+    if (sessionData) {
+      const session = JSON.parse(sessionData) as SearchSession
+      session.feedback = feedbackData
+      await redis.setex(sessionKey, 86400, JSON.stringify(session))
+    }
   }
 
   // 保存反馈到数据库
@@ -277,18 +284,21 @@ export function collectImplicitFeedback(
 ) {
   // 使用Redis收集实时反馈
   const key = `implicit_feedback:${searchId}`
+  const redis = getRedisConnection()
 
-  redis.hset(key, {
-    [`${action}_${Date.now()}`]: JSON.stringify({
-      userId,
-      action,
-      ...data,
-      timestamp: new Date().toISOString()
-    })
-  }).catch(console.error)
+  if (redis) {
+    redis.hset(key, {
+      [`${action}_${Date.now()}`]: JSON.stringify({
+        userId,
+        action,
+        ...data,
+        timestamp: new Date().toISOString()
+      })
+    }).catch(console.error)
 
-  // 设置过期时间
-  redis.expire(key, 86400).catch(console.error)
+    // 设置过期时间
+    redis.expire(key, 86400).catch(console.error)
+  }
 }
 
 /**
@@ -296,6 +306,12 @@ export function collectImplicitFeedback(
  */
 export async function aggregateImplicitFeedback(searchId: string): Promise<UserFeedback | null> {
   const key = `implicit_feedback:${searchId}`
+  const redis = getRedisConnection()
+
+  if (!redis) {
+    return null
+  }
+
   const feedbackData = await redis.hgetall(key)
 
   if (!feedbackData || Object.keys(feedbackData).length === 0) {
@@ -307,7 +323,7 @@ export async function aggregateImplicitFeedback(searchId: string): Promise<UserF
   const copyActions: string[] = []
   let userId = ''
 
-  Object.values(feedbackData).forEach(item => {
+  Object.values(feedbackData).forEach((item: string) => {
     const data = JSON.parse(item)
     userId = data.userId
 

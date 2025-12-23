@@ -56,6 +56,31 @@ export class LocalStorageProvider implements StorageProvider {
   }
 
   /**
+   * 将文件名转换为安全的存储名称
+   * 保留扩展名，将非ASCII字符转换为下划线
+   */
+  private sanitizeFileName(fileName: string): string {
+    // 提取扩展名
+    const lastDot = fileName.lastIndexOf('.')
+    const ext = lastDot > 0 ? fileName.slice(lastDot) : ''
+    const nameWithoutExt = lastDot > 0 ? fileName.slice(0, lastDot) : fileName
+
+    // 将非ASCII字符和特殊字符替换为下划线
+    const safeName = nameWithoutExt.replace(/[^a-zA-Z0-9_-]/g, '_')
+    
+    // 移除连续的下划线
+    const cleanName = safeName.replace(/_+/g, '_').replace(/^_|_$/g, '')
+    
+    // 如果名称为空，使用默认名称
+    const finalName = cleanName || 'file'
+    
+    // 清理扩展名（只保留字母数字）
+    const safeExt = ext.replace(/[^a-zA-Z0-9.]/g, '')
+    
+    return finalName + safeExt
+  }
+
+  /**
    * 生成文件存储路径
    * 格式: {organizationId}/{year}/{month}/{executionId}/{nodeId}_{timestamp}_{fileName}
    */
@@ -65,8 +90,8 @@ export class LocalStorageProvider implements StorageProvider {
     const month = String(now.getMonth() + 1).padStart(2, '0')
     const timestamp = Date.now()
 
-    // 清理文件名中的特殊字符
-    const safeName = request.fileName.replace(/[^a-zA-Z0-9._-]/g, '_')
+    // 清理文件名中的特殊字符（包括中文等非ASCII字符）
+    const safeName = this.sanitizeFileName(request.fileName)
 
     return `${request.organizationId}/${year}/${month}/${request.executionId}/${request.nodeId}_${timestamp}_${safeName}`
   }
@@ -143,6 +168,21 @@ export class LocalStorageProvider implements StorageProvider {
   async readFile(fileKey: string): Promise<Buffer> {
     const filePath = this.getSafePath(fileKey)
     return fs.readFile(filePath)
+  }
+
+  /**
+   * 保存文件到指定路径
+   * 用于知识库文档等需要持久化存储的场景
+   */
+  async saveFile(fileKey: string, buffer: Buffer): Promise<void> {
+    const filePath = this.getSafePath(fileKey)
+    const dirPath = path.dirname(filePath)
+    
+    // 确保目录存在
+    await this.ensureDir(dirPath)
+    
+    // 写入文件
+    await fs.writeFile(filePath, buffer)
   }
 }
 

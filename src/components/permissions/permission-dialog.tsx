@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -133,13 +133,7 @@ export function PermissionDialog({
   const [addTargetId, setAddTargetId] = useState('')
   const [addPermission, setAddPermission] = useState<ResourcePermission>('VIEWER')
 
-  useEffect(() => {
-    if (open) {
-      loadData()
-    }
-  }, [open, resourceId])
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true)
     try {
       const apiPath = getApiPath(resourceType, resourceId)
@@ -171,7 +165,13 @@ export function PermissionDialog({
     } finally {
       setLoading(false)
     }
-  }
+  }, [resourceType, resourceId])
+
+  useEffect(() => {
+    if (open) {
+      loadData()
+    }
+  }, [open, loadData])
 
   const handleAddPermission = async () => {
     if (addType !== 'ALL' && !addTargetId) {

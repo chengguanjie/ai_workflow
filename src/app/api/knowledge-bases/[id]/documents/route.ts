@@ -12,6 +12,7 @@ import { NotFoundError, AuthorizationError, ValidationError } from '@/lib/errors
 import { prisma } from '@/lib/db'
 import { processDocument } from '@/lib/knowledge/processor'
 import { safeDecryptApiKey } from '@/lib/crypto'
+import { localStorageProvider } from '@/lib/storage/providers/local'
 import type { KnowledgeDocument } from '@prisma/client'
 
 // 支持的文件类型
@@ -145,7 +146,23 @@ export const POST = withAuth<ApiSuccessResponse<KnowledgeDocument>>(
 
     // 读取文件内容
     const fileBuffer = Buffer.from(await file.arrayBuffer())
-    const fileKey = `knowledge/${knowledgeBaseId}/${Date.now()}_${fileName}`
+    
+    // 将文件名转换为安全的存储名称（处理中文等非ASCII字符）
+    const sanitizeFileName = (name: string): string => {
+      const lastDot = name.lastIndexOf('.')
+      const ext = lastDot > 0 ? name.slice(lastDot) : ''
+      const nameWithoutExt = lastDot > 0 ? name.slice(0, lastDot) : name
+      const safeName = nameWithoutExt.replace(/[^a-zA-Z0-9_-]/g, '_')
+      const cleanName = safeName.replace(/_+/g, '_').replace(/^_|_$/g, '') || 'file'
+      const safeExt = ext.replace(/[^a-zA-Z0-9.]/g, '')
+      return cleanName + safeExt
+    }
+    
+    const safeFileName = sanitizeFileName(fileName)
+    const fileKey = `knowledge/${knowledgeBaseId}/${Date.now()}_${safeFileName}`
+
+    // 保存文件到本地存储（用于重新处理）
+    await localStorageProvider.saveFile(fileKey, fileBuffer)
 
     // 创建文档记录
     const document = await prisma.knowledgeDocument.create({

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { storageService, FORMAT_MIME_TYPES } from '@/lib/storage'
 import type { OutputFormat } from '@/lib/storage'

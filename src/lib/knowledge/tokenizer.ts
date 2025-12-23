@@ -121,7 +121,7 @@ export function remainingTokens(usedTokens: number, maxTokens: number): number {
   return Math.max(0, maxTokens - usedTokens)
 }
 
-export default {
+const TokenizerModule = {
   countTokens,
   estimateTokens,
   countTokensBatch,
@@ -131,3 +131,5 @@ export default {
   exceedsTokenLimit,
   remainingTokens,
 }
+
+export default TokenizerModule

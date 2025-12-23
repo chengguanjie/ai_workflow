@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useState, useCallback, useRef, useMemo } from "react"
+import { useEffect, useState, useCallback, useRef } from "react"
 import { useParams } from "next/navigation"
+import Image from 'next/image'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -650,10 +651,10 @@ export default function PublicFormPage() {
   if (!formInfo) return null
 
   // Sanitize HTML and CSS for AI page mode to prevent XSS attacks
-  const sanitizedHtmlTemplate = formInfo.form.htmlTemplate 
+  const sanitizedHtmlTemplate = formInfo.form.htmlTemplate
     ? sanitizeHtml(formInfo.form.htmlTemplate)
     : null
-  const sanitizedCssStyles = formInfo.form.cssStyles 
+  const sanitizedCssStyles = formInfo.form.cssStyles
     ? sanitizeCss(formInfo.form.cssStyles)
     : null
 
@@ -793,10 +794,12 @@ export default function PublicFormPage() {
         {/* 组织信息 */}
         <div className="flex items-center gap-3 mb-6">
           {formInfo.organization.logo && (
-            <img
+            <Image
               src={formInfo.organization.logo}
               alt={formInfo.organization.name}
-              className="w-10 h-10 rounded-lg object-cover"
+              width={40}
+              height={40}
+              className="rounded-lg object-cover"
             />
           )}
           <span className="text-sm text-slate-500">{formInfo.organization.name}</span>

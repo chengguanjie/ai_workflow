@@ -35,6 +35,12 @@ const MATCH_TYPES: { value: SwitchMatchType; label: string; description: string 
   { value: 'range', label: '范围匹配', description: '数值在指定范围内' },
 ]
 
+// Tab 配置 - 定义在组件外部避免重复创建
+const TABS: { key: SwitchTabType; label: string }[] = [
+  { key: 'config', label: '配置' },
+  { key: 'output', label: '输出' },
+]
+
 export function SwitchNodeConfigPanel({
   nodeId,
   config,
@@ -48,12 +54,6 @@ export function SwitchNodeConfigPanel({
   const matchType = (config?.matchType as SwitchMatchType) || 'exact'
   const caseSensitive = (config?.caseSensitive as boolean) ?? true
   const _includeDefault = (config?.includeDefault as boolean) ?? true
-
-  // Tab 配置
-  const tabs: { key: SwitchTabType; label: string }[] = [
-    { key: 'config', label: '配置' },
-    { key: 'output', label: '输出' },
-  ]
 
   const addCase = () => {
     const newCase: SwitchCase = {
@@ -107,7 +107,7 @@ export function SwitchNodeConfigPanel({
     <div className="space-y-4">
       {/* Tab 切换 */}
       <div className="flex border-b">
-        {tabs.map((tab) => (
+        {TABS.map((tab) => (
           <button
             key={tab.key}
             className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
@@ -221,7 +221,7 @@ export function SwitchNodeConfigPanel({
               <div className="space-y-2">
                 {cases.map((switchCase, index) => (
                   <div
-                    key={switchCase.id}
+                    key={switchCase.id || `case-fallback-${index}`}
                     className={`border rounded-lg p-3 space-y-3 ${
                       switchCase.isDefault ? 'bg-muted/50 border-dashed' : ''
                     }`}

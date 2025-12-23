@@ -35,7 +35,7 @@ import {
   Radio,
   StopCircle,
   Upload,
-  Image,
+  Image as ImageIcon,
   FileSpreadsheet,
   Music,
   Video,
@@ -157,7 +157,7 @@ export function ExecutionPanel({
   const getFieldTypeIcon = (fieldType: InputFieldType) => {
     switch (fieldType) {
       case 'image':
-        return <Image className="h-4 w-4" />
+        return <ImageIcon className="h-4 w-4" />
       case 'pdf':
         return <FileText className="h-4 w-4" />
       case 'word':
@@ -1090,11 +1090,10 @@ export function ExecutionPanel({
               {result && (
                 <div className="space-y-4">
                   <div
-                    className={`flex items-center gap-3 rounded-lg p-4 ${
-                      result.status === 'COMPLETED'
+                    className={`flex items-center gap-3 rounded-lg p-4 ${result.status === 'COMPLETED'
                         ? 'bg-green-50 text-green-700'
                         : 'bg-red-50 text-red-700'
-                    }`}
+                      }`}
                   >
                     {result.status === 'COMPLETED' ? (
                       <CheckCircle2 className="h-5 w-5" />
@@ -1318,15 +1317,15 @@ export function ExecutionPanel({
             {/* 反馈按钮 - 普通模式或监控模式执行完成/失败后显示 */}
             {((executionMode === 'quick' && result && result.executionId) ||
               (executionMode === 'monitor' && (monitorStatus === 'completed' || monitorStatus === 'failed') && executionIdRef.current)) && (
-              <Button
-                variant="outline"
-                onClick={() => setShowFeedbackDialog(true)}
-                className="gap-2"
-              >
-                <MessageSquare className="h-4 w-4" />
-                提交反馈
-              </Button>
-            )}
+                <Button
+                  variant="outline"
+                  onClick={() => setShowFeedbackDialog(true)}
+                  className="gap-2"
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  提交反馈
+                </Button>
+              )}
           </div>
           <div className="flex gap-3">
             <Button variant="outline" onClick={onClose} disabled={isExecuting}>

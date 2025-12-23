@@ -13,7 +13,7 @@ import type {
   VectorUpsertResult,
   VectorStoreConfig,
 } from './types'
-import { getSafeTableName, getSafeIndexName, SQLValidationError } from '@/lib/security/sql-validator'
+import { getSafeTableName, getSafeIndexName, SQLValidationError as _SQLValidationError } from '@/lib/security/sql-validator'
 
 export interface PgVectorConfig {
   connectionString?: string
@@ -82,12 +82,12 @@ export class PgVectorStore implements VectorStore {
       const poolConfig: PoolConfig = this.config.connectionString
         ? { connectionString: this.config.connectionString }
         : {
-            host: this.config.host || 'localhost',
-            port: this.config.port || 5432,
-            database: this.config.database || 'vector_db',
-            user: this.config.user || 'postgres',
-            password: this.config.password,
-          }
+          host: this.config.host || 'localhost',
+          port: this.config.port || 5432,
+          database: this.config.database || 'vector_db',
+          user: this.config.user || 'postgres',
+          password: this.config.password,
+        }
 
       poolConfig.max = this.config.maxConnections || 10
       poolConfig.idleTimeoutMillis = 30000

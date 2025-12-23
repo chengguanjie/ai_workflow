@@ -8,7 +8,7 @@
  */
 
 import { prisma } from '@/lib/db'
-import type { ApprovalNotification, NotificationChannel, NotificationStatus } from '@prisma/client'
+import type { ApprovalNotification, NotificationType as _NotificationType, NotificationStatus as _NotificationStatus } from '@prisma/client'
 
 interface SendNotificationResult {
   success: boolean
@@ -27,10 +27,8 @@ export async function sendApprovalNotification(
         return await sendEmailNotification(notification)
       case 'IN_APP':
         return await sendInAppNotification(notification)
-      case 'WEBHOOK':
-        return await sendWebhookNotification(notification)
       default:
-        return { success: false, error: `不支持的通知渠道: ${notification.channel}` }
+        return { success: false, error: `不支持的通知类型: ${notification.channel}` }
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : '发送通知失败'
@@ -40,7 +38,6 @@ export async function sendApprovalNotification(
       where: { id: notification.id },
       data: {
         status: 'FAILED',
-        failedAt: new Date(),
         errorMessage,
       },
     })
@@ -68,7 +65,6 @@ async function sendEmailNotification(
       where: { id: notification.id },
       data: {
         status: 'FAILED',
-        failedAt: new Date(),
         errorMessage: '未配置邮件服务 (SMTP_HOST 或 RESEND_API_KEY)',
       },
     })
@@ -92,7 +88,6 @@ async function sendEmailNotification(
     where: { id: notification.id },
     data: {
       status: 'FAILED',
-      failedAt: new Date(),
       errorMessage: '邮件发送功能待实现',
     },
   })
@@ -130,20 +125,12 @@ async function sendInAppNotification(
 /**
  * 发送 Webhook 通知
  */
-async function sendWebhookNotification(
+async function _sendWebhookNotification(
   notification: ApprovalNotification
 ): Promise<SendNotificationResult> {
   // 获取审批请求详情
   const approvalRequest = await prisma.approvalRequest.findUnique({
     where: { id: notification.requestId },
-    include: {
-      workflow: {
-        select: { id: true, name: true },
-      },
-      execution: {
-        select: { id: true, status: true },
-      },
-    },
   })
 
   if (!approvalRequest) {
@@ -151,7 +138,6 @@ async function sendWebhookNotification(
       where: { id: notification.id },
       data: {
         status: 'FAILED',
-        failedAt: new Date(),
         errorMessage: '未找到关联的审批请求',
       },
     })
@@ -168,9 +154,10 @@ async function sendWebhookNotification(
       description: approvalRequest.description,
       status: approvalRequest.status,
       workflowId: approvalRequest.workflowId,
-      workflowName: approvalRequest.workflow.name,
+      workflowName: approvalRequest.workflowName,
       executionId: approvalRequest.executionId,
-      nodeId: approvalRequest.nodeId,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      nodeId: (approvalRequest as any).nodeId || '',
       expiresAt: approvalRequest.expiresAt?.toISOString(),
       approvalUrl: `${process.env.NEXT_PUBLIC_APP_URL}/approvals`,
     },
@@ -185,7 +172,6 @@ async function sendWebhookNotification(
       where: { id: notification.id },
       data: {
         status: 'FAILED',
-        failedAt: new Date(),
         errorMessage: '未配置 Webhook URL (APPROVAL_WEBHOOK_URL)',
       },
     })
@@ -223,7 +209,6 @@ async function sendWebhookNotification(
       where: { id: notification.id },
       data: {
         status: 'FAILED',
-        failedAt: new Date(),
         errorMessage,
       },
     })

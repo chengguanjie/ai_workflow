@@ -5,6 +5,7 @@ import { shensuanProvider } from './providers/shensuan'
 import { openRouterProvider } from './providers/openrouter'
 import { openAIProvider } from './providers/openai'
 import { anthropicProvider } from './providers/anthropic'
+import { validateContextSize, estimateTokenCount, getModelContextLimit } from './token-utils'
 
 export * from './types'
 
@@ -32,6 +33,57 @@ class AIService {
     apiKey: string,
     baseUrl?: string
   ): Promise<ChatResponse> {
+    // 验证上下文大小
+    const model = request.model
+    const maxResponseTokens = request.maxTokens || 2000
+
+    // 计算输入的总token数
+    let totalInputTokens = 0
+
+    // 处理消息内容
+    for (const message of request.messages || []) {
+      if (typeof message.content === 'string') {
+        totalInputTokens += estimateTokenCount(message.content)
+      } else if (Array.isArray(message.content)) {
+        // 处理多模态消息
+        for (const part of message.content) {
+          if (part.type === 'text') {
+            totalInputTokens += estimateTokenCount(part.text)
+          }
+          // 图片通常占用约85 tokens
+          if (part.type === 'image_url') {
+            totalInputTokens += 85
+          }
+        }
+      }
+    }
+
+    // 验证是否超出模型限制
+    validateContextSize(
+      '', // validateContextSize expects text, we already calculated tokens. Pass empty string to avoid re-calculating.
+      model,
+      maxResponseTokens
+    )
+
+    const contextLimit = getModelContextLimit(model)
+    const totalTokensNeeded = totalInputTokens + maxResponseTokens
+
+    if (totalTokensNeeded > contextLimit) {
+      const error = new Error(
+        `Context limit exceeded: ${totalInputTokens} (input) + ${maxResponseTokens} (max output) = ${totalTokensNeeded} > ${contextLimit} (model limit for ${model})`
+      )
+      const extendedError = error as unknown as Record<string, unknown>
+      extendedError.code = 'CONTEXT_LIMIT_EXCEEDED'
+      extendedError.inputTokens = totalInputTokens
+      extendedError.maxResponseTokens = maxResponseTokens
+      extendedError.totalTokensNeeded = totalTokensNeeded
+      extendedError.contextLimit = contextLimit
+      throw error
+    }
+
+    // 记录token使用情况
+    console.log(`[AI Service] Model: ${model}, Input tokens: ${totalInputTokens}, Max response: ${maxResponseTokens}, Total: ${totalTokensNeeded}/${contextLimit}`)
+
     const provider = this.getProvider(providerType)
     return provider.chat(request, apiKey, baseUrl)
   }

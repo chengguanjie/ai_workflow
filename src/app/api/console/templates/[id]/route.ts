@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
 import { consoleAuth } from '@/lib/console-auth'
 import { hasPermission, Permission } from '@/lib/console-auth/permissions'
@@ -27,7 +27,7 @@ export async function GET(
 ) {
   const check = await checkPermission('template:read')
   if (check.error) {
-    return ApiResponse.error(check.error, check.status as any)
+    return ApiResponse.error(check.error, check.status)
   }
 
   const { id } = await params
@@ -50,7 +50,7 @@ export async function PATCH(
 ) {
   const check = await checkPermission('template:update')
   if (check.error) {
-    return ApiResponse.error(check.error, check.status as any)
+    return ApiResponse.error(check.error, check.status)
   }
 
   const { id } = await params
@@ -129,7 +129,7 @@ export async function DELETE(
 ) {
   const check = await checkPermission('template:delete')
   if (check.error) {
-    return ApiResponse.error(check.error, check.status as any)
+    return ApiResponse.error(check.error, check.status)
   }
 
   const { id } = await params

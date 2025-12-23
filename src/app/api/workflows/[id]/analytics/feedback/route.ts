@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { z } from 'zod'
@@ -56,7 +56,7 @@ export async function POST(
     }
 
     // 检查是否已经有反馈
-    const existingFeedback = await prisma.executionFeedback.findUnique({
+    const existingFeedback = await prisma.executionFeedback.findFirst({
       where: {
         executionId: validatedData.executionId,
       },
@@ -67,14 +67,13 @@ export async function POST(
       // 更新现有反馈
       feedback = await prisma.executionFeedback.update({
         where: {
-          executionId: validatedData.executionId,
+          id: existingFeedback.id,
         },
         data: {
           rating: validatedData.rating,
           isAccurate: validatedData.isAccurate,
           issueCategories: validatedData.issueCategories || [],
-          comment: validatedData.comment,
-          submittedAt: new Date(),
+          feedbackComment: validatedData.comment,
         },
       })
     } else {
@@ -86,7 +85,7 @@ export async function POST(
           rating: validatedData.rating,
           isAccurate: validatedData.isAccurate,
           issueCategories: validatedData.issueCategories || [],
-          comment: validatedData.comment,
+          feedbackComment: validatedData.comment,
         },
       })
     }
@@ -113,7 +112,7 @@ export async function POST(
     })
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return ApiResponse.error('请求数据验证失败', 400, { details: error.errors })
+      return ApiResponse.error('请求数据验证失败', 400, { details: error.issues })
     }
 
     console.error('提交反馈失败:', error)

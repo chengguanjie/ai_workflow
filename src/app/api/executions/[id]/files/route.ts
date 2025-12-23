@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { storageService } from '@/lib/storage'
 import { prisma } from '@/lib/db'
+import { OutputFile } from '@prisma/client'
 import { ApiResponse } from '@/lib/api/api-response'
 
 interface RouteParams {
@@ -54,7 +55,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         workflowId: execution.workflowId,
         createdAt: execution.createdAt,
       },
-      files: files.map((file: any) => ({
+      files: files.map((file: OutputFile) => ({
         id: file.id,
         fileName: file.fileName,
         format: file.format,

@@ -3,14 +3,15 @@
  */
 
 import { prisma } from '@/lib/db'
-import type { WorkflowConfig, NodeConfig, LoopNodeConfig, MergeNodeConfig, ParallelErrorStrategy } from '@/types/workflow'
+import { Prisma } from '@prisma/client'
+import type { WorkflowConfig, NodeConfig, EdgeConfig, LoopNodeConfig, MergeNodeConfig, ParallelErrorStrategy } from '@/types/workflow'
 import type {
   ExecutionContext,
   ExecutionResult,
   NodeOutput,
 } from './types'
-import { getExecutionOrder, getConditionBranchNodes, isConditionNode, getLoopBodyNodes, isLoopNode, getParallelExecutionLayers, getPredecessorIds } from './utils'
-import { getProcessor, outputNodeProcessor } from './processors'
+import { getExecutionOrder, isConditionNode, getLoopBodyNodes, isLoopNode, getParallelExecutionLayers, getPredecessorIds } from './utils'
+import { outputNodeProcessor } from './processors'
 import {
   type LoopState,
   initializeForLoop,
@@ -40,8 +41,8 @@ import { saveNodeLog as moduleSaveNodeLog } from './engine/logger'
 import {
   executeNode as moduleExecuteNode,
   applyInitialInput as moduleApplyInput,
-  createPlaceholderOutput,
 } from './engine/executor'
+import { WorkflowErrorHandler } from './error-handler'
 
 /**
  * 检查节点是否为 MERGE 节点
@@ -189,7 +190,7 @@ export class WorkflowEngine {
         userId: this.userId,
         organizationId: this.organizationId,
         resumedFromId: resumeFromExecutionId || null,
-      },
+      } as Prisma.ExecutionUncheckedCreateInput,
     })
 
     // 获取用户部门信息（用于分析数据）
@@ -305,7 +306,7 @@ export class WorkflowEngine {
       )
 
       // 初始化执行事件（用于 SSE 实时推送）
-      const nodeConfigs = this.config.nodes.map(n => ({
+      const nodeConfigs = this.config.nodes.map((n: NodeConfig) => ({
         id: n.id,
         name: n.name,
         type: n.type,
@@ -313,7 +314,7 @@ export class WorkflowEngine {
       executionEvents.initExecution(
         execution.id,
         this.workflowId,
-        this.config.nodes.map(n => n.id),
+        this.config.nodes.map((n: NodeConfig) => n.id),
         nodeConfigs
       )
 
@@ -400,9 +401,12 @@ export class WorkflowEngine {
         completionTokens,
         outputFiles,
       }
-    } catch (error) {
+    } catch (error: unknown) {
       const duration = Date.now() - startTime
       const errorMessage = error instanceof Error ? error.message : '执行失败'
+
+      // 分析错误
+      const analysis = WorkflowErrorHandler.analyzeError(error as Error)
 
       // 保存检查点（用于断点续执行）
       try {
@@ -426,7 +430,10 @@ export class WorkflowEngine {
         data: {
           status: 'FAILED',
           error: errorMessage,
-          errorDetail: error instanceof Error ? { stack: error.stack } : {},
+          errorDetail: {
+            stack: error instanceof Error ? error.stack : undefined,
+            analysis: analysis as unknown as Prisma.InputJsonValue, // 保存完整的分析结果
+          },
           completedAt: new Date(),
           duration,
           canResume: this.completedNodes.size > 0, // 如果有已完成的节点，可以恢复
@@ -434,7 +441,16 @@ export class WorkflowEngine {
       })
 
       // 发送执行失败事件
-      executionEvents.executionError(execution.id, errorMessage)
+      executionEvents.executionError(
+        execution.id,
+        errorMessage,
+        {
+          friendlyMessage: analysis.friendlyMessage,
+          suggestions: analysis.suggestions,
+          code: analysis.code,
+          isRetryable: analysis.isRetryable
+        }
+      )
 
       // 触发执行完成钩子（失败也要触发）
       const hookContext = {
@@ -482,9 +498,9 @@ export class WorkflowEngine {
     executionId: string
   ): Promise<{ totalTokens: number; promptTokens: number; completionTokens: number }> {
     const bodyNodeIds = getLoopBodyNodes(loopNode.id, this.config.edges, this.config.nodes)
-    const bodyNodes = this.config.nodes.filter(n => bodyNodeIds.includes(n.id))
+    const bodyNodes = this.config.nodes.filter((n: NodeConfig) => bodyNodeIds.includes(n.id))
     const bodyExecutionOrder = getExecutionOrder(bodyNodes, this.config.edges.filter(
-      e => bodyNodeIds.includes(e.source) && bodyNodeIds.includes(e.target)
+      (e: EdgeConfig) => bodyNodeIds.includes(e.source) && bodyNodeIds.includes(e.target)
     ))
 
     let state: LoopState
@@ -688,8 +704,24 @@ export class WorkflowEngine {
       if (result.status === 'error') {
         // 记录失败节点用于检查点
         this.lastFailedNodeId = node.id
-        // 发送节点错误事件
-        executionEvents.nodeError(executionId, node.id, node.name, node.type, result.error || '未知错误')
+
+        // 分析错误
+        const analysis = WorkflowErrorHandler.analyzeError(result.error, node.type)
+
+        // 发送节点错误事件（包含详细分析）
+        executionEvents.nodeError(
+          executionId,
+          node.id,
+          node.name,
+          node.type,
+          result.error || '未知错误',
+          {
+            friendlyMessage: analysis.friendlyMessage,
+            suggestions: analysis.suggestions,
+            code: analysis.code,
+            isRetryable: analysis.isRetryable
+          }
+        )
         throw new Error(`节点 "${node.name}" 执行失败: ${result.error}`)
       }
 
@@ -760,7 +792,7 @@ export class WorkflowEngine {
 
     for (const layer of layers) {
       // 过滤掉已跳过和已失败（在 continue 模式下）的节点
-      const nodesToExecute = layer.nodes.filter(node =>
+      const nodesToExecute = layer.nodes.filter((node: NodeConfig) =>
         !this.skippedNodes.has(node.id) && !this.failedNodes.has(node.id)
       )
 

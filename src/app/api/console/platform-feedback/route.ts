@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
 import { consoleAuth } from '@/lib/console-auth'
 import { Prisma } from '@prisma/client'
@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
       RESOLVED: 0,
       CLOSED: 0,
     }
-    stats.forEach((s: any) => {
+    stats.forEach((s: { status: string; _count: number }) => {
       statusCounts[s.status as keyof typeof statusCounts] = s._count
     })
 

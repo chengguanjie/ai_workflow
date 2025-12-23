@@ -107,11 +107,11 @@ export function sanitizeHtml(html: string, options?: SanitizeHtmlOptions): strin
     ALLOWED_ATTR: buildAllowedAttrList(allowedAttributes),
     ALLOW_DATA_ATTR: true, // Allow data-* attributes for form fields
     FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'base'],
-    FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onmouseout', 
-                  'onfocus', 'onblur', 'onsubmit', 'onchange', 'onkeydown',
-                  'onkeyup', 'onkeypress', 'ondblclick', 'oncontextmenu',
-                  'onmousedown', 'onmouseup', 'onmousemove', 'onmouseenter',
-                  'onmouseleave', 'ontouchstart', 'ontouchend', 'ontouchmove'],
+    FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onmouseout',
+      'onfocus', 'onblur', 'onsubmit', 'onchange', 'onkeydown',
+      'onkeyup', 'onkeypress', 'ondblclick', 'oncontextmenu',
+      'onmousedown', 'onmouseup', 'onmousemove', 'onmouseenter',
+      'onmouseleave', 'ontouchstart', 'ontouchend', 'ontouchmove'],
     KEEP_CONTENT: true,
     RETURN_DOM: false,
     RETURN_DOM_FRAGMENT: false,
@@ -124,7 +124,7 @@ export function sanitizeHtml(html: string, options?: SanitizeHtmlOptions): strin
   }
 
   // Add hook to sanitize style attributes
-  DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
+  DOMPurify.addHook('uponSanitizeAttribute', (node: Element, data: { attrName: string; attrValue: string }) => {
     if (data.attrName === 'style') {
       data.attrValue = sanitizeCssInline(data.attrValue)
     }
@@ -138,7 +138,7 @@ export function sanitizeHtml(html: string, options?: SanitizeHtmlOptions): strin
   })
 
   const result = DOMPurify.sanitize(html, config) as string
-  
+
   // Remove the hook after use to avoid affecting other calls
   DOMPurify.removeHook('uponSanitizeAttribute')
 
@@ -203,7 +203,7 @@ export function sanitizeCss(css: string): string {
 
   // Remove HTML comments that could be used for injection
   result = result.replace(/<!--[\s\S]*?-->/g, '')
-  
+
   // Remove closing style/script tags that could break out
   result = result.replace(/<\/style>/gi, '')
   result = result.replace(/<\/script>/gi, '')

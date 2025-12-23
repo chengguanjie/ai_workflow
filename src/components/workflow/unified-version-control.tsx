@@ -8,9 +8,6 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu'
 import {
@@ -45,7 +42,6 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
-  GitBranch,
   ChevronDown,
   Upload,
   Play,
@@ -140,7 +136,7 @@ export function UnifiedVersionControl({
       if (!response.ok) throw new Error('加载版本历史失败')
       const result = await response.json()
       setVersions(result.data.versions || [])
-    } catch (error) {
+    } catch (_error) {
       toast.error('加载版本历史失败')
     }
   }, [workflowId])
@@ -521,9 +517,8 @@ export function UnifiedVersionControl({
                 versions.map((version) => (
                   <div
                     key={version.id}
-                    className={`rounded-lg border p-4 transition-colors ${
-                      version.isActive ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'
-                    }`}
+                    className={`rounded-lg border p-4 transition-colors ${version.isActive ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'
+                      }`}
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
@@ -652,7 +647,7 @@ function VersionCompareDialog({
       if (!response.ok) throw new Error('对比失败')
       const result = await response.json()
       setComparison(result.data)
-    } catch (error) {
+    } catch (_error) {
       toast.error('版本对比失败')
     } finally {
       setIsComparing(false)

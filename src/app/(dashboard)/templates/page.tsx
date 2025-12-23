@@ -27,8 +27,6 @@ import {
   CATEGORY_GROUPS,
   getCategoryName,
   getCategoryIcon,
-  type Category,
-  type CategoryGroup,
 } from '@/lib/constants/template-categories'
 
 // 模板库类型

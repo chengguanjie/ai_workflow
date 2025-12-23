@@ -249,6 +249,7 @@ export class WorkflowService {
         config,
         organizationId,
         creatorId,
+        tags: [],
       },
     })
 

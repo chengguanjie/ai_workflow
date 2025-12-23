@@ -29,21 +29,25 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { NodePanel } from '@/components/workflow/node-panel'
 import { NodeConfigPanel } from '@/components/workflow/node-config-panel'
-import { ExecutionPanel } from '@/components/workflow/execution-panel'
-import { ExecutionHistoryPanel } from '@/components/workflow/execution-history-panel'
-import { NodeDebugPanel } from '@/components/workflow/node-debug-panel'
-import { AIAssistantPanel } from '@/components/workflow/ai-assistant-panel'
+import { toast } from 'sonner'
+import dynamic from 'next/dynamic'
+
+// Lazy load heavy components
+const ExecutionPanel = dynamic(() => import('@/components/workflow/execution-panel').then(mod => mod.ExecutionPanel), { ssr: false })
+const ExecutionHistoryPanel = dynamic(() => import('@/components/workflow/execution-history-panel').then(mod => mod.ExecutionHistoryPanel), { ssr: false })
+const NodeDebugPanel = dynamic(() => import('@/components/workflow/node-debug-panel').then(mod => mod.NodeDebugPanel), { ssr: false })
+const AIAssistantPanel = dynamic(() => import('@/components/workflow/ai-assistant-panel').then(mod => mod.AIAssistantPanel), { ssr: false })
+const WorkflowImportExportDialog = dynamic(() => import('@/components/workflow/workflow-import-export-dialog').then(mod => mod.WorkflowImportExportDialog), { ssr: false })
+const NodeCommentDialog = dynamic(() => import('@/components/workflow/node-comment-dialog').then(mod => mod.NodeCommentDialog), { ssr: false })
+const WorkflowManualDialog = dynamic(() => import('@/components/workflow/workflow-manual-dialog').then(mod => mod.WorkflowManualDialog), { ssr: false })
+const ShareFormDialog = dynamic(() => import('@/components/workflow/share-form-dialog').then(mod => mod.ShareFormDialog), { ssr: false })
+
 import { UnifiedVersionControl } from '@/components/workflow/unified-version-control'
 import { SaveStatusIndicator } from '@/components/workflow/save-status-indicator'
-import { WorkflowImportExportDialog } from '@/components/workflow/workflow-import-export-dialog'
-import { NodeCommentDialog } from '@/components/workflow/node-comment-dialog'
-import { WorkflowManualDialog } from '@/components/workflow/workflow-manual-dialog'
-import { ShareFormDialog } from '@/components/workflow/share-form-dialog'
 import { nodeTypes } from '@/components/workflow/nodes'
 import AnimatedEdge from '@/components/workflow/animated-edge'
 import { useAIAssistantStore } from '@/stores/ai-assistant-store'
 import { useWorkflowSave } from '@/hooks/use-workflow-save'
-import { toast } from 'sonner'
 
 const edgeTypes = {
   default: AnimatedEdge,

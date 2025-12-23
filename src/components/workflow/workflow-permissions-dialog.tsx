@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -96,13 +96,7 @@ export function WorkflowPermissionsDialog({
   const [addTargetId, setAddTargetId] = useState('')
   const [addPermission, setAddPermission] = useState<'VIEW' | 'USE' | 'EDIT'>('USE')
 
-  useEffect(() => {
-    if (open) {
-      loadData()
-    }
-  }, [open, workflowId])
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true)
     try {
       const [permRes, deptRes, memberRes] = await Promise.all([
@@ -131,7 +125,13 @@ export function WorkflowPermissionsDialog({
     } finally {
       setLoading(false)
     }
-  }
+  }, [workflowId])
+
+  useEffect(() => {
+    if (open) {
+      loadData()
+    }
+  }, [open, loadData])
 
   const handleAddPermission = async () => {
     if (addType !== 'ALL' && !addTargetId) {

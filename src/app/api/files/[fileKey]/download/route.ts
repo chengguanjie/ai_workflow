@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { createReadStream } from 'fs'
 import { stat } from 'fs/promises'
 import { auth } from '@/lib/auth'

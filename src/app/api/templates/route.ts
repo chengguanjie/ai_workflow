@@ -12,6 +12,7 @@ import { ValidationError } from '@/lib/errors'
 import { prisma } from '@/lib/db'
 import type { TemplateVisibility, TemplateType, WorkflowTemplate } from '@prisma/client'
 import type { JsonValue } from '@prisma/client/runtime/library'
+import { CacheService } from '@/services/cache-service'
 
 interface TemplateListParams {
   category?: string
@@ -144,39 +145,49 @@ export const GET = withAuth<ApiSuccessResponse<TemplateListResponse>>(
       ]
     }
 
-    const [templates, total] = await Promise.all([
-      prisma.workflowTemplate.findMany({
-        where,
-        select: {
-          id: true,
-          name: true,
-          description: true,
-          category: true,
-          tags: true,
-          thumbnail: true,
-          templateType: true,
-          visibility: true,
-          organizationId: true,
-          creatorId: true,
-          creatorName: true,
-          usageCount: true,
-          rating: true,
-          ratingCount: true,
-          isOfficial: true,
-          version: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-        orderBy: [
-          { isOfficial: 'desc' },
-          { usageCount: 'desc' },
-          { createdAt: 'desc' },
-        ],
-        skip: (page! - 1) * limit!,
-        take: limit,
-      }),
-      prisma.workflowTemplate.count({ where }),
-    ])
+    // Generate Cache Key based on params
+    const cacheKey = CacheService.generateKey('templates', `list:${user.organizationId}:${JSON.stringify(params)}`)
+
+    const { templates, total } = await CacheService.getOrSet(
+      cacheKey,
+      async () => {
+        const [templates, total] = await Promise.all([
+          prisma.workflowTemplate.findMany({
+            where,
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              category: true,
+              tags: true,
+              thumbnail: true,
+              templateType: true,
+              visibility: true,
+              organizationId: true,
+              creatorId: true,
+              creatorName: true,
+              usageCount: true,
+              rating: true,
+              ratingCount: true,
+              isOfficial: true,
+              version: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+            orderBy: [
+              { isOfficial: 'desc' },
+              { usageCount: 'desc' },
+              { createdAt: 'desc' },
+            ],
+            skip: (page! - 1) * limit!,
+            take: limit,
+          }),
+          prisma.workflowTemplate.count({ where }),
+        ])
+        return { templates, total }
+      },
+      300 // 5 minutes cache
+    )
 
     return ApiResponse.success({
       templates,

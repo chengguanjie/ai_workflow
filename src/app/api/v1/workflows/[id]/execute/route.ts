@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { ApiToken } from '@prisma/client'
 import { executeWorkflow } from '@/lib/workflow/engine'
 import { executionQueue } from '@/lib/workflow/queue'
 import { createHash } from 'crypto'
@@ -10,7 +11,7 @@ interface RouteParams {
 }
 
 type AuthResult =
-  | { organizationId: string; createdById: string; token: any }
+  | { organizationId: string; createdById: string; token: ApiToken }
   | { error: string; status: number }
 
 // 验证 API Token

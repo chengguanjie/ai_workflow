@@ -10,6 +10,9 @@ import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { storageService, FORMAT_MIME_TYPES, FORMAT_EXTENSIONS } from '@/lib/storage'
 import { ApiResponse } from '@/lib/api/api-response'
+import { handleError } from '@/lib/api/error-middleware'
+import { AuthenticationError, ValidationError, NotFoundError } from '@/lib/errors'
+import { FileOperationError } from '@/lib/errors/enhanced-errors'
 import type { OutputFormat } from '@/lib/storage'
 import {
   validateFile,
@@ -39,7 +42,7 @@ export async function GET(request: NextRequest) {
   try {
     const session = await auth()
     if (!session?.user) {
-      return ApiResponse.error('未登录', 401)
+      throw new AuthenticationError('未登录')
     }
 
     const { searchParams } = new URL(request.url)
@@ -83,8 +86,7 @@ export async function GET(request: NextRequest) {
       offset,
     })
   } catch (error) {
-    console.error('Get files error:', error)
-    return ApiResponse.error('获取文件列表失败', 500)
+    return handleError(error, request)
   }
 }
 
@@ -104,7 +106,7 @@ export async function POST(request: NextRequest) {
   try {
     const session = await auth()
     if (!session?.user) {
-      return ApiResponse.error('未登录', 401)
+      throw new AuthenticationError('未登录')
     }
 
     const formData = await request.formData()
@@ -116,12 +118,12 @@ export async function POST(request: NextRequest) {
     const expiresIn = formData.get('expiresIn')
 
     if (!file) {
-      return ApiResponse.error('缺少文件', 400)
+      throw new ValidationError('缺少文件')
     }
 
     // Check for path traversal in filename
     if (containsPathTraversal(file.name)) {
-      return ApiResponse.error('文件名包含非法字符', 400)
+      throw new ValidationError('文件名包含非法字符')
     }
 
     // Comprehensive file validation using File Validator
@@ -135,11 +137,18 @@ export async function POST(request: NextRequest) {
     )
 
     if (!validationResult.valid) {
-      return ApiResponse.error(validationResult.error || '文件验证失败', 400)
+      // Use enhanced file operation errors for specific error types
+      if (validationResult.error?.includes('大小')) {
+        throw FileOperationError.sizeExceeded(MAX_FILE_SIZE, file.size)
+      }
+      if (validationResult.error?.includes('类型')) {
+        throw FileOperationError.invalidType(Array.from(ALLOWED_EXTENSIONS), file.type)
+      }
+      throw new ValidationError(validationResult.error || '文件验证失败')
     }
 
     if (!executionId || !nodeId) {
-      return ApiResponse.error('缺少 executionId 或 nodeId', 400)
+      throw new ValidationError('缺少 executionId 或 nodeId')
     }
 
     // 验证执行记录属于当前企业
@@ -153,7 +162,7 @@ export async function POST(request: NextRequest) {
     })
 
     if (!execution) {
-      return ApiResponse.error('执行记录不存在或无权访问', 404)
+      throw new NotFoundError('执行记录不存在或无权访问')
     }
 
     // 确定文件格式
@@ -187,8 +196,7 @@ export async function POST(request: NextRequest) {
       format: detectedFormat,
     })
   } catch (error) {
-    console.error('Upload file error:', error)
-    return ApiResponse.error('上传文件失败', 500)
+    return handleError(error, request)
   }
 }
 
