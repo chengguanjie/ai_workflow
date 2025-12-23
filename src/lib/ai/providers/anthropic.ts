@@ -1,20 +1,65 @@
-// Anthropic (Claude) API Provider
+// Anthropic (Claude) API Provider with Function Calling Support
 
 import type { AIProvider, ChatRequest, ChatResponse, Model } from '../types'
+import type { ClaudeTool, ToolCall, ChatResponseWithTools, ClaudeToolUse } from '../function-calling/types'
 import { fetchWithTimeout } from '@/lib/http/fetch-with-timeout'
 
 const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
 const ANTHROPIC_VERSION = '2023-06-01'
 
+/**
+ * 扩展的聊天请求（支持工具）
+ */
+export interface AnthropicChatRequest extends ChatRequest {
+  tools?: ClaudeTool[]
+  tool_choice?: { type: 'auto' | 'any' | 'tool'; name?: string }
+}
+
 export class AnthropicProvider implements AIProvider {
   name = 'anthropic'
 
   async chat(request: ChatRequest, apiKey: string, baseUrl?: string): Promise<ChatResponse> {
+    const response = await this.chatWithTools(request as AnthropicChatRequest, apiKey, baseUrl)
+    return {
+      content: response.content,
+      usage: response.usage,
+      finishReason: response.finishReason,
+      model: response.model,
+    }
+  }
+
+  /**
+   * 带工具支持的聊天
+   */
+  async chatWithTools(
+    request: AnthropicChatRequest,
+    apiKey: string,
+    baseUrl?: string
+  ): Promise<ChatResponseWithTools> {
     const url = baseUrl || DEFAULT_ANTHROPIC_BASE_URL
 
     // 提取 system message
     const systemMessage = request.messages.find(m => m.role === 'system')
     const otherMessages = request.messages.filter(m => m.role !== 'system')
+
+    const requestBody: Record<string, unknown> = {
+      model: request.model,
+      messages: otherMessages.map(m => ({
+        role: m.role === 'assistant' ? 'assistant' : 'user',
+        content: m.content,
+      })),
+      system: systemMessage?.content,
+      max_tokens: request.maxTokens ?? 2048,
+      temperature: request.temperature ?? 0.7,
+    }
+
+    // 添加工具配置
+    if (request.tools && request.tools.length > 0) {
+      requestBody.tools = request.tools
+      if (request.tool_choice) {
+        requestBody.tool_choice = request.tool_choice
+      }
+    }
 
     const response = await fetchWithTimeout(`${url}/v1/messages`, {
       method: 'POST',
@@ -23,16 +68,7 @@ export class AnthropicProvider implements AIProvider {
         'x-api-key': apiKey,
         'anthropic-version': ANTHROPIC_VERSION,
       },
-      body: JSON.stringify({
-        model: request.model,
-        messages: otherMessages.map(m => ({
-          role: m.role === 'assistant' ? 'assistant' : 'user',
-          content: m.content,
-        })),
-        system: systemMessage?.content,
-        max_tokens: request.maxTokens ?? 2048,
-        temperature: request.temperature ?? 0.7,
-      }),
+      body: JSON.stringify(requestBody),
       timeoutMs: 90_000,
     })
 
@@ -43,20 +79,45 @@ export class AnthropicProvider implements AIProvider {
 
     const data = await response.json()
 
-    // Anthropic 返回的是 content 数组
-    const content = data.content
-      ?.filter((c: { type: string }) => c.type === 'text')
-      .map((c: { text: string }) => c.text)
-      .join('') || ''
+    // 解析内容和工具调用
+    let textContent = ''
+    const toolCalls: ToolCall[] = []
+
+    if (data.content && Array.isArray(data.content)) {
+      for (const block of data.content) {
+        if (block.type === 'text') {
+          textContent += block.text
+        } else if (block.type === 'tool_use') {
+          const toolUse = block as ClaudeToolUse
+          toolCalls.push({
+            id: toolUse.id,
+            type: 'function',
+            function: {
+              name: toolUse.name,
+              arguments: JSON.stringify(toolUse.input),
+            },
+          })
+        }
+      }
+    }
+
+    // 确定结束原因
+    let finishReason: ChatResponseWithTools['finishReason'] = 'stop'
+    if (data.stop_reason === 'tool_use' || toolCalls.length > 0) {
+      finishReason = 'tool_calls'
+    } else if (data.stop_reason === 'max_tokens') {
+      finishReason = 'length'
+    }
 
     return {
-      content,
+      content: textContent,
+      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       usage: {
         promptTokens: data.usage?.input_tokens || 0,
         completionTokens: data.usage?.output_tokens || 0,
         totalTokens: (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0),
       },
-      finishReason: data.stop_reason || 'stop',
+      finishReason,
       model: data.model,
     }
   }

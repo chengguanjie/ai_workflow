@@ -7,6 +7,22 @@ import type { NodeConfig, OutputFormat } from '@/types/workflow'
 /**
  * 执行上下文
  */
+/**
+ * 执行日志类型
+ */
+export type ExecutionLogType = 'info' | 'step' | 'success' | 'warning' | 'error'
+
+/**
+ * 执行日志条目
+ */
+export interface ExecutionLogEntry {
+  type: ExecutionLogType
+  message: string
+  timestamp: Date
+  step?: string      // 步骤标识
+  data?: unknown     // 附加数据
+}
+
 export interface ExecutionContext {
   executionId: string
   workflowId: string
@@ -21,6 +37,15 @@ export interface ExecutionContext {
 
   // AI 配置缓存
   aiConfigs: Map<string, AIConfigCache>
+
+  // 执行日志收集器（可选，调试模式使用）
+  logs?: ExecutionLogEntry[]
+
+  // 添加日志的辅助方法
+  addLog?: (type: ExecutionLogType, message: string, step?: string, data?: unknown) => void
+
+  // 调试用的导入文件
+  importedFiles?: Array<{ name: string; content: string; type: string }>
 }
 
 /**

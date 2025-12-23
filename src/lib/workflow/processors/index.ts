@@ -6,7 +6,9 @@ import type { NodeProcessor } from '../types'
 import { triggerNodeProcessor } from './trigger'
 import { inputNodeProcessor } from './input'
 import { processNodeProcessor } from './process'
+import { processWithToolsNodeProcessor } from './process-with-tools'
 import { codeNodeProcessor } from './code'
+
 import { codeNodeProcessorV2, isTaskRunnerEnabled, setTaskRunnerEnabled, initializeTaskRunner } from './code-v2'
 import { outputNodeProcessor } from './output'
 import { dataNodeProcessor } from './data'
@@ -37,6 +39,7 @@ processors.set('TRIGGER', triggerNodeProcessor)
 // 基础节点
 processors.set('INPUT', inputNodeProcessor)
 processors.set('PROCESS', processNodeProcessor)
+processors.set('PROCESS_WITH_TOOLS', processWithToolsNodeProcessor)
 processors.set('CODE', codeNodeProcessor)
 processors.set('OUTPUT', outputNodeProcessor)
 
@@ -93,6 +96,7 @@ export {
   triggerNodeProcessor,
   inputNodeProcessor,
   processNodeProcessor,
+  processWithToolsNodeProcessor,
   codeNodeProcessor,
   codeNodeProcessorV2,
   isTaskRunnerEnabled,

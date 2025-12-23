@@ -86,6 +86,10 @@ const processNodeSchema = baseNodeSchema.extend({
     }).optional(),
     systemPrompt: z.string().optional(),
     userPrompt: z.string().optional(),
+    enableToolCalling: z.boolean().optional(),
+    enabledTools: z.array(z.string()).optional(),
+    toolChoice: z.enum(['auto', 'none', 'required']).optional(),
+    maxToolCallRounds: z.number().optional(),
   }),
 })
 

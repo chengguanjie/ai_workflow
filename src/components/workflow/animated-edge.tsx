@@ -47,24 +47,25 @@ export const AnimatedEdge: FC<EdgeProps> = ({
 
   return (
     <>
-      {/* Background path for animation */}
+      {/* Background path for animation - 高亮发光效果 */}
       {(isActive || isSelected) && (
         <>
           <defs>
             <linearGradient id={`gradient-${id}`} x1="0%" y1="0%" x2="100%" y2="0%">
               <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0} />
-              <stop offset="50%" stopColor="#8b5cf6" stopOpacity={0.8} />
+              <stop offset="50%" stopColor="#8b5cf6" stopOpacity={0.9} />
               <stop offset="100%" stopColor="#8b5cf6" stopOpacity={0} />
             </linearGradient>
           </defs>
+          {/* 外层发光效果 */}
           <path
             d={edgePath}
             style={{
-              strokeWidth: 4,
+              strokeWidth: 6,
               stroke: `url(#gradient-${id})`,
               fill: 'none',
-              filter: 'drop-shadow(0 0 4px rgba(139, 92, 246, 0.5))',
-              opacity: isActive ? 1 : 0.6,
+              filter: 'drop-shadow(0 0 6px rgba(139, 92, 246, 0.6))',
+              opacity: isActive ? 1 : 0.7,
             }}
             className={isActive ? "animate-flow-gradient" : ""}
           />
@@ -78,9 +79,9 @@ export const AnimatedEdge: FC<EdgeProps> = ({
         markerEnd={markerEnd}
         style={{
           ...style,
-          strokeWidth: isActive || isSelected ? 2.5 : 1.5,
+          strokeWidth: isActive || isSelected ? 3 : 1.5,
           stroke: isActive || isSelected ? '#8b5cf6' : '#94a3b8',
-          opacity: isActive || isSelected ? 1 : (hasSelection ? 0.2 : 0.8),
+          opacity: isActive || isSelected ? 1 : (hasSelection ? 0.15 : 0.8),
           transition: 'all 0.3s ease',
           zIndex: isActive || isSelected ? 10 : 0
         }}

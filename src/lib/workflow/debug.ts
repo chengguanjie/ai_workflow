@@ -15,6 +15,7 @@ export interface DebugRequest {
   node: NodeConfig
   mockInputs: Record<string, Record<string, unknown>>
   config: WorkflowConfig
+  importedFiles?: Array<{ name: string; content: string; type: string }>
 }
 
 export interface DebugResult {
@@ -33,12 +34,49 @@ export interface DebugResult {
 }
 
 export async function debugNode(request: DebugRequest): Promise<DebugResult> {
-  const { workflowId, organizationId, userId, node, mockInputs, config } = request
+  const { workflowId, organizationId, userId, node, mockInputs, config, importedFiles } = request
   const startTime = Date.now()
   const logs: string[] = []
 
-  logs.push(`[DEBUG] 开始调试节点: ${node.name} (${node.id})`)
-  logs.push(`[DEBUG] 节点类型: ${node.type}`)
+  /* Structured logs for detailed debugging */
+  const executionLogs: any[] = []
+
+  const addLog = (type: 'info' | 'step' | 'success' | 'warning' | 'error', message: string, step?: string, data?: unknown) => {
+    // 1. Add to structured logs
+    executionLogs.push({
+      type,
+      message,
+      step,
+      data,
+      timestamp: new Date()
+    })
+
+    // 2. Add to legacy string logs for UI display
+    const timeStr = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+    let icon = '🔹'
+    if (type === 'step') icon = '⚡'
+    if (type === 'success') icon = '✅'
+    if (type === 'warning') icon = '⚠️'
+    if (type === 'error') icon = '❌'
+
+    let logMsg = `[${timeStr}] ${icon} ${message}`
+    if (step) logMsg = `[${timeStr}] ${icon} [${step}] ${message}`
+
+    logs.push(logMsg)
+
+    // Log data if present (formatted)
+    if (data) {
+      if (typeof data === 'object') {
+        try {
+          logs.push(`  ${JSON.stringify(data, null, 2).split('\n').join('\n  ')}`)
+        } catch (e) {
+          logs.push(`  [Data] ${String(data)}`)
+        }
+      } else {
+        logs.push(`  [Data] ${String(data)}`)
+      }
+    }
+  }
 
   const context: ExecutionContext = {
     executionId: `debug-${Date.now()}`,
@@ -48,6 +86,15 @@ export async function debugNode(request: DebugRequest): Promise<DebugResult> {
     nodeOutputs: new Map(),
     globalVariables: config.globalVariables || {},
     aiConfigs: new Map(),
+    logs: executionLogs,
+    addLog,
+    importedFiles
+  }
+
+  addLog('info', `开始调试节点: ${node.name}`, 'INIT', { nodeId: node.id, type: node.type })
+
+  if (importedFiles && importedFiles.length > 0) {
+    addLog('info', `注入导入文件: ${importedFiles.length} 个文件`, 'INPUT', { files: importedFiles.map(f => f.name) })
   }
 
   for (const [nodeName, output] of Object.entries(mockInputs)) {
@@ -62,11 +109,20 @@ export async function debugNode(request: DebugRequest): Promise<DebugResult> {
       duration: 0,
     }
     context.nodeOutputs.set(nodeName, mockOutput)
-    logs.push(`[DEBUG] 注入模拟输入: ${nodeName} = ${JSON.stringify(output).slice(0, 100)}...`)
+    addLog('info', `注入模拟输入: ${nodeName}`, 'INPUT', output)
   }
 
   try {
-    const processor = getProcessor(node.type)
+    let processor = getProcessor(node.type)
+
+    // 如果是 PROCESS 节点且启用了工具调用，切换到带工具的处理器
+    if (node.type === 'PROCESS' && (node.config as any)?.enableToolCalling) {
+      const toolProcessor = getProcessor('PROCESS_WITH_TOOLS')
+      if (toolProcessor) {
+        processor = toolProcessor
+        addLog?.('info', '检测到工具调用配置，自动切换至支持工具的处理器', 'SYSTEM')
+      }
+    }
 
     if (!processor) {
       logs.push(`[DEBUG] 错误: 未找到节点处理器 ${node.type}`)

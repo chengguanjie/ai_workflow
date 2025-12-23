@@ -27,6 +27,8 @@ export const SHENSUAN_MODELS = {
     'openai/gpt-5.2',
     'openai/gpt-5.1-codex-max',
     'deepseek/deepseek-v3.2-think',
+    'minimax/minimax-m2.1-lightning',
+    'bigmodel/glm-4.7',
   ],
   // 代码模型（与文本模型相同）
   code: [
@@ -38,6 +40,8 @@ export const SHENSUAN_MODELS = {
     'openai/gpt-5.2',
     'openai/gpt-5.1-codex-max',
     'deepseek/deepseek-v3.2-think',
+    'minimax/minimax-m2.1-lightning',
+    'bigmodel/glm-4.7',
   ],
   // 图片生成模型
   'image-gen': [

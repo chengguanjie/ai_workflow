@@ -21,7 +21,8 @@ export class ProcessNodeProcessor implements NodeProcessor {
     const processNode = node as ProcessNodeConfig
 
     try {
-      // 获取 AI 配置
+      // 1. 获取 AI 配置
+      context.addLog?.('step', '正在加载 AI 服务商配置...', 'CONFIG')
       const aiConfig = await this.getAIConfig(
         processNode.config?.aiConfigId,
         context
@@ -40,22 +41,38 @@ export class ProcessNodeProcessor implements NodeProcessor {
           )
         }
       }
+      context.addLog?.('success', `已加载 AI 配置: ${aiConfig.provider}`, 'CONFIG', {
+        model: processNode.config?.model || aiConfig.defaultModel
+      })
 
-      // 构建系统提示词
+      // 2. 构建系统提示词
       let systemPrompt = processNode.config?.systemPrompt || ''
+      context.addLog?.('step', '正在构建系统提示词...', 'PROMPT')
 
       // 添加静态知识库内容
       const knowledgeItems = processNode.config?.knowledgeItems || []
       if (knowledgeItems.length > 0) {
+        context.addLog?.('info', `检测到 ${knowledgeItems.length} 个参考规则`, 'KNOWLEDGE')
         const knowledgeText = knowledgeItems
           .map((item) => `【${item.name}】\n${item.content}`)
           .join('\n\n')
         systemPrompt = `${systemPrompt}\n\n参考资料：\n${knowledgeText}`
       }
 
-      // 处理用户提示词中的变量引用
+      // 添加导入文件内容 (用于调试验证)
+      if (context.importedFiles && context.importedFiles.length > 0) {
+        context.addLog?.('info', `处理 ${context.importedFiles.length} 个导入文件`, 'FILE_IMPORT')
+        const filesText = context.importedFiles
+          .map((file) => `【文件：${file.name}】\n${file.content}`)
+          .join('\n\n')
+        systemPrompt = `${systemPrompt}\n\n上传的文件资料：\n${filesText}`
+      }
+
+      // 3. 处理用户提示词中的变量引用
+      const rawUserPrompt = processNode.config?.userPrompt || ''
+      context.addLog?.('step', '正在解析用户提示词变量...', 'VARIABLE')
       const userPrompt = replaceVariables(
-        processNode.config?.userPrompt || '',
+        rawUserPrompt,
         context
       )
 
@@ -63,21 +80,44 @@ export class ProcessNodeProcessor implements NodeProcessor {
         throw new Error('用户提示词不能为空')
       }
 
-      // 从知识库检索相关内容 (RAG)
+      // 记录变量替换结果（如果发生变化）
+      if (rawUserPrompt !== userPrompt) {
+        context.addLog?.('info', '变量替换完成', 'VARIABLE', {
+          original: rawUserPrompt,
+          replaced: userPrompt
+        })
+      }
+
+      // 4. 从知识库检索相关内容 (RAG)
       const knowledgeBaseId = processNode.config?.knowledgeBaseId
       if (knowledgeBaseId) {
-        const ragContext = await this.retrieveKnowledgeContext(
-          knowledgeBaseId,
-          userPrompt,
-          processNode.config?.ragConfig,
-          aiConfig ? { apiKey: aiConfig.apiKey, baseUrl: aiConfig.baseUrl } : undefined
-        )
-        if (ragContext) {
-          systemPrompt = `${systemPrompt}\n\n## 知识库检索结果\n${ragContext}`
+        context.addLog?.('step', `正在检索知识库 (ID: ${knowledgeBaseId})...`, 'RAG', {
+          query: userPrompt,
+          config: processNode.config?.ragConfig
+        })
+
+        try {
+          const ragContext = await this.retrieveKnowledgeContext(
+            knowledgeBaseId,
+            userPrompt,
+            processNode.config?.ragConfig,
+            aiConfig ? { apiKey: aiConfig.apiKey, baseUrl: aiConfig.baseUrl } : undefined
+          )
+
+          if (ragContext) {
+            context.addLog?.('success', '知识库检索成功', 'RAG', {
+              contextPreview: ragContext.slice(0, 200) + '...'
+            })
+            systemPrompt = `${systemPrompt}\n\n## 知识库检索结果\n${ragContext}`
+          } else {
+            context.addLog?.('warning', '知识库检索未找到相关内容', 'RAG')
+          }
+        } catch (err) {
+          context.addLog?.('error', `知识库检索失败: ${err}`, 'RAG')
         }
       }
 
-      // 构建消息
+      // 5. 构建消息并调用 AI
       const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = []
 
       if (systemPrompt.trim()) {
@@ -85,19 +125,34 @@ export class ProcessNodeProcessor implements NodeProcessor {
       }
       messages.push({ role: 'user', content: userPrompt })
 
-      // 调用 AI
       const model = processNode.config?.model || aiConfig.defaultModel
+      const temperature = processNode.config?.temperature ?? 0.7
+      const maxTokens = processNode.config?.maxTokens ?? 2048
+
+      context.addLog?.('step', '正在调用 AI 模型...', 'AI_CALL', {
+        provider: aiConfig.provider,
+        model,
+        temperature,
+        messageCount: messages.length
+      })
+
+      // 调用 AI
       const response = await aiService.chat(
         aiConfig.provider,
         {
           model,
           messages,
-          temperature: processNode.config?.temperature ?? 0.7,
-          maxTokens: processNode.config?.maxTokens ?? 2048,
+          temperature,
+          maxTokens,
         },
         aiConfig.apiKey,
         aiConfig.baseUrl
       )
+
+      context.addLog?.('success', 'AI 处理完成', 'AI_CALL', {
+        tokens: response.usage,
+        outputPreview: response.content.slice(0, 100) + '...'
+      })
 
       return {
         nodeId: node.id,

@@ -1,7 +1,7 @@
-'use client'
+"use client";
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useWorkflowStore } from '@/stores/workflow-store'
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useWorkflowStore } from "@/stores/workflow-store";
 import {
   syncManager,
   saveWorkflowOffline,
@@ -9,26 +9,26 @@ import {
   isIndexedDBSupported,
   type ConflictInfo,
   type OfflineWorkflow,
-} from '@/lib/offline'
-import type { SaveStatusType } from '@/components/workflow/save-status-indicator'
-import { toast } from 'sonner'
+} from "@/lib/offline";
+import type { SaveStatusType } from "@/components/workflow/save-status-indicator";
+import { toast } from "sonner";
 
 interface UseWorkflowSaveOptions {
-  workflowId: string
-  debounceMs?: number
-  autoSave?: boolean
-  onConflict?: (conflict: ConflictInfo) => void
+  workflowId: string;
+  debounceMs?: number;
+  autoSave?: boolean;
+  onConflict?: (conflict: ConflictInfo) => void;
 }
 
 interface UseWorkflowSaveReturn {
-  status: SaveStatusType
-  lastSavedAt: number | null
-  isSaving: boolean
-  isOnline: boolean
-  conflict: ConflictInfo | null
-  save: (options?: { silent?: boolean; force?: boolean }) => Promise<boolean>
-  resolveConflict: (resolution: 'local' | 'server') => Promise<boolean>
-  retry: () => Promise<void>
+  status: SaveStatusType;
+  lastSavedAt: number | null;
+  isSaving: boolean;
+  isOnline: boolean;
+  conflict: ConflictInfo | null;
+  save: (options?: { silent?: boolean; force?: boolean }) => Promise<boolean>;
+  resolveConflict: (resolution: "local" | "server") => Promise<boolean>;
+  retry: () => Promise<void>;
 }
 
 /**
@@ -41,123 +41,141 @@ export function useWorkflowSave({
   autoSave = true,
   onConflict,
 }: UseWorkflowSaveOptions): UseWorkflowSaveReturn {
-  const [status, setStatus] = useState<SaveStatusType>('saved')
-  const [isSaving, setIsSaving] = useState(false)
-  const [isOnline, setIsOnline] = useState(true)
-  const [conflict, setConflict] = useState<ConflictInfo | null>(null)
-  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null)
+  const [status, setStatus] = useState<SaveStatusType>("saved");
+  const [isSaving, setIsSaving] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
+  const [conflict, setConflict] = useState<ConflictInfo | null>(null);
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
 
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
-  const pendingSaveRef = useRef<boolean>(false)
-  const localVersionRef = useRef<number>(0)
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingSaveRef = useRef<boolean>(false);
+  const localVersionRef = useRef<number>(0);
 
-  const { name, description, getWorkflowConfig, markSaved, isDirty } = useWorkflowStore()
+  const { name, description, getWorkflowConfig, markSaved, isDirty } =
+    useWorkflowStore();
 
   // 监听网络状态
   useEffect(() => {
-    if (typeof window === 'undefined') return
+    if (typeof window === "undefined") return;
 
     const handleOnline = () => {
-      setIsOnline(true)
+      setIsOnline(true);
       // 恢复在线后尝试同步
       if (pendingSaveRef.current) {
-        syncPendingChanges()
+        syncPendingChanges();
       }
-    }
+    };
 
     const handleOffline = () => {
-      setIsOnline(false)
-      setStatus('offline')
-    }
+      setIsOnline(false);
+      setStatus("offline");
+    };
 
-    setIsOnline(navigator.onLine)
-    window.addEventListener('online', handleOnline)
-    window.addEventListener('offline', handleOffline)
+    setIsOnline(navigator.onLine);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
 
     return () => {
-      window.removeEventListener('online', handleOnline)
-      window.removeEventListener('offline', handleOffline)
-    }
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, []);
 
   // 监听同步管理器事件
   useEffect(() => {
-    const unsubscribeStatus = syncManager.on('statusChange', (data) => {
-      const eventData = data as { status?: string; online?: boolean }
-      if (typeof eventData.online === 'boolean') {
-        setIsOnline(eventData.online)
+    const unsubscribeStatus = syncManager.on("statusChange", (data) => {
+      const eventData = data as { status?: string; online?: boolean };
+      if (typeof eventData.online === "boolean") {
+        setIsOnline(eventData.online);
       }
-    })
+    });
 
-    const unsubscribeConflict = syncManager.on('conflict', (data) => {
-      const conflictData = data as ConflictInfo
-      setConflict(conflictData)
-      setStatus('conflict')
-      onConflict?.(conflictData)
-    })
+    const unsubscribeConflict = syncManager.on("conflict", (data) => {
+      const conflictData = data as ConflictInfo;
+      setConflict(conflictData);
+      setStatus("conflict");
+      onConflict?.(conflictData);
+    });
 
-    const unsubscribeComplete = syncManager.on('syncComplete', (data) => {
-      const syncData = data as { workflowId: string; version: number }
+    const unsubscribeComplete = syncManager.on("syncComplete", (data) => {
+      const syncData = data as { workflowId: string; version: number };
       if (syncData.workflowId === workflowId) {
-        localVersionRef.current = syncData.version
-        setStatus('saved')
-        setLastSavedAt(Date.now())
+        localVersionRef.current = syncData.version;
+        setStatus("saved");
+        setLastSavedAt(Date.now());
       }
-    })
+    });
 
     return () => {
-      unsubscribeStatus()
-      unsubscribeConflict()
-      unsubscribeComplete()
-    }
-  }, [workflowId, onConflict])
+      unsubscribeStatus();
+      unsubscribeConflict();
+      unsubscribeComplete();
+    };
+  }, [workflowId, onConflict]);
 
-  // 初始化：加载本地版本
+  // 初始化：清除旧的冲突状态，与服务器同步
   useEffect(() => {
-    async function loadLocalVersion() {
-      if (!isIndexedDBSupported()) return
+    async function initializeAndSync() {
+      if (!isIndexedDBSupported()) return;
 
-      const localWorkflow = await getWorkflowOffline(workflowId)
+      const localWorkflow = await getWorkflowOffline(workflowId);
+
+      // 如果本地有冲突状态的旧数据，清除它
+      // 因为用户重新打开页面时，应该以服务器数据为准
+      if (localWorkflow && localWorkflow.syncStatus === "conflict") {
+        // 清除冲突状态，将状态重置为已同步
+        await saveWorkflowOffline({
+          ...localWorkflow,
+          syncStatus: "synced",
+        });
+        // 清除 syncManager 中的冲突记录
+        syncManager.clearConflict(workflowId);
+        setStatus("saved");
+        setLastSavedAt(localWorkflow.lastModified);
+        localVersionRef.current = localWorkflow.version;
+        return;
+      }
+
       if (localWorkflow) {
-        localVersionRef.current = localWorkflow.version
-        setLastSavedAt(localWorkflow.lastModified)
+        localVersionRef.current = localWorkflow.version;
+        setLastSavedAt(localWorkflow.lastModified);
 
-        if (localWorkflow.syncStatus === 'pending') {
-          pendingSaveRef.current = true
-          setStatus('unsaved')
-        } else if (localWorkflow.syncStatus === 'conflict') {
-          setStatus('conflict')
+        if (localWorkflow.syncStatus === "pending") {
+          pendingSaveRef.current = true;
+          setStatus("unsaved");
+        } else {
+          setStatus("saved");
         }
       }
     }
 
-    loadLocalVersion()
-  }, [workflowId])
+    initializeAndSync();
+  }, [workflowId]);
 
   /**
    * 乐观保存到本地
    */
   const saveToLocal = useCallback(async (): Promise<void> => {
-    if (!isIndexedDBSupported()) return
+    if (!isIndexedDBSupported()) return;
 
-    const config = getWorkflowConfig()
-    const newVersion = localVersionRef.current + 1
+    const config = getWorkflowConfig();
+    const newVersion = localVersionRef.current + 1;
 
     const offlineData: OfflineWorkflow = {
       id: workflowId,
       name,
       description,
-      manual: '',
+      manual: "",
       config,
       version: newVersion,
       lastModified: Date.now(),
-      syncStatus: 'pending',
-    }
+      syncStatus: "pending",
+    };
 
-    await saveWorkflowOffline(offlineData)
-    pendingSaveRef.current = true
-  }, [workflowId, name, description, getWorkflowConfig])
+    await saveWorkflowOffline(offlineData);
+    pendingSaveRef.current = true;
+  }, [workflowId, name, description, getWorkflowConfig]);
 
   /**
    * 同步到服务器
@@ -165,66 +183,66 @@ export function useWorkflowSave({
   const syncToServer = useCallback(
     async (silent = true): Promise<boolean> => {
       if (!navigator.onLine) {
-        setStatus('offline')
-        return false
+        setStatus("offline");
+        return false;
       }
 
-      setIsSaving(true)
-      setStatus('saving')
+      setIsSaving(true);
+      setStatus("saving");
 
       try {
-        const config = getWorkflowConfig()
+        const config = getWorkflowConfig();
         const result = await syncManager.saveWorkflow(
           workflowId,
           { name, description, config },
-          { immediate: true }
-        )
+          { immediate: true },
+        );
 
         if (result.success) {
-          markSaved()
-          setStatus('saved')
-          setLastSavedAt(Date.now())
-          pendingSaveRef.current = false
+          markSaved();
+          setStatus("saved");
+          setLastSavedAt(Date.now());
+          pendingSaveRef.current = false;
 
           if (!silent) {
-            toast.success('工作流已保存')
+            toast.success("工作流已保存");
           }
 
-          return true
+          return true;
         } else {
           if (result.conflict) {
-            setConflict(result.conflict)
-            setStatus('conflict')
+            setConflict(result.conflict);
+            setStatus("conflict");
           } else {
-            setStatus('error')
+            setStatus("error");
             if (!silent) {
-              toast.error(result.error || '保存失败')
+              toast.error(result.error || "保存失败");
             }
           }
 
-          return false
+          return false;
         }
       } catch (error) {
-        setStatus('error')
+        setStatus("error");
         if (!silent) {
-          toast.error(error instanceof Error ? error.message : '保存失败')
+          toast.error(error instanceof Error ? error.message : "保存失败");
         }
-        return false
+        return false;
       } finally {
-        setIsSaving(false)
+        setIsSaving(false);
       }
     },
-    [workflowId, name, description, getWorkflowConfig, markSaved]
-  )
+    [workflowId, name, description, getWorkflowConfig, markSaved],
+  );
 
   /**
    * 同步待处理的更改
    */
   const syncPendingChanges = useCallback(async (): Promise<void> => {
-    if (!navigator.onLine || !pendingSaveRef.current) return
+    if (!navigator.onLine || !pendingSaveRef.current) return;
 
-    await syncToServer(true)
-  }, [syncToServer])
+    await syncToServer(true);
+  }, [syncToServer]);
 
   /**
    * 防抖保存
@@ -232,33 +250,33 @@ export function useWorkflowSave({
   const debouncedSave = useCallback(async (): Promise<void> => {
     // 清除之前的定时器
     if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current)
+      clearTimeout(debounceTimerRef.current);
     }
 
     // 乐观保存到本地
-    await saveToLocal()
-    setStatus('unsaved')
+    await saveToLocal();
+    setStatus("unsaved");
 
     // 设置新的防抖定时器
     debounceTimerRef.current = setTimeout(async () => {
-      await syncToServer(true)
-    }, debounceMs)
-  }, [saveToLocal, syncToServer, debounceMs])
+      await syncToServer(true);
+    }, debounceMs);
+  }, [saveToLocal, syncToServer, debounceMs]);
 
   /**
    * 监听 isDirty 变化，触发自动保存
    */
   useEffect(() => {
-    if (!autoSave || !isDirty) return
+    if (!autoSave || !isDirty) return;
 
-    debouncedSave()
+    debouncedSave();
 
     return () => {
       if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current)
+        clearTimeout(debounceTimerRef.current);
       }
-    }
-  }, [isDirty, autoSave, debouncedSave])
+    };
+  }, [isDirty, autoSave, debouncedSave]);
 
   /**
    * 监听立即保存请求事件
@@ -267,92 +285,95 @@ export function useWorkflowSave({
     const handleRequestSave = () => {
       // 清除防抖定时器，立即保存
       if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current)
+        clearTimeout(debounceTimerRef.current);
       }
-      syncToServer(true)
-    }
+      syncToServer(true);
+    };
 
-    window.addEventListener('workflow-request-save', handleRequestSave)
+    window.addEventListener("workflow-request-save", handleRequestSave);
     return () => {
-      window.removeEventListener('workflow-request-save', handleRequestSave)
-    }
-  }, [syncToServer])
+      window.removeEventListener("workflow-request-save", handleRequestSave);
+    };
+  }, [syncToServer]);
 
   /**
    * 手动保存
    */
   const save = useCallback(
-    async (options?: { silent?: boolean; force?: boolean }): Promise<boolean> => {
-      const { silent = false, force: _force = false } = options || {}
+    async (options?: {
+      silent?: boolean;
+      force?: boolean;
+    }): Promise<boolean> => {
+      const { silent = false, force: _force = false } = options || {};
 
       // 清除防抖定时器
       if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current)
+        clearTimeout(debounceTimerRef.current);
       }
 
       // 乐观保存到本地
-      await saveToLocal()
+      await saveToLocal();
 
       // 同步到服务器
-      return syncToServer(silent)
+      return syncToServer(silent);
     },
-    [saveToLocal, syncToServer]
-  )
+    [saveToLocal, syncToServer],
+  );
 
   /**
    * 解决冲突
    */
   const resolveConflict = useCallback(
-    async (resolution: 'local' | 'server'): Promise<boolean> => {
-      setIsSaving(true)
+    async (resolution: "local" | "server"): Promise<boolean> => {
+      setIsSaving(true);
 
       try {
-        let success = false
+        let success = false;
 
-        if (resolution === 'local') {
-          success = await syncManager.resolveConflictWithLocal(workflowId)
+        if (resolution === "local") {
+          success = await syncManager.resolveConflictWithLocal(workflowId);
         } else {
-          success = await syncManager.resolveConflictWithServer(workflowId)
+          success = await syncManager.resolveConflictWithServer(workflowId);
           // 如果使用服务器版本，需要重新加载工作流
           if (success) {
-            window.location.reload()
+            window.location.reload();
           }
         }
 
         if (success) {
-          setConflict(null)
-          setStatus('saved')
-          toast.success('冲突已解决')
+          setConflict(null);
+          setStatus("saved");
+          toast.success("冲突已解决");
         } else {
-          toast.error('解决冲突失败')
+          toast.error("解决冲突失败");
         }
 
-        return success
+        return success;
       } catch (_error) {
-        toast.error('解决冲突失败')
-        return false
+        toast.error("解决冲突失败");
+        return false;
       } finally {
-        setIsSaving(false)
+        setIsSaving(false);
       }
     },
-    [workflowId]
-  )
+    [workflowId],
+  );
 
   /**
    * 重试保存
    */
   const retry = useCallback(async (): Promise<void> => {
-    await syncToServer(false)
-  }, [syncToServer])
+    await syncToServer(false);
+  }, [syncToServer]);
 
   // 清理
   useEffect(() => {
     return () => {
       if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current)
+        clearTimeout(debounceTimerRef.current);
       }
-    }
-  }, [])
+    };
+  }, []);
 
   return {
     status,
@@ -363,5 +384,5 @@ export function useWorkflowSave({
     save,
     resolveConflict,
     retry,
-  }
+  };
 }

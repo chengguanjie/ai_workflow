@@ -56,6 +56,17 @@ export async function initDB(): Promise<IDBDatabase> {
 
     request.onsuccess = () => {
       db = request.result
+
+      db.onclose = () => {
+        console.warn('IndexedDB connection closed unexpectedly')
+        db = null
+      }
+
+      db.onversionchange = () => {
+        db?.close()
+        db = null
+      }
+
       resolve(db)
     }
 
@@ -96,125 +107,95 @@ async function getDB(): Promise<IDBDatabase> {
 }
 
 /**
+ * Helper to run a transaction with automatic retry on connection failure
+ */
+async function runTransaction<T>(
+  storeName: string,
+  mode: IDBTransactionMode,
+  operation: (store: IDBObjectStore) => IDBRequest
+): Promise<T> {
+  const execute = async () => {
+    const database = await getDB()
+    return new Promise<T>((resolve, reject) => {
+      try {
+        const transaction = database.transaction(storeName, mode)
+        const store = transaction.objectStore(storeName)
+        const request = operation(store)
+
+        request.onerror = () => reject(request.error)
+        request.onsuccess = () => resolve(request.result)
+      } catch (error) {
+        reject(error)
+      }
+    })
+  }
+
+  try {
+    return await execute()
+  } catch (error: any) {
+    if (error?.name === 'InvalidStateError' || error?.message?.includes('closing')) {
+      console.warn('IndexedDB connection closed, resetting and retrying...')
+      db = null
+      return await execute()
+    }
+    throw error
+  }
+}
+
+/**
  * 保存工作流到 IndexedDB
  */
 export async function saveWorkflowOffline(workflow: OfflineWorkflow): Promise<void> {
-  const database = await getDB()
-
-  return new Promise((resolve, reject) => {
-    const transaction = database.transaction(STORES.WORKFLOWS, 'readwrite')
-    const store = transaction.objectStore(STORES.WORKFLOWS)
-
-    const request = store.put(workflow)
-
-    request.onerror = () => reject(request.error)
-    request.onsuccess = () => resolve()
-  })
+  await runTransaction(STORES.WORKFLOWS, 'readwrite', (store) => store.put(workflow))
 }
 
 /**
  * 从 IndexedDB 获取工作流
  */
 export async function getWorkflowOffline(id: string): Promise<OfflineWorkflow | null> {
-  const database = await getDB()
-
-  return new Promise((resolve, reject) => {
-    const transaction = database.transaction(STORES.WORKFLOWS, 'readonly')
-    const store = transaction.objectStore(STORES.WORKFLOWS)
-
-    const request = store.get(id)
-
-    request.onerror = () => reject(request.error)
-    request.onsuccess = () => resolve(request.result || null)
-  })
+  const result = await runTransaction<OfflineWorkflow>(STORES.WORKFLOWS, 'readonly', (store) => store.get(id))
+  return result || null
 }
 
 /**
  * 删除 IndexedDB 中的工作流
  */
 export async function deleteWorkflowOffline(id: string): Promise<void> {
-  const database = await getDB()
-
-  return new Promise((resolve, reject) => {
-    const transaction = database.transaction(STORES.WORKFLOWS, 'readwrite')
-    const store = transaction.objectStore(STORES.WORKFLOWS)
-
-    const request = store.delete(id)
-
-    request.onerror = () => reject(request.error)
-    request.onsuccess = () => resolve()
-  })
+  await runTransaction(STORES.WORKFLOWS, 'readwrite', (store) => store.delete(id))
 }
 
 /**
  * 获取所有待同步的工作流
  */
 export async function getPendingWorkflows(): Promise<OfflineWorkflow[]> {
-  const database = await getDB()
-
-  return new Promise((resolve, reject) => {
-    const transaction = database.transaction(STORES.WORKFLOWS, 'readonly')
-    const store = transaction.objectStore(STORES.WORKFLOWS)
-    const index = store.index('syncStatus')
-
-    const request = index.getAll('pending')
-
-    request.onerror = () => reject(request.error)
-    request.onsuccess = () => resolve(request.result)
-  })
+  return await runTransaction<OfflineWorkflow[]>(STORES.WORKFLOWS, 'readonly', (store) =>
+    store.index('syncStatus').getAll('pending')
+  )
 }
 
 /**
  * 添加待同步的更改
  */
 export async function addPendingChange(change: Omit<PendingChange, 'id'>): Promise<string> {
-  const database = await getDB()
   const id = `change_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
-
-  return new Promise((resolve, reject) => {
-    const transaction = database.transaction(STORES.PENDING_CHANGES, 'readwrite')
-    const store = transaction.objectStore(STORES.PENDING_CHANGES)
-
-    const request = store.add({ ...change, id })
-
-    request.onerror = () => reject(request.error)
-    request.onsuccess = () => resolve(id)
-  })
+  await runTransaction(STORES.PENDING_CHANGES, 'readwrite', (store) => store.add({ ...change, id }))
+  return id
 }
 
 /**
  * 获取指定工作流的所有待同步更改
  */
 export async function getPendingChanges(workflowId: string): Promise<PendingChange[]> {
-  const database = await getDB()
-
-  return new Promise((resolve, reject) => {
-    const transaction = database.transaction(STORES.PENDING_CHANGES, 'readonly')
-    const store = transaction.objectStore(STORES.PENDING_CHANGES)
-    const index = store.index('workflowId')
-
-    const request = index.getAll(workflowId)
-
-    request.onerror = () => reject(request.error)
-    request.onsuccess = () => resolve(request.result)
-  })
+  return await runTransaction<PendingChange[]>(STORES.PENDING_CHANGES, 'readonly', (store) =>
+    store.index('workflowId').getAll(workflowId)
+  )
 }
 
 /**
  * 删除已同步的更改
  */
 export async function removePendingChange(changeId: string): Promise<void> {
-  const database = await getDB()
-
-  return new Promise((resolve, reject) => {
-    const transaction = database.transaction(STORES.PENDING_CHANGES, 'readwrite')
-    const store = transaction.objectStore(STORES.PENDING_CHANGES)
-
-    const request = store.delete(changeId)
-
-    request.onerror = () => reject(request.error)
-    request.onsuccess = () => resolve()
-  })
+  await runTransaction(STORES.PENDING_CHANGES, 'readwrite', (store) => store.delete(changeId))
 }
 
 /**

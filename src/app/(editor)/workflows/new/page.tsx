@@ -1,6 +1,6 @@
-'use client'
+"use client";
 
-import { useCallback, useRef, useState, useEffect } from 'react'
+import { useCallback, useRef, useState, useEffect } from "react";
 import {
   ReactFlow,
   Background,
@@ -9,27 +9,39 @@ import {
   Panel,
   useReactFlow,
   ReactFlowProvider,
-} from '@xyflow/react'
-import '@xyflow/react/dist/style.css'
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
 
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { useWorkflowStore } from '@/stores/workflow-store'
-import { Save, Play, ArrowLeft, Loader2, Cloud, CloudOff } from 'lucide-react'
-import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { NodePanel } from '@/components/workflow/node-panel'
-import { NodeConfigPanel } from '@/components/workflow/node-config-panel'
-import { nodeTypes } from '@/components/workflow/nodes'
-import { toast } from 'sonner'
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useWorkflowStore } from "@/stores/workflow-store";
+import { Save, Play, ArrowLeft, Loader2, Cloud, CloudOff } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { NodePanel } from "@/components/workflow/node-panel";
+import { NodeConfigPanel } from "@/components/workflow/node-config-panel";
+import { nodeTypes } from "@/components/workflow/nodes";
+import { toast } from "sonner";
+import dynamic from "next/dynamic";
+
+// Lazy load NodeDebugPanel
+const NodeDebugPanel = dynamic(
+  () =>
+    import("@/components/workflow/node-debug-panel").then(
+      (mod) => mod.NodeDebugPanel,
+    ),
+  { ssr: false },
+);
 
 function WorkflowEditor() {
-  const reactFlowWrapper = useRef<HTMLDivElement>(null)
-  const { screenToFlowPosition } = useReactFlow()
-  const router = useRouter()
-  const [isSaving, setIsSaving] = useState(false)
-  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved')
-  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const reactFlowWrapper = useRef<HTMLDivElement>(null);
+  const { screenToFlowPosition } = useReactFlow();
+  const router = useRouter();
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved">(
+    "saved",
+  );
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const {
     id: workflowId,
@@ -50,172 +62,201 @@ function WorkflowEditor() {
     markSaved,
     setViewport,
     reset,
-  } = useWorkflowStore()
+    openDebugPanel,
+  } = useWorkflowStore();
 
   // 新建工作流页面：重置 store 以创建全新的工作流
   useEffect(() => {
-    reset()
-  }, [reset])
-
+    reset();
+  }, [reset]);
 
   // 自动保存到数据库（仅当已有 workflowId 时）
-  const autoSaveToDb = useCallback(async (silent = true) => {
-    if (!workflowId || !name.trim() || nodes.length === 0) return
+  const autoSaveToDb = useCallback(
+    async (silent = true) => {
+      if (!workflowId || !name.trim() || nodes.length === 0) return;
 
-    setSaveStatus('saving')
-    try {
-      const config = getWorkflowConfig()
-      const response = await fetch(`/api/workflows/${workflowId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description, config }),
-      })
+      setSaveStatus("saving");
+      try {
+        const config = getWorkflowConfig();
+        const response = await fetch(`/api/workflows/${workflowId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, description, config }),
+        });
 
-      if (!response.ok) {
-        throw new Error('保存失败')
-      }
+        if (!response.ok) {
+          throw new Error("保存失败");
+        }
 
-      markSaved()
-      setSaveStatus('saved')
-      if (!silent) {
-        toast.success('工作流已保存')
+        markSaved();
+        setSaveStatus("saved");
+        if (!silent) {
+          toast.success("工作流已保存");
+        }
+      } catch (error) {
+        setSaveStatus("unsaved");
+        if (!silent) {
+          toast.error(error instanceof Error ? error.message : "保存失败");
+        }
       }
-    } catch (error) {
-      setSaveStatus('unsaved')
-      if (!silent) {
-        toast.error(error instanceof Error ? error.message : '保存失败')
-      }
-    }
-  }, [workflowId, name, description, nodes, getWorkflowConfig, markSaved])
+    },
+    [workflowId, name, description, nodes, getWorkflowConfig, markSaved],
+  );
 
   // 监听数据变化，触发自动保存
   useEffect(() => {
     if (!isDirty) {
-      setSaveStatus('saved')
-      return
+      setSaveStatus("saved");
+      return;
     }
 
-    setSaveStatus('unsaved')
+    setSaveStatus("unsaved");
 
     // 清除之前的定时器
     if (autoSaveTimerRef.current) {
-      clearTimeout(autoSaveTimerRef.current)
+      clearTimeout(autoSaveTimerRef.current);
     }
 
     // 如果已有 workflowId，3秒后自动保存到数据库
     if (workflowId) {
       autoSaveTimerRef.current = setTimeout(() => {
-        autoSaveToDb(true)
-      }, 3000)
+        autoSaveToDb(true);
+      }, 3000);
     }
 
     return () => {
       if (autoSaveTimerRef.current) {
-        clearTimeout(autoSaveTimerRef.current)
+        clearTimeout(autoSaveTimerRef.current);
       }
-    }
-  }, [isDirty, workflowId, autoSaveToDb])
+    };
+  }, [isDirty, workflowId, autoSaveToDb]);
 
   const handleSave = useCallback(async () => {
     if (!name.trim()) {
-      toast.error('请输入工作流名称')
-      return
+      toast.error("请输入工作流名称");
+      return;
     }
 
     if (nodes.length === 0) {
-      toast.error('工作流至少需要一个节点')
-      return
+      toast.error("工作流至少需要一个节点");
+      return;
     }
 
-    setIsSaving(true)
-    setSaveStatus('saving')
+    setIsSaving(true);
+    setSaveStatus("saving");
     try {
-      const config = getWorkflowConfig()
+      const config = getWorkflowConfig();
 
       if (workflowId) {
         // 更新现有工作流
         const response = await fetch(`/api/workflows/${workflowId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name, description, config }),
-        })
+        });
 
         if (!response.ok) {
-          const error = await response.json()
-          throw new Error(error.error || '保存失败')
+          const error = await response.json();
+          throw new Error(error.error || "保存失败");
         }
 
-        markSaved()
-        setSaveStatus('saved')
-        toast.success('工作流已保存')
+        markSaved();
+        setSaveStatus("saved");
+        toast.success("工作流已保存");
       } else {
         // 创建新工作流
-        const response = await fetch('/api/workflows', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        const response = await fetch("/api/workflows", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name, description, config }),
-        })
+        });
 
         if (!response.ok) {
-          const error = await response.json()
-          throw new Error(error.error || '创建失败')
+          const error = await response.json();
+          throw new Error(error.error || "创建失败");
         }
 
-        const result = await response.json()
-        const workflow = result.data
-        markSaved()
-        setSaveStatus('saved')
-        toast.success('工作流已创建')
-        router.push(`/workflows/${workflow.id}`)
+        const result = await response.json();
+        const workflow = result.data;
+        markSaved();
+        setSaveStatus("saved");
+        toast.success("工作流已创建");
+        router.push(`/workflows/${workflow.id}`);
       }
     } catch (error) {
-      setSaveStatus('unsaved')
-      toast.error(error instanceof Error ? error.message : '保存失败')
+      setSaveStatus("unsaved");
+      toast.error(error instanceof Error ? error.message : "保存失败");
     } finally {
-      setIsSaving(false)
+      setIsSaving(false);
     }
-  }, [workflowId, name, description, nodes, getWorkflowConfig, router, markSaved])
+  }, [
+    workflowId,
+    name,
+    description,
+    nodes,
+    getWorkflowConfig,
+    router,
+    markSaved,
+  ]);
 
   const onDragOver = useCallback((event: React.DragEvent) => {
-    event.preventDefault()
-    event.dataTransfer.dropEffect = 'move'
-  }, [])
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  }, []);
 
   const onDrop = useCallback(
     (event: React.DragEvent) => {
-      event.preventDefault()
+      event.preventDefault();
 
-      const type = event.dataTransfer.getData('application/reactflow')
-      if (!type) return
+      const type = event.dataTransfer.getData("application/reactflow");
+      if (!type) return;
 
       const position = screenToFlowPosition({
         x: event.clientX,
         y: event.clientY,
-      })
+      });
 
-      const nodeId = `${type}_${Date.now()}`
+      const nodeId = `${type}_${Date.now()}`;
 
       addNode({
         id: nodeId,
-        type: type.toUpperCase() as 'INPUT' | 'PROCESS' | 'CODE' | 'OUTPUT',
+        type: type.toUpperCase() as "INPUT" | "PROCESS" | "CODE" | "OUTPUT",
         name: getNodeName(type),
         position,
         config: getDefaultConfig(type),
-      } as never)
+      } as never);
     },
-    [screenToFlowPosition, addNode]
-  )
+    [screenToFlowPosition, addNode],
+  );
 
   const onNodeClick = useCallback(
-    (_: React.MouseEvent, node: { id: string }) => {
-      selectNode(node.id)
+    (_: React.MouseEvent, node: { id: string; data?: { type?: string } }) => {
+      // 首先选中节点，触发高亮效果（连接的节点和边也会高亮）
+      selectNode(node.id);
+
+      const nodeType = node.data?.type?.toLowerCase();
+      // 对于 input 和 process 节点，额外打开调试面板
+      if (nodeType === "input" || nodeType === "process") {
+        openDebugPanel(node.id);
+      }
     },
-    [selectNode]
-  )
+    [selectNode, openDebugPanel],
+  );
 
   const onPaneClick = useCallback(() => {
-    selectNode(null)
-  }, [selectNode])
+    selectNode(null);
+  }, [selectNode]);
+
+  // 判断选中节点类型，决定是否显示配置面板
+  const shouldShowConfigPanel = useCallback(() => {
+    if (!selectedNodeId) return false;
+    const selectedNode = nodes.find((n) => n.id === selectedNodeId);
+    const nodeType = (
+      selectedNode?.data as { type?: string }
+    )?.type?.toLowerCase();
+    // input 和 process 节点不显示配置面板
+    return nodeType !== "input" && nodeType !== "process";
+  }, [selectedNodeId, nodes]);
 
   return (
     <div className="flex h-screen">
@@ -226,7 +267,13 @@ function WorkflowEditor() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
         </Link>
-        <Button variant="ghost" size="icon" onClick={handleSave} disabled={isSaving} className="mb-2">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleSave}
+          disabled={isSaving}
+          className="mb-2"
+        >
           {isSaving ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
@@ -250,19 +297,19 @@ function WorkflowEditor() {
           />
           {/* 保存状态指示器 */}
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            {saveStatus === 'saving' && (
+            {saveStatus === "saving" && (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
                 <span>保存中...</span>
               </>
             )}
-            {saveStatus === 'saved' && (
+            {saveStatus === "saved" && (
               <>
                 <Cloud className="h-4 w-4 text-green-500" />
                 <span>已保存</span>
               </>
             )}
-            {saveStatus === 'unsaved' && (
+            {saveStatus === "unsaved" && (
               <>
                 <CloudOff className="h-4 w-4 text-orange-500" />
                 <span>未保存</span>
@@ -294,65 +341,71 @@ function WorkflowEditor() {
               <Background gap={15} />
               <Controls />
               <MiniMap />
-              <Panel position="top-left" className="text-xs text-muted-foreground">
+              <Panel
+                position="top-left"
+                className="text-xs text-muted-foreground"
+              >
                 节点: {nodes.length} | 连接: {edges.length}
               </Panel>
             </ReactFlow>
           </div>
 
-          {/* 右侧配置面板 */}
-          {selectedNodeId && <NodeConfigPanel />}
+          {/* 右侧配置面板 - input 和 process 节点不显示 */}
+          {shouldShowConfigPanel() && <NodeConfigPanel />}
         </div>
 
         {/* 底部节点面板 */}
         <NodePanel />
       </div>
+
+      {/* 节点调试面板 */}
+      <NodeDebugPanel />
     </div>
-  )
+  );
 }
 
 function getNodeName(type: string): string {
   const names: Record<string, string> = {
-    input: '输入',
-    process: '处理',
-    code: '代码',
-    output: '输出',
-  }
-  return names[type] || '节点'
+    input: "用户输入",
+    process: "AI处理",
+    code: "代码",
+    output: "输出",
+  };
+  return names[type] || "节点";
 }
 
 function getDefaultConfig(type: string): Record<string, unknown> {
   switch (type) {
-    case 'input':
-      return { fields: [] }
-    case 'process':
+    case "input":
+      return { fields: [] };
+    case "process":
       return {
-        provider: 'OPENROUTER',
-        model: 'deepseek/deepseek-chat',
+        provider: "OPENROUTER",
+        model: "deepseek/deepseek-chat",
         knowledgeItems: [],
-        systemPrompt: '',
-        userPrompt: '',
+        systemPrompt: "",
+        userPrompt: "",
         temperature: 0.7,
         maxTokens: 2048,
-      }
-    case 'code':
+      };
+    case "code":
       return {
-        provider: 'OPENROUTER',
-        model: 'deepseek/deepseek-coder',
-        prompt: '',
-        language: 'javascript',
-        generatedCode: '',
-      }
-    case 'output':
+        provider: "OPENROUTER",
+        model: "deepseek/deepseek-coder",
+        prompt: "",
+        language: "javascript",
+        generatedCode: "",
+      };
+    case "output":
       return {
-        provider: 'OPENROUTER',
-        model: 'deepseek/deepseek-chat',
-        prompt: '',
-        format: 'text',
-        templateName: '',
-      }
+        provider: "OPENROUTER",
+        model: "deepseek/deepseek-chat",
+        prompt: "",
+        format: "text",
+        templateName: "",
+      };
     default:
-      return {}
+      return {};
   }
 }
 
@@ -361,5 +414,5 @@ export default function NewWorkflowPage() {
     <ReactFlowProvider>
       <WorkflowEditor />
     </ReactFlowProvider>
-  )
+  );
 }

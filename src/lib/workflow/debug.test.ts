@@ -111,7 +111,48 @@ describe('debugNode', () => {
 
     expect(result.logs).toBeDefined()
     expect(result.logs!.some(log => log.includes('开始调试节点'))).toBe(true)
-    expect(result.logs!.some(log => log.includes('节点类型'))).toBe(true)
+    // Check for type in the data object part of the logs
+    expect(result.logs!.some(log => log.includes('"type": "INPUT"'))).toBe(true)
+  })
+
+  it('should handle imported files and log them', async () => {
+    const node = createTestNode('INPUT', { fields: [] })
+    const request: DebugRequest = {
+      workflowId: 'wf-1',
+      organizationId: 'org-1',
+      userId: 'user-1',
+      node,
+      mockInputs: {},
+      config: createTestConfig(),
+      importedFiles: [
+        { name: 'test.txt', content: 'hello world', type: 'text/plain' }
+      ]
+    }
+
+    const result = await debugNode(request)
+    expect(result.logs!.some(log => log.includes('注入导入文件: 1 个文件'))).toBe(true)
+  })
+
+  it('should switch to PROCESS_WITH_TOOLS processor when tool calling is enabled', async () => {
+    const node = createTestNode('PROCESS', {
+      prompt: 'test',
+      enableToolCalling: true,
+      aiConfigId: 'mock-config'
+    })
+
+    const request: DebugRequest = {
+      workflowId: 'wf-1',
+      organizationId: 'org-1',
+      userId: 'user-1',
+      node,
+      mockInputs: {},
+      config: createTestConfig(),
+    }
+
+    const result = await debugNode(request)
+
+    // Check if the specific log message for switching appears
+    expect(result.logs!.some(log => log.includes('检测到工具调用配置'))).toBe(true)
   })
 })
 

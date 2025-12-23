@@ -9,6 +9,9 @@ import { validateContextSize, estimateTokenCount, getModelContextLimit } from '.
 
 export * from './types'
 
+// 导出 Function Calling 模块
+export * from './function-calling'
+
 class AIService {
   private providers: Map<AIProviderType, AIProvider> = new Map()
 
