@@ -500,7 +500,15 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
       ? { id: configId, organizationId: context.organizationId, isActive: true }
       : { organizationId: context.organizationId, isDefault: true, isActive: true }
 
-    const apiKey = await prisma.apiKey.findFirst({ where })
+    let apiKey = await prisma.apiKey.findFirst({ where })
+
+    // 如果指定了ID但没找到，尝试降级使用默认配置
+    if (!apiKey && configId) {
+      context.addLog?.('warning', `指定的 AI 配置 (ID: ${configId}) 未找到，尝试使用默认配置...`, 'CONFIG')
+      apiKey = await prisma.apiKey.findFirst({
+        where: { organizationId: context.organizationId, isDefault: true, isActive: true }
+      })
+    }
 
     if (!apiKey) {
       return null
