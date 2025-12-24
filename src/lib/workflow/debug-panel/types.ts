@@ -50,6 +50,8 @@ export interface ImportedFile {
   type: string
   file: File
   previewUrl?: string
+  content?: string | ArrayBuffer | null
+  contentBase64?: string | null
 }
 
 // ============================================
@@ -77,7 +79,7 @@ export const MODALITY_LABELS: Record<ModelModality, string> = {
 /**
  * 输出类型
  */
-export type OutputType = 
+export type OutputType =
   | 'text'      // 纯文本
   | 'json'      // JSON
   | 'html'      // HTML
@@ -177,7 +179,7 @@ export interface EnhancedDebugResult {
   }
   logs?: string[]
   approvalRequestId?: string
-  
+
   // 新增字段
   outputType?: OutputType
   outputContent?: {
@@ -201,7 +203,7 @@ export interface EnhancedProcessConfig {
   model?: string
   aiConfigId?: string
   knowledgeBaseId?: string
-  
+
   // 新增字段
   modality?: ModelModality        // 模型类别
   expectedOutputType?: OutputType // 期望输出类型
