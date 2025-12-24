@@ -150,7 +150,10 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
       if (enableToolCalling) {
         const toolCount = openaiTools.length + claudeTools.length
         context.addLog?.('info', `已加载 ${toolCount} 个工具定义`, 'TOOLS', {
-          tools: [...openaiTools, ...claudeTools].map(t => t.function?.name || t.name)
+          tools: [
+            ...openaiTools.map(t => t.function.name),
+            ...claudeTools.map(t => t.name)
+          ]
         })
       }
 
