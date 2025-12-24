@@ -163,7 +163,7 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
       }
 
       // 6. 构建消息
-      const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = []
+      const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string; tool_calls?: ToolCall[] }> = []
       if (systemPrompt.trim()) {
         messages.push({ role: 'system', content: systemPrompt })
       }
@@ -270,7 +270,7 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
   private async executeWithTools(
     aiConfig: AIConfigCache,
     model: string,
-    initialMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+    initialMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string; tool_calls?: ToolCall[] }>,
     openaiTools: OpenAITool[],
     claudeTools: ClaudeTool[],
     toolChoice: 'auto' | 'none' | 'required',
@@ -286,7 +286,7 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
     rounds: number
   }> {
     const toolCallHistory: Array<{ call: ToolCall; result: ToolCallResult }> = []
-    let messages = [...initialMessages]
+    let messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string; tool_calls?: ToolCall[] }> = [...initialMessages]
     let totalUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
     let rounds = 0
     let lastResponse: ChatResponseWithTools | null = null
@@ -399,7 +399,7 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
   private async callAIWithTools(
     aiConfig: AIConfigCache,
     model: string,
-    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string; tool_calls?: ToolCall[] }>,
     openaiTools: OpenAITool[],
     claudeTools: ClaudeTool[],
     toolChoice: 'auto' | 'none' | 'required',
