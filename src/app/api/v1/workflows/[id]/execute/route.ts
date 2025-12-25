@@ -1,71 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { ApiToken } from '@prisma/client'
 import { executeWorkflow } from '@/lib/workflow/engine'
 import { executionQueue } from '@/lib/workflow/queue'
-import { createHash } from 'crypto'
 import { ApiResponse } from '@/lib/api/api-response'
+import {
+  validateApiTokenWithScope,
+  validateCrossOrganization,
+  createCrossOrgNotFoundResponse,
+  updateTokenUsage,
+} from '@/lib/auth'
 
 interface RouteParams {
   params: Promise<{ id: string }>
-}
-
-type AuthResult =
-  | { organizationId: string; createdById: string; token: ApiToken }
-  | { error: string; status: number }
-
-// 验证 API Token
-async function verifyApiToken(authHeader: string | null): Promise<AuthResult> {
-  if (!authHeader?.startsWith('Bearer ')) {
-    return { error: '缺少 Authorization 头', status: 401 }
-  }
-
-  const token = authHeader.slice(7)
-  if (!token) {
-    return { error: '无效的 Token', status: 401 }
-  }
-
-  // 计算 Token 哈希
-  const tokenHash = createHash('sha256').update(token).digest('hex')
-
-  // 查找 Token
-  const apiToken = await prisma.apiToken.findUnique({
-    where: { tokenHash },
-    include: {
-      organization: {
-        select: {
-          id: true,
-          apiQuota: true,
-          apiUsed: true,
-        },
-      },
-    },
-  })
-
-  if (!apiToken) {
-    return { error: '无效的 Token', status: 401 }
-  }
-
-  if (!apiToken.isActive) {
-    return { error: 'Token 已禁用', status: 403 }
-  }
-
-  // 检查过期
-  if (apiToken.expiresAt && new Date(apiToken.expiresAt) < new Date()) {
-    return { error: 'Token 已过期', status: 403 }
-  }
-
-  // 检查权限
-  const scopes = apiToken.scopes as string[]
-  if (!scopes.includes('workflow:execute')) {
-    return { error: '该 Token 无权执行工作流', status: 403 }
-  }
-
-  return {
-    token: apiToken,
-    organizationId: apiToken.organizationId,
-    createdById: apiToken.createdById,
-  }
 }
 
 /**
@@ -74,26 +20,40 @@ async function verifyApiToken(authHeader: string | null): Promise<AuthResult> {
  */
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    // 验证 Token
-    const authResult = await verifyApiToken(request.headers.get('Authorization'))
-    if ('error' in authResult) {
-      return ApiResponse.error(authResult.error, authResult.status)
+    // 验证 Token 和作用域
+    const authResult = await validateApiTokenWithScope(request, 'workflows')
+    if (!authResult.success) {
+      return authResult.response
     }
 
-    const { token, organizationId, createdById } = authResult
+    const { token } = authResult
     const { id: workflowId } = await params
 
-    // 验证工作流存在且属于该组织
+    // 查找工作流（不限制组织，用于后续跨组织验证）
     const workflow = await prisma.workflow.findFirst({
       where: {
         id: workflowId,
-        organizationId,
         deletedAt: null,
+      },
+      select: {
+        id: true,
+        organizationId: true,
+        name: true,
       },
     })
 
+    // 如果工作流不存在，返回404
     if (!workflow) {
-      return ApiResponse.error('工作流不存在或无权访问', 404)
+      return ApiResponse.error('工作流不存在', 404)
+    }
+
+    // 跨组织验证：返回404而非403，避免信息泄露
+    const crossOrgResult = validateCrossOrganization(
+      token.organizationId,
+      workflow.organizationId
+    )
+    if (!crossOrgResult.success) {
+      return createCrossOrgNotFoundResponse('工作流')
     }
 
     // 解析请求体
@@ -104,20 +64,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     // 更新 Token 使用统计
-    await prisma.apiToken.update({
-      where: { id: token.id },
-      data: {
-        lastUsedAt: new Date(),
-        usageCount: { increment: 1 },
-      },
-    })
+    await updateTokenUsage(token.id)
 
     // 异步执行模式
     if (asyncExecution) {
       const taskId = await executionQueue.enqueue(
         workflowId,
-        organizationId,
-        createdById,
+        token.organizationId,
+        token.createdById,
         input
       )
 
@@ -132,8 +86,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // 同步执行
     const result = await executeWorkflow(
       workflowId,
-      organizationId,
-      createdById,
+      token.organizationId,
+      token.createdById,
       input
     )
 

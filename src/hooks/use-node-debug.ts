@@ -28,7 +28,7 @@ export function useNodeDebug() {
 
   const runNode = async (
     nodeId: string,
-    inputs: Record<string, Record<string, any>> = {},
+    inputs: Record<string, Record<string, unknown>> = {},
   ) => {
     if (!workflowId || !nodeId) return;
 

@@ -2,60 +2,60 @@ import { FileText, Users, ShoppingCart, Headphones, TrendingUp, Mail } from "luc
 
 const useCases = [
   {
-    title: "内容生产自动化",
-    description: "从素材收集、AI 撰写、多平台分发到效果追踪，一条工作流搞定内容运营全流程。",
+    title: "食品企业新品研发赋能",
+    description: "通过 AI 自动化分析大客户研发需求，实现新品开发从数周缩短至数天。",
     icon: FileText,
-    examples: ["自动生成营销文案", "批量处理产品描述", "多语言内容翻译"],
-    color: "bg-blue-500/10 text-blue-600",
-  },
-  {
-    title: "客户服务智能化",
-    description: "智能分类客户问题，自动匹配知识库答案，复杂问题自动升级人工处理。",
-    icon: Headphones,
-    examples: ["智能工单分配", "FAQ 自动回复", "客户情绪分析"],
-    color: "bg-green-500/10 text-green-600",
-  },
-  {
-    title: "销售流程自动化",
-    description: "线索自动评分、跟进提醒、合同生成、业绩统计，释放销售团队的生产力。",
-    icon: TrendingUp,
-    examples: ["线索自动分配", "报价单生成", "销售数据分析"],
-    color: "bg-purple-500/10 text-purple-600",
-  },
-  {
-    title: "HR 人事管理",
-    description: "入职流程自动化、考勤数据处理、薪资计算、绩效评估，让 HR 工作更高效。",
-    icon: Users,
-    examples: ["入职自动化流程", "请假审批流程", "绩效数据汇总"],
+    examples: ["需求自动拆解与对标", "智能配方生成与优化", "包装合规性自动审查"],
     color: "bg-orange-500/10 text-orange-600",
   },
   {
-    title: "电商运营自动化",
-    description: "订单处理、库存预警、价格监控、评论分析，电商运营全流程自动化。",
+    title: "山姆/沃尔玛大客户对接",
+    description: "建立 AI 自动化工作流，精准对接零售巨头的采购与新品准入标准。",
     icon: ShoppingCart,
-    examples: ["订单状态同步", "差评自动预警", "竞品价格监控"],
+    examples: ["新品准入文件自动填充", "标签/成分自动审核", "供应链实时响应协作"],
+    color: "bg-blue-500/10 text-blue-600",
+  },
+  {
+    title: "研发全流程提效 700%",
+    description: "重构研发管理流程，将人工处理的繁琐环节交给 AI，极大释放核心人才生产力。",
+    icon: TrendingUp,
+    examples: ["研发进度自动追踪", "跨部门协作自动提醒", "历史成功案例智能匹配"],
+    color: "bg-green-500/10 text-green-600",
+  },
+  {
+    title: "准确率从 40% 到 100%",
+    description: "通过 AI 知识库与规则引擎，消除人为疏漏，确保产出物 100% 符合大客户标准。",
+    icon: Headphones,
+    examples: ["智能质检与误差识别", "标准操作规程 (SOP) AI 校验", "专家经验数字化复用"],
+    color: "bg-purple-500/10 text-purple-600",
+  },
+  {
+    title: "市场趋势智能捕捉",
+    description: "AI 实时扫描零售平台数据，帮助企业在 24 小时内锁定潜在爆品趋势。",
+    icon: Mail,
+    examples: ["大客户新品趋势动态", "竞品策略自动化监控", "消费情绪语义分析"],
     color: "bg-pink-500/10 text-pink-600",
   },
   {
-    title: "营销自动化",
-    description: "用户分群、个性化推送、A/B 测试、效果追踪，精准触达每一位用户。",
-    icon: Mail,
-    examples: ["用户画像分析", "定时邮件推送", "营销效果统计"],
+    title: "人效冠军管理模型",
+    description: "基于实战案例总结的 AI 管理模型，帮助企业从 0 到 1 打造高人效组织。",
+    icon: Users,
+    examples: ["部门人效 ROI 分析", "AI 落地卡点诊断", "数字化人才培养体系"],
     color: "bg-cyan-500/10 text-cyan-600",
   },
 ];
 
 export function UseCasesSection() {
   return (
-    <section id="use-cases" className="py-20 lg:py-32">
+    <section id="use-cases" className="py-20 lg:py-32 w-full">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         {/* Section header */}
         <div className="text-center max-w-3xl mx-auto">
           <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-            适用于各行各业的自动化场景
+            深度复盘：提效 700% 的实战密码
           </h2>
           <p className="mt-4 text-lg text-muted-foreground">
-            无论您是初创团队还是大型企业，AI Workflow 都能帮助您实现业务流程自动化
+            我们不仅仅是提供工具，更是通过 AI 重新定义企业的人效天花板
           </p>
         </div>
 

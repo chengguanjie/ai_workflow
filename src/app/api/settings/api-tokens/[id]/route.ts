@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { ApiResponse } from '@/lib/api/api-response'
+import { logApiTokenChange } from '@/lib/audit'
 
 interface RouteContext {
   params: Promise<{ id: string }>
@@ -35,6 +36,19 @@ export async function DELETE(
     await prisma.apiToken.delete({
       where: { id },
     })
+
+    // 记录审计日志
+    await logApiTokenChange(
+      session.user.id,
+      session.user.organizationId,
+      'revoked',
+      {
+        tokenId: token.id,
+        tokenName: token.name,
+        tokenPrefix: token.prefix,
+        scopes: Array.isArray(token.scopes) ? token.scopes as string[] : [],
+      }
+    )
 
     return ApiResponse.success({ success: true })
   } catch (error) {

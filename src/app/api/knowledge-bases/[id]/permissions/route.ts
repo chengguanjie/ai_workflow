@@ -10,6 +10,7 @@ import {
 } from '@/lib/permissions/resource'
 import { ResourcePermission, PermissionTargetType } from '@prisma/client'
 import { ApiResponse } from '@/lib/api/api-response'
+import { logPermissionChange } from '@/lib/audit'
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -124,6 +125,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
+    // 获取知识库名称
+    const kb = await prisma.knowledgeBase.findUnique({
+      where: { id },
+      select: { name: true },
+    })
+
+    // 检查是否已存在权限（用于判断是添加还是更新）
+    const existingPermission = await prisma.knowledgeBasePermission.findFirst({
+      where: {
+        knowledgeBaseId: id,
+        targetType,
+        targetId: targetType === 'ALL' ? null : targetId,
+      },
+    })
+
     // 设置权限
     await setResourcePermission(
       'KNOWLEDGE_BASE',
@@ -132,6 +148,39 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       targetType === 'ALL' ? null : targetId,
       permission,
       session.user.id
+    )
+
+    // 获取目标名称用于审计日志
+    let targetName: string | undefined
+    if (targetType === 'USER' && targetId) {
+      const user = await prisma.user.findUnique({
+        where: { id: targetId },
+        select: { name: true, email: true },
+      })
+      targetName = user?.name || user?.email || undefined
+    } else if (targetType === 'DEPARTMENT' && targetId) {
+      const dept = await prisma.department.findUnique({
+        where: { id: targetId },
+        select: { name: true },
+      })
+      targetName = dept?.name || undefined
+    }
+
+    // 记录审计日志
+    await logPermissionChange(
+      session.user.id,
+      session.user.organizationId,
+      existingPermission ? 'updated' : 'added',
+      {
+        resourceType: 'KNOWLEDGE_BASE',
+        resourceId: id,
+        resourceName: kb?.name,
+        targetType,
+        targetId: targetType === 'ALL' ? null : targetId,
+        targetName,
+        oldPermission: existingPermission?.permission || null,
+        newPermission: permission,
+      }
     )
 
     return ApiResponse.success({ success: true })
@@ -167,6 +216,37 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       return ApiResponse.error('缺少必要参数', 400)
     }
 
+    // 获取知识库名称
+    const kb = await prisma.knowledgeBase.findUnique({
+      where: { id },
+      select: { name: true },
+    })
+
+    // 获取现有权限用于审计日志
+    const existingPermission = await prisma.knowledgeBasePermission.findFirst({
+      where: {
+        knowledgeBaseId: id,
+        targetType,
+        targetId: targetType === 'ALL' ? null : targetId,
+      },
+    })
+
+    // 获取目标名称用于审计日志
+    let targetName: string | undefined
+    if (targetType === 'USER' && targetId) {
+      const user = await prisma.user.findUnique({
+        where: { id: targetId },
+        select: { name: true, email: true },
+      })
+      targetName = user?.name || user?.email || undefined
+    } else if (targetType === 'DEPARTMENT' && targetId) {
+      const dept = await prisma.department.findUnique({
+        where: { id: targetId },
+        select: { name: true },
+      })
+      targetName = dept?.name || undefined
+    }
+
     // 删除权限
     await removeResourcePermission(
       'KNOWLEDGE_BASE',
@@ -174,6 +254,25 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       targetType,
       targetType === 'ALL' ? null : targetId
     )
+
+    // 记录审计日志
+    if (existingPermission) {
+      await logPermissionChange(
+        session.user.id,
+        session.user.organizationId,
+        'removed',
+        {
+          resourceType: 'KNOWLEDGE_BASE',
+          resourceId: id,
+          resourceName: kb?.name,
+          targetType,
+          targetId: targetType === 'ALL' ? null : targetId,
+          targetName,
+          oldPermission: existingPermission.permission,
+          newPermission: null,
+        }
+      )
+    }
 
     return ApiResponse.success({ success: true })
   } catch (error) {

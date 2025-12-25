@@ -42,8 +42,7 @@ async function loadPyodideScript(): Promise<void> {
     throw new Error('Pyodide 只能在浏览器环境中运行')
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  if ((window as any).loadPyodide) {
+  if (typeof window.loadPyodide !== 'undefined') {
     return
   }
 
@@ -71,8 +70,7 @@ export async function initPyodide(): Promise<PyodideInterface> {
   pyodideLoading = (async (): Promise<PyodideInterface> => {
     await loadPyodideScript()
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const instance: PyodideInterface = await (window as any).loadPyodide({
+    const instance: PyodideInterface = await window.loadPyodide({
       indexURL: PYODIDE_CDN,
     })
     pyodideInstance = instance
@@ -146,7 +144,7 @@ _output_capture.start()
     } catch (pyError) {
       // 停止捕获
       await pyodide.runPythonAsync(`_output_capture.stop()`)
-      
+
       return {
         success: false,
         output: '',

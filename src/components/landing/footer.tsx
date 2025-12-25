@@ -29,7 +29,7 @@ const footerNavigation = {
 
 export function LandingFooter() {
   return (
-    <footer className="bg-muted/30 border-t" aria-labelledby="footer-heading">
+    <footer className="w-full bg-muted/30 border-t" aria-labelledby="footer-heading">
       <h2 id="footer-heading" className="sr-only">
         Footer
       </h2>
@@ -41,10 +41,10 @@ export function LandingFooter() {
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary">
                 <Workflow className="h-5 w-5 text-primary-foreground" />
               </div>
-              <span className="text-xl font-bold">AI Workflow</span>
+              <span className="text-xl font-bold">AI人效冠军</span>
             </Link>
             <p className="text-sm text-muted-foreground max-w-xs">
-              零代码构建企业级自动化工作流，AI驱动的智能流程引擎，让复杂业务自动运转。
+              用企业级 AI 打造极致人效，帮助企业从 0 到 1 构建智能化组织。
             </p>
             <div className="flex space-x-4">
               {/* Social links placeholder */}

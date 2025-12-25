@@ -63,7 +63,7 @@ describe('InputTabs Component', () => {
     it('should render with upstream-data tab selected by default', () => {
       render(<InputTabs {...defaultProps} />)
       
-      const upstreamTab = screen.getByRole('tab', { name: /上游数据/i })
+      const upstreamTab = screen.getByRole('tab', { name: /输入文本/i })
       expect(upstreamTab.getAttribute('data-state')).toBe('active')
     })
 
@@ -74,8 +74,8 @@ describe('InputTabs Component', () => {
     it('should render both tab triggers', () => {
       render(<InputTabs {...defaultProps} />)
       
-      expect(screen.getByRole('tab', { name: /上游数据/i })).toBeTruthy()
-      expect(screen.getByRole('tab', { name: /导入文件/i })).toBeTruthy()
+      expect(screen.getByRole('tab', { name: /输入文本/i })).toBeTruthy()
+      expect(screen.getByRole('tab', { name: /上传资料/i })).toBeTruthy()
     })
   })
 
@@ -87,18 +87,17 @@ describe('InputTabs Component', () => {
     it('should display predecessor nodes when upstream-data tab is active', () => {
       render(<InputTabs {...defaultProps} />)
       
-      expect(screen.getByText('处理节点1')).toBeTruthy()
-      expect(screen.getByText('输入节点')).toBeTruthy()
+      expect(screen.getByText(/处理节点1/)).toBeTruthy()
+      expect(screen.getByText(/输入节点/)).toBeTruthy()
     })
 
     /**
-     * Test: Display node types
+     * Test: Display node types as field types in badges
      */
     it('should display node types as badges', () => {
       render(<InputTabs {...defaultProps} />)
       
-      expect(screen.getByText('PROCESS')).toBeTruthy()
-      expect(screen.getByText('INPUT')).toBeTruthy()
+      expect(screen.getAllByText('text').length).toBeGreaterThan(0)
     })
 
     /**
@@ -107,7 +106,7 @@ describe('InputTabs Component', () => {
     it('should display empty state when no predecessor nodes', () => {
       render(<InputTabs {...defaultProps} predecessorNodes={[]} />)
       
-      expect(screen.getByText('当前节点没有上游输入')).toBeTruthy()
+      expect(screen.getByText('暂无上游节点输入')).toBeTruthy()
     })
 
     /**

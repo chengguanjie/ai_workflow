@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { Download, Image, Music, Video, FileType } from 'lucide-react'
+import { Download, Image as ImageIcon, Music, Video, FileType } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -50,18 +50,18 @@ export function PreviewModal({
   // Get content URL for media types
   const getContentUrl = (): string | null => {
     if (!content) return null
-    
+
     if (content instanceof Blob) {
       return URL.createObjectURL(content)
     }
-    
+
     // For string content that might be a data URL or regular URL
     if (typeof content === 'string') {
       if (content.startsWith('data:') || content.startsWith('http://') || content.startsWith('https://')) {
         return content
       }
     }
-    
+
     return null
   }
 
@@ -73,6 +73,7 @@ export function PreviewModal({
       case 'image':
         return contentUrl ? (
           <div className="flex items-center justify-center p-4 bg-muted/20 rounded-lg">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={contentUrl}
               alt={fileName}
@@ -81,7 +82,7 @@ export function PreviewModal({
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-            <Image className="h-12 w-12 mb-4 opacity-50" />
+            <ImageIcon className="h-12 w-12 mb-4 opacity-50" />
             <p>无法预览图片</p>
           </div>
         )
@@ -177,7 +178,7 @@ export function PreviewModal({
             </div>
           </div>
         </DialogHeader>
-        
+
         <div className="flex-1 overflow-auto mt-4">
           {renderContent()}
         </div>

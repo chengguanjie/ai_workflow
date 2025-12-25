@@ -132,8 +132,9 @@ async function runTransaction<T>(
 
   try {
     return await execute()
-  } catch (error: any) {
-    if (error?.name === 'InvalidStateError' || error?.message?.includes('closing')) {
+  } catch (error: unknown) {
+    const err = error as { name?: string; message?: string };
+    if (err?.name === 'InvalidStateError' || err?.message?.includes('closing')) {
       console.warn('IndexedDB connection closed, resetting and retrying...')
       db = null
       return await execute()

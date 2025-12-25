@@ -156,8 +156,7 @@ async function _sendWebhookNotification(
       workflowId: approvalRequest.workflowId,
       workflowName: approvalRequest.workflowName,
       executionId: approvalRequest.executionId,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      nodeId: (approvalRequest as any).nodeId || '',
+      nodeId: approvalRequest.nodeId || '',
       expiresAt: approvalRequest.expiresAt?.toISOString(),
       approvalUrl: `${process.env.NEXT_PUBLIC_APP_URL}/approvals`,
     },

@@ -114,9 +114,10 @@ export default function OrganizationsPage() {
 
       const res = await fetch(`/api/console/organizations?${params}`)
       if (res.ok) {
-        const data = await res.json()
-        setOrganizations(data.data)
-        setPagination(data.pagination)
+        const result = await res.json()
+        // ApiResponse.paginated() 返回 { success, data: [...], pagination }
+        setOrganizations(result.data)
+        setPagination(result.pagination)
       }
     } catch (error) {
       console.error('获取企业列表失败:', error)
@@ -271,9 +272,8 @@ export default function OrganizationsPage() {
                   <TableCell>{planLabels[org.plan]}</TableCell>
                   <TableCell>
                     <span
-                      className={`inline-flex items-center rounded-full px-2 py-1 text-xs ${
-                        statusColors[org.status]
-                      }`}
+                      className={`inline-flex items-center rounded-full px-2 py-1 text-xs ${statusColors[org.status]
+                        }`}
                     >
                       {statusLabels[org.status]}
                     </span>

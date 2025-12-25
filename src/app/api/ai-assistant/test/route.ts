@@ -161,11 +161,6 @@ function analyzeError(error: string, config: WorkflowConfig): string {
           analysis.push('1. 系统提示词或用户提示词格式问题')
           analysis.push('2. 变量引用错误（如 {{节点名.字段名}} 格式不正确）')
           analysis.push('3. 引用的节点或字段不存在')
-        } else if (node.type === 'HTTP') {
-          analysis.push('可能原因：')
-          analysis.push('1. URL配置错误')
-          analysis.push('2. 认证信息不正确')
-          analysis.push('3. 目标服务不可用')
         }
       }
     }

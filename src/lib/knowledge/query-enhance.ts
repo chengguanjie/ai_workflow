@@ -15,6 +15,7 @@ export interface QueryEnhanceOptions {
   enableRewrite?: boolean      // 查询重写
   enableExpansion?: boolean    // 查询扩展
   enableHypothetical?: boolean // 假设文档嵌入 (HyDE)
+  chatHistory?: { role: string; content: string | unknown[] }[] // 对话历史用于指代消解
 }
 
 export interface EnhancedQuery {
@@ -114,18 +115,29 @@ async function rewriteQuery(
 2. 消除歧义，添加必要的上下文
 3. 使用专业术语（如适用）
 4. 保持简洁，不要过度扩展
-5. 只输出重写后的查询，不要解释
+5. 如果提供了对话历史，请根据历史消解指代（如"它"、"这个"等）
+6. 只输出重写后的查询，不要解释
 
 示例：
 用户: "怎么用"
 重写: "如何使用这个产品或服务"
 
-用户: "报错了"
-重写: "程序运行时出现错误的解决方法"`,
+历史:
+User: 介绍一下 Workflow
+Assistant: Workflow 是一个工作流编排工具...
+用户: "它收费吗"
+重写: "Workflow 工作流编排工具的收费标准"`,
         },
         {
           role: 'user',
-          content: `请重写以下查询：${query}`,
+          content: options.chatHistory && options.chatHistory.length > 0
+            ? `对话历史：
+${options.chatHistory.map(msg => `${msg.role}: ${typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)}`).slice(-5).join('\n')}
+
+当前查询：${query}
+
+请基于对话历史重写当前查询：`
+            : `请重写以下查询：${query}`,
         },
       ],
       max_tokens: 150,

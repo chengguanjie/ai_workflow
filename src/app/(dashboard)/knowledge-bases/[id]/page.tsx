@@ -139,7 +139,7 @@ export default function KnowledgeBaseDetailPage() {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const [searching, setSearching] = useState(false)
   const [topK, setTopK] = useState(5)
-  const [threshold, setThreshold] = useState(0.7)
+  const [threshold, setThreshold] = useState(0.3)
 
   const fetchKnowledgeBase = useCallback(async () => {
     try {

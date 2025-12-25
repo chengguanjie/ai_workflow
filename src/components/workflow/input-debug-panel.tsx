@@ -22,17 +22,14 @@ import {
   Copy,
   Check,
   RefreshCw,
-  AlertCircle,
   ChevronDown,
   ChevronRight,
   Settings,
   Zap,
-  MessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -55,9 +52,20 @@ import type {
   InputField,
   InputFieldType,
   SelectOption,
-  TriggerType,
-  TriggerNodeConfigData,
 } from "@/types/workflow";
+
+type TriggerType = "MANUAL" | "WEBHOOK" | "SCHEDULE";
+
+interface TriggerNodeConfigData {
+  triggerType?: TriggerType;
+  enabled?: boolean;
+  webhookPath?: string;
+  hasWebhookSecret?: boolean;
+  cronExpression?: string;
+  timezone?: string;
+  retryOnFail?: boolean;
+  maxRetries?: number;
+}
 
 // ============================================
 // Types
@@ -83,61 +91,61 @@ const FIELD_TYPE_OPTIONS: Array<{
   icon: React.ReactNode;
   accept: string;
 }> = [
-  {
-    value: "text",
-    label: "文本",
-    icon: <Type className="h-4 w-4" />,
-    accept: "",
-  },
-  {
-    value: "select",
-    label: "单选",
-    icon: <List className="h-4 w-4" />,
-    accept: "",
-  },
-  {
-    value: "multiselect",
-    label: "多选",
-    icon: <CheckSquare className="h-4 w-4" />,
-    accept: "",
-  },
-  {
-    value: "image",
-    label: "图片",
-    icon: <ImageIcon className="h-4 w-4" />,
-    accept: "image/*",
-  },
-  {
-    value: "pdf",
-    label: "PDF",
-    icon: <FileText className="h-4 w-4" />,
-    accept: ".pdf,application/pdf",
-  },
-  {
-    value: "word",
-    label: "Word",
-    icon: <FileText className="h-4 w-4" />,
-    accept: ".doc,.docx",
-  },
-  {
-    value: "excel",
-    label: "Excel",
-    icon: <FileSpreadsheet className="h-4 w-4" />,
-    accept: ".xls,.xlsx,.csv",
-  },
-  {
-    value: "audio",
-    label: "音频",
-    icon: <Music className="h-4 w-4" />,
-    accept: "audio/*",
-  },
-  {
-    value: "video",
-    label: "视频",
-    icon: <Video className="h-4 w-4" />,
-    accept: "video/*",
-  },
-];
+    {
+      value: "text",
+      label: "文本",
+      icon: <Type className="h-4 w-4" />,
+      accept: "",
+    },
+    {
+      value: "select",
+      label: "单选",
+      icon: <List className="h-4 w-4" />,
+      accept: "",
+    },
+    {
+      value: "multiselect",
+      label: "多选",
+      icon: <CheckSquare className="h-4 w-4" />,
+      accept: "",
+    },
+    {
+      value: "image",
+      label: "图片",
+      icon: <ImageIcon className="h-4 w-4" />,
+      accept: "image/*",
+    },
+    {
+      value: "pdf",
+      label: "PDF",
+      icon: <FileText className="h-4 w-4" />,
+      accept: ".pdf,application/pdf",
+    },
+    {
+      value: "word",
+      label: "Word",
+      icon: <FileText className="h-4 w-4" />,
+      accept: ".doc,.docx",
+    },
+    {
+      value: "excel",
+      label: "Excel",
+      icon: <FileSpreadsheet className="h-4 w-4" />,
+      accept: ".xls,.xlsx,.csv",
+    },
+    {
+      value: "audio",
+      label: "音频",
+      icon: <Music className="h-4 w-4" />,
+      accept: "audio/*",
+    },
+    {
+      value: "video",
+      label: "视频",
+      icon: <Video className="h-4 w-4" />,
+      accept: "video/*",
+    },
+  ];
 
 const TRIGGER_TYPES: {
   value: TriggerType;
@@ -145,25 +153,25 @@ const TRIGGER_TYPES: {
   icon: React.ComponentType<{ className?: string }>;
   description: string;
 }[] = [
-  {
-    value: "MANUAL",
-    label: "手动触发",
-    icon: PlayCircle,
-    description: "通过界面手动执行工作流",
-  },
-  {
-    value: "WEBHOOK",
-    label: "Webhook",
-    icon: Webhook,
-    description: "通过 HTTP 请求触发工作流",
-  },
-  {
-    value: "SCHEDULE",
-    label: "定时调度",
-    icon: Clock,
-    description: "按照 Cron 表达式定时执行",
-  },
-];
+    {
+      value: "MANUAL",
+      label: "手动触发",
+      icon: PlayCircle,
+      description: "通过界面手动执行工作流",
+    },
+    {
+      value: "WEBHOOK",
+      label: "Webhook",
+      icon: Webhook,
+      description: "通过 HTTP 请求触发工作流",
+    },
+    {
+      value: "SCHEDULE",
+      label: "定时调度",
+      icon: Clock,
+      description: "按照 Cron 表达式定时执行",
+    },
+  ];
 
 const TIMEZONES = [
   { value: "Asia/Shanghai", label: "中国标准时间 (UTC+8)" },
@@ -579,7 +587,7 @@ export function InputNodeDebugPanel({
                       "border rounded-lg p-3 space-y-2 bg-white transition-all",
                       draggedIndex === index && "opacity-50 scale-[0.98]",
                       dragOverIndex === index &&
-                        "border-primary border-2 bg-primary/5",
+                      "border-primary border-2 bg-primary/5",
                     )}
                   >
                     {/* Field Name Row - 浅蓝色底纹 */}
@@ -759,7 +767,7 @@ export function InputNodeDebugPanel({
                             className={cn(
                               "flex items-center justify-center gap-2 p-3 rounded-md border border-dashed cursor-pointer transition-colors hover:border-primary hover:bg-primary/5",
                               uploadingFields[field.id] &&
-                                "pointer-events-none opacity-50",
+                              "pointer-events-none opacity-50",
                             )}
                             onClick={() =>
                               fileInputRefs.current[field.id]?.click()

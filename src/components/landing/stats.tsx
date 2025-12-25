@@ -1,8 +1,8 @@
 const stats = [
-  { value: "16+", label: "节点类型", description: "覆盖各类自动化场景" },
-  { value: "8", label: "AI 提供商", description: "灵活选择最适合的模型" },
-  { value: "99.9%", label: "可用性保障", description: "企业级稳定性" },
-  { value: "5分钟", label: "快速上手", description: "无需编码即可使用" },
+  { value: "700%", label: "研发效能提升", description: "从数周缩短至数天" },
+  { value: "100%", label: "新品开发准确率", description: "由 40% 提升至满分" },
+  { value: "TOP 3", label: "零售巨头对接", description: "山姆、沃尔玛、小象超市" },
+  { value: "50+", label: "企业人效增长", description: "深耕行业管理咨询" },
 ];
 
 export function StatsSection() {

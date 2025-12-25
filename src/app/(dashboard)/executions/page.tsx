@@ -12,7 +12,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { History, RefreshCw, Play, CheckCircle } from "lucide-react";
+import { RefreshCw, Play, CheckCircle } from "lucide-react";
 import { RunningSection } from "@/components/execution/running-section";
 import {
   HistorySection,
@@ -219,8 +219,6 @@ export default function ExecutionsPage() {
     setHistoryPage(page);
   };
 
-  // 计算总记录数（运行中 + 历史）
-  const totalRecords = runningExecutions.length + historyTotal;
   const isLoading =
     activeTab === "running" ? isLoadingRunning : isLoadingHistory;
 

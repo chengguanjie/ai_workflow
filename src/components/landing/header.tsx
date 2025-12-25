@@ -6,10 +6,10 @@ import { Menu, X, Workflow } from "lucide-react";
 import { useState } from "react";
 
 const navigation = [
-  { name: "功能", href: "#features" },
-  { name: "使用场景", href: "#use-cases" },
-  { name: "定价", href: "/pricing" },
-  { name: "客户案例", href: "#testimonials" },
+  { name: "核心课程", href: "#features" },
+  { name: "实战案例", href: "#use-cases" },
+  { name: "导师团队", href: "#testimonials" },
+  { name: "预约报名", href: "/apply" },
 ];
 
 export function LandingHeader() {
@@ -25,7 +25,7 @@ export function LandingHeader() {
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary">
                 <Workflow className="h-5 w-5 text-primary-foreground" />
               </div>
-              <span className="text-xl font-bold">AI Workflow</span>
+              <span className="text-xl font-bold">AI人效冠军</span>
             </Link>
           </div>
 
@@ -45,10 +45,10 @@ export function LandingHeader() {
           {/* CTA Buttons */}
           <div className="hidden md:flex md:items-center md:gap-x-3">
             <Button variant="ghost" asChild>
-              <Link href="/login">登录</Link>
+              <Link href="/login">学员登录</Link>
             </Button>
             <Button asChild>
-              <Link href="/register">免费试用</Link>
+              <Link href="/apply">立即预约</Link>
             </Button>
           </div>
 
@@ -85,10 +85,10 @@ export function LandingHeader() {
               ))}
               <div className="flex flex-col gap-2 pt-4 border-t">
                 <Button variant="outline" asChild className="w-full">
-                  <Link href="/login">登录</Link>
+                  <Link href="/login">学员登录</Link>
                 </Button>
                 <Button asChild className="w-full">
-                  <Link href="/register">免费试用</Link>
+                  <Link href="/apply">立即预约</Link>
                 </Button>
               </div>
             </div>

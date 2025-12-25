@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { ApiResponse } from '@/lib/api/api-response'
+import { generateSecurePassword } from '@/lib/auth/password-validator'
 
 // 验证邮箱或手机号
 const isEmailOrPhone = (value: string) => {
@@ -198,8 +199,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 创建用户，初始密码123456
-    const passwordHash = await hash('123456', 12)
+    // 创建用户，生成安全的随机密码
+    const tempPassword = generateSecurePassword()
+    const passwordHash = await hash(tempPassword, 12)
 
     const user = await prisma.user.create({
       data: {
@@ -244,6 +246,7 @@ export async function POST(request: NextRequest) {
     return ApiResponse.created({
       message: '成员创建成功',
       member: user,
+      tempPassword,
     })
   } catch (error) {
     if (error instanceof z.ZodError) {

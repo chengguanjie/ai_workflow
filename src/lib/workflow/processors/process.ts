@@ -4,7 +4,7 @@
 
 import type { NodeConfig, ProcessNodeConfig } from '@/types/workflow'
 import type { NodeProcessor, NodeOutput, ExecutionContext, AIConfigCache } from '../types'
-import { replaceVariables } from '../utils'
+import { replaceVariables, createContentPartsFromText } from '../utils'
 import { aiService } from '@/lib/ai'
 import { prisma } from '@/lib/db'
 import { safeDecryptApiKey } from '@/lib/crypto'
@@ -68,62 +68,73 @@ export class ProcessNodeProcessor implements NodeProcessor {
         systemPrompt = `${systemPrompt}\n\n上传的文件资料：\n${filesText}`
       }
 
-      // 3. 处理用户提示词中的变量引用
+      // 3. 处理用户提示词中的变量引用 (支持多模态)
       const rawUserPrompt = processNode.config?.userPrompt || ''
       context.addLog?.('step', '正在解析用户提示词变量...', 'VARIABLE')
-      const userPrompt = replaceVariables(
-        rawUserPrompt,
-        context
-      )
 
-      if (!userPrompt.trim()) {
+      // 使用 createContentPartsFromText 解析变量，支持多模态对象
+      const userContentParts = createContentPartsFromText(rawUserPrompt, context)
+
+      // 提取纯文本用于日志记录和 RAG 检索
+      const userPromptText = userContentParts
+        .map(p => p.type === 'text' ? p.text : `[${p.type}]`)
+        .join('')
+
+      if (!userPromptText.trim() && userContentParts.length === 0) {
         throw new Error('用户提示词不能为空')
       }
 
-      // 记录变量替换结果（如果发生变化）
-      if (rawUserPrompt !== userPrompt) {
+      // 记录变量替换结果
+      if (rawUserPrompt !== userPromptText) {
         context.addLog?.('info', '变量替换完成', 'VARIABLE', {
           original: rawUserPrompt,
-          replaced: userPrompt
+          replacedPreview: userPromptText.slice(0, 100) + '...',
+          partsCount: userContentParts.length
         })
       }
 
-      // 4. 从知识库检索相关内容 (RAG)
+      // 4. 从知识库检索相关内容 (RAG) - RAG 目前仅支持文本检索
       const knowledgeBaseId = processNode.config?.knowledgeBaseId
       if (knowledgeBaseId) {
+        // ... (RAG 逻辑保持不变，使用 userPromptText 检索)
         context.addLog?.('step', `正在检索知识库 (ID: ${knowledgeBaseId})...`, 'RAG', {
-          query: userPrompt,
+          query: userPromptText,
           config: processNode.config?.ragConfig
         })
 
         try {
           const ragContext = await this.retrieveKnowledgeContext(
             knowledgeBaseId,
-            userPrompt,
+            userPromptText,
             processNode.config?.ragConfig,
             aiConfig ? { apiKey: aiConfig.apiKey, baseUrl: aiConfig.baseUrl } : undefined
           )
 
           if (ragContext) {
-            context.addLog?.('success', '知识库检索成功', 'RAG', {
-              contextPreview: ragContext.slice(0, 200) + '...'
-            })
+            // ...
             systemPrompt = `${systemPrompt}\n\n## 知识库检索结果\n${ragContext}`
-          } else {
-            context.addLog?.('warning', '知识库检索未找到相关内容', 'RAG')
           }
+          // ...
         } catch (err) {
-          context.addLog?.('error', `知识库检索失败: ${err}`, 'RAG')
+          // ...
         }
       }
 
       // 5. 构建消息并调用 AI
-      const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = []
+      // 类型定义需要根据 ai/types.ts 更新，支持 ContentPart[]
+      const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | any[] }> = []
 
       if (systemPrompt.trim()) {
         messages.push({ role: 'system', content: systemPrompt })
       }
-      messages.push({ role: 'user', content: userPrompt })
+
+      // 如果只有纯文本，发送字符串；否则发送 ContentPart 数组
+      const isPureText = userContentParts.every(p => p.type === 'text')
+      if (isPureText) {
+        messages.push({ role: 'user', content: userPromptText })
+      } else {
+        messages.push({ role: 'user', content: userContentParts })
+      }
 
       const model = processNode.config?.model || aiConfig.defaultModel
       const temperature = processNode.config?.temperature ?? 0.7

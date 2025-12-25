@@ -9,25 +9,27 @@
 import pLimit from 'p-limit'
 import { prisma } from '@/lib/db'
 import { parseDocument } from './parser'
-import { splitText } from './chunker'
+import { splitText, splitTextWithParentChild } from './chunker'
 import { generateEmbeddings } from './embedding'
-import { getVectorStoreForKnowledgeBase } from './vector-store'
-import type { VectorDocument } from './vector-store'
-import type { AIProvider, DocProcessStatus } from '@prisma/client'
+import { getVectorStoreForKnowledgeBase, VectorDocument } from './vector-store'
+import type { KnowledgeDocument } from '@prisma/client'
 
+// 并发限制
 const CONCURRENT_DOCUMENT_LIMIT = 3
+
+export type DocProcessStatus = KnowledgeDocument['status']
 
 export interface ProcessDocumentOptions {
   documentId: string
-  fileBuffer: Buffer
-  fileType: string
-  fileName: string
   knowledgeBaseId: string
+  fileName: string
+  fileType: string
+  fileBuffer?: Buffer
+  filePath?: string
   chunkSize?: number
   chunkOverlap?: number
+  embeddingProvider: string
   embeddingModel: string
-  embeddingProvider: AIProvider
-  // API 配置（从数据库获取）
   apiKey?: string
   baseUrl?: string
 }
@@ -38,7 +40,7 @@ export interface ProcessResult {
   chunkCount: number
   error?: string
   errorDetails?: {
-    stage: 'parse' | 'chunk' | 'embed' | 'save'
+    stage: string
     message: string
     recoverable: boolean
   }
@@ -46,88 +48,55 @@ export interface ProcessResult {
 
 /**
  * 处理单个文档
- * 包括解析、分块、向量化
- * 增强的错误处理确保数据一致性
  */
-export async function processDocument(
-  options: ProcessDocumentOptions
-): Promise<ProcessResult> {
+export async function processDocument(options: ProcessDocumentOptions): Promise<ProcessResult> {
   const {
     documentId,
-    fileBuffer,
-    fileType,
-    fileName,
     knowledgeBaseId,
-    chunkSize = 1000,
-    chunkOverlap = 200,
-    embeddingModel,
+    fileName,
+    fileType,
+    chunkSize = 500,
+    chunkOverlap = 50,
     embeddingProvider,
+    embeddingModel,
     apiKey,
-    baseUrl,
+    baseUrl
   } = options
 
   console.log(`[Processor] 开始处理文档: ${fileName} (${documentId})`)
 
   try {
-    // 更新状态为处理中
+    // 1. 解析
+    console.log(`[Processor] 阶段1: 解析文档 ${fileName}`)
     await updateDocumentStatus(documentId, 'PROCESSING')
 
-    // 0. 清理可能存在的旧分块（确保幂等性）
-    const deletedOldChunks = await prisma.documentChunk.deleteMany({
-      where: { documentId },
-    })
-    if (deletedOldChunks.count > 0) {
-      console.log(`[Processor] 清理旧分块: ${deletedOldChunks.count} 个`)
-    }
-
-    // 1. 解析文档
-    console.log(`[Processor] 阶段1: 解析文档`)
     let parsed
-    try {
-      parsed = await parseDocument(fileBuffer, fileType, fileName)
-    } catch (parseError) {
-      const errorMessage = parseError instanceof Error ? parseError.message : '文档解析失败'
-      console.error(`[Processor] 文档解析失败:`, errorMessage)
-      await updateDocumentStatus(documentId, 'FAILED', `解析失败: ${errorMessage}`)
-      return {
-        success: false,
-        documentId,
-        chunkCount: 0,
-        error: errorMessage,
-        errorDetails: {
-          stage: 'parse',
-          message: errorMessage,
-          recoverable: false,
-        },
-      }
+    if (options.fileBuffer) {
+      parsed = await parseDocument(options.fileBuffer, fileType, fileName)
+    } else {
+      throw new Error('未提供文件内容 (fileBuffer)')
     }
-
-    if (!parsed.text || parsed.text.trim().length === 0) {
-      const errorMessage = '文档内容为空'
-      await updateDocumentStatus(documentId, 'FAILED', errorMessage)
-      return {
-        success: false,
-        documentId,
-        chunkCount: 0,
-        error: errorMessage,
-        errorDetails: {
-          stage: 'parse',
-          message: errorMessage,
-          recoverable: false,
-        },
-      }
-    }
-
-    console.log(`[Processor] 解析完成，文本长度: ${parsed.text.length}`)
 
     // 2. 分块
     console.log(`[Processor] 阶段2: 文本分块`)
     let chunks
     try {
-      chunks = splitText(parsed.text, {
-        chunkSize,
-        chunkOverlap,
-      })
+      // 启用父子分块策略优化 (Index Small, Retrieve Big)
+      // 如果 configured chunkSize 足够大 (>= 800)，则将其作为父块大小
+      // 并生成较小的子块 (350 tokens) 进行索引
+      if (chunkSize >= 800) {
+        console.log(`[Processor] 使用父子分块策略 (Parent: ${chunkSize}, Child: 350)`)
+        chunks = splitTextWithParentChild(parsed.text, {
+          parentChunkSize: chunkSize,
+          childChunkSize: 350,
+          chunkOverlap,
+        })
+      } else {
+        chunks = splitText(parsed.text, {
+          chunkSize,
+          chunkOverlap,
+        })
+      }
     } catch (chunkError) {
       const errorMessage = chunkError instanceof Error ? chunkError.message : '分块失败'
       console.error(`[Processor] 分块失败:`, errorMessage)
@@ -169,7 +138,7 @@ export async function processDocument(
     try {
       const chunkTexts = chunks.map((c) => c.content)
       embeddings = await generateEmbeddings(chunkTexts, {
-        provider: embeddingProvider,
+        provider: embeddingProvider as any,
         model: embeddingModel,
         apiKey,
         baseUrl,
@@ -209,7 +178,6 @@ export async function processDocument(
             startOffset: chunk.startOffset,
             endOffset: chunk.endOffset,
             embedding: JSON.stringify(embeddings[i + index].embedding),
-            tokenCount: embeddings[i + index].tokenUsage || 0,
             metadata: JSON.parse(JSON.stringify(chunk.metadata || {})),
           }))
 
@@ -310,11 +278,12 @@ async function updateDocumentStatus(
   status: DocProcessStatus,
   errorMessage?: string
 ): Promise<void> {
+  const truncatedErrorMessage = errorMessage ? errorMessage.slice(0, 65000) : undefined
   await prisma.knowledgeDocument.update({
     where: { id: documentId },
     data: {
       status,
-      errorMessage,
+      errorMessage: truncatedErrorMessage,
       processedAt: status === 'COMPLETED' || status === 'FAILED' ? new Date() : undefined,
     },
   })

@@ -8,15 +8,13 @@ describe('replaceVariables', () => {
                                     const nodeOutputs = new Map<string, NodeOutput>();
 
                                     Object.entries(outputs).forEach(([nodeName, data]) => {
-                                                      // using nodeName as key for simplicity in mock, though map key implies nodeId usually.
-                                                      // But replaceVariables iterates values and checks nodeName property.
-                                                      nodeOutputs.set(nodeName, { // Key doesn't matter for findNodeOutputByName
+                                                      nodeOutputs.set(nodeName, {
                                                                         nodeId: nodeName,
                                                                         nodeName: nodeName,
-                                                                        type: 'INPUT',
+                                                                        nodeType: 'INPUT',
                                                                         status: 'success',
                                                                         data: data,
-                                                                        timestamp: Date.now()
+                                                                        startedAt: new Date()
                                                       });
                                     });
 

@@ -36,6 +36,7 @@ import {
 import { useRouter } from 'next/navigation'
 import { WorkflowPermissionsDialog } from '@/components/workflow/workflow-permissions-dialog'
 import { ShareToTemplateDialog } from '@/components/template/share-to-template-dialog'
+import { CreateWorkflowDialog } from '@/components/workflow/create-workflow-dialog'
 
 interface Department {
   id: string
@@ -243,12 +244,15 @@ export default function WorkflowsPage() {
           <h1 className="text-2xl font-bold">工作流</h1>
           <p className="text-muted-foreground">管理您的 AI 工作流</p>
         </div>
-        <Link href="/workflows/new">
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            新建工作流
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <CreateWorkflowDialog />
+          <Link href="/workflows/new">
+            <Button>
+              <Plus className="mr-2 h-4 w-4" />
+              新建工作流
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* 搜索和筛选 */}

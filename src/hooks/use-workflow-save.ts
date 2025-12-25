@@ -29,6 +29,8 @@ interface UseWorkflowSaveReturn {
   save: (options?: { silent?: boolean; force?: boolean }) => Promise<boolean>;
   resolveConflict: (resolution: "local" | "server") => Promise<boolean>;
   retry: () => Promise<void>;
+  /** 设置服务器版本号，用于初始化时同步 */
+  setServerVersion: (version: number) => Promise<void>;
 }
 
 /**
@@ -152,6 +154,37 @@ export function useWorkflowSave({
 
     initializeAndSync();
   }, [workflowId]);
+
+  /**
+   * 设置服务器版本号
+   * 用于初始化时将服务器版本同步到本地，避免版本冲突
+   */
+  const setServerVersion = useCallback(
+    async (version: number): Promise<void> => {
+      localVersionRef.current = version;
+
+      if (!isIndexedDBSupported()) return;
+
+      const existingLocal = await getWorkflowOffline(workflowId);
+      // 只有当本地没有数据，或者本地版本小于服务器版本时，才更新
+      if (!existingLocal || existingLocal.version < version) {
+        const config = getWorkflowConfig();
+        const offlineData: OfflineWorkflow = {
+          id: workflowId,
+          name,
+          description,
+          manual: "",
+          config,
+          version,
+          lastModified: Date.now(),
+          syncStatus: "synced",
+          serverVersion: version,
+        };
+        await saveWorkflowOffline(offlineData);
+      }
+    },
+    [workflowId, name, description, getWorkflowConfig],
+  );
 
   /**
    * 乐观保存到本地
@@ -384,5 +417,6 @@ export function useWorkflowSave({
     save,
     resolveConflict,
     retry,
+    setServerVersion,
   };
 }

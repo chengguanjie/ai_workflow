@@ -5,7 +5,6 @@ import {
   Role,
 } from '@prisma/client'
 import {
-  getDescendantDepartmentIds,
   isUpperDepartment,
   isDepartmentManager,
   isSupervisor,
@@ -321,6 +320,49 @@ async function calculateUserPermission(
 ): Promise<ResourcePermission | null> {
   if (permissions.length === 0) return null
 
+  // 收集所有需要检查的部门 ID，用于批量查询子部门
+  const departmentIdsToCheck = new Set<string>()
+  for (const perm of permissions) {
+    if (perm.targetType === 'DEPARTMENT' && perm.targetId && user.departmentId) {
+      // 只有当用户部门不等于权限目标部门时才需要查询子部门
+      if (user.departmentId !== perm.targetId) {
+        departmentIdsToCheck.add(perm.targetId)
+      }
+    }
+  }
+
+  // 批量获取所有需要检查的部门的子部门，避免 N+1 查询
+  const descendantMap = new Map<string, string[]>()
+  if (departmentIdsToCheck.size > 0) {
+    // 使用单次查询获取所有相关部门的子部门
+    // 通过 path 字段进行前缀匹配可以高效获取子部门
+    const parentDepts = await prisma.department.findMany({
+      where: { id: { in: Array.from(departmentIdsToCheck) } },
+      select: { id: true, path: true },
+    })
+
+    if (parentDepts.length > 0) {
+      // 获取所有可能的子部门
+      const pathPrefixes = parentDepts.map(d => d.path)
+      const allDescendants = await prisma.department.findMany({
+        where: {
+          OR: pathPrefixes.map(prefix => ({
+            path: { startsWith: prefix + '/' }
+          }))
+        },
+        select: { id: true, path: true },
+      })
+
+      // 按父部门分组子部门
+      for (const parent of parentDepts) {
+        const descendants = allDescendants
+          .filter(d => d.path.startsWith(parent.path + '/'))
+          .map(d => d.id)
+        descendantMap.set(parent.id, descendants)
+      }
+    }
+  }
+
   const applicablePermissions: ResourcePermission[] = []
 
   for (const perm of permissions) {
@@ -339,7 +381,8 @@ async function calculateUserPermission(
           if (user.departmentId === perm.targetId) {
             applies = true
           } else {
-            const descendants = await getDescendantDepartmentIds(perm.targetId)
+            // 使用预先批量查询的结果
+            const descendants = descendantMap.get(perm.targetId) || []
             applies = descendants.includes(user.departmentId)
           }
         }
@@ -555,6 +598,10 @@ export async function getAccessibleResourceIds(
 
 /**
  * 获取资源的权限列表（用于权限管理 UI）
+ * 
+ * 优化说明：使用批量查询避免 N+1 查询问题
+ * - 合并用户和创建者的查询，减少数据库往返次数
+ * - 使用 Map 进行 O(1) 查找
  */
 export async function getResourcePermissions(
   resourceType: ResourceType,
@@ -562,6 +609,46 @@ export async function getResourcePermissions(
 ): Promise<PermissionListItem[]> {
   const permissions = await getResourcePermissionSettings(resourceType, resourceId)
 
+  if (permissions.length === 0) return []
+
+  // 收集所有需要查询的 ID，避免 N+1 查询
+  const allUserIds = new Set<string>()
+  const departmentIds = new Set<string>()
+
+  for (const perm of permissions) {
+    // 收集目标用户 ID
+    if (perm.targetType === 'USER' && perm.targetId) {
+      allUserIds.add(perm.targetId)
+    }
+    // 收集部门 ID
+    if (perm.targetType === 'DEPARTMENT' && perm.targetId) {
+      departmentIds.add(perm.targetId)
+    }
+    // 收集创建者 ID（与目标用户合并查询）
+    allUserIds.add(perm.createdById)
+  }
+
+  // 批量查询所有用户（包括目标用户和创建者），减少数据库查询次数
+  const allUsers = await prisma.user.findMany({
+    where: { id: { in: Array.from(allUserIds) } },
+    select: { id: true, name: true, email: true },
+  })
+  const userMap = new Map<string, { id: string; name: string | null; email: string }>(
+    allUsers.map(u => [u.id, u])
+  )
+
+  // 批量查询部门
+  const departments = departmentIds.size > 0
+    ? await prisma.department.findMany({
+        where: { id: { in: Array.from(departmentIds) } },
+        select: { id: true, name: true },
+      })
+    : []
+  const deptMap = new Map<string, { id: string; name: string }>(
+    departments.map(d => [d.id, d])
+  )
+
+  // 组装结果
   const result: PermissionListItem[] = []
 
   for (const perm of permissions) {
@@ -573,28 +660,19 @@ export async function getResourcePermissions(
         break
       case 'USER':
         if (perm.targetId) {
-          const user = await prisma.user.findUnique({
-            where: { id: perm.targetId },
-            select: { name: true, email: true },
-          })
+          const user = userMap.get(perm.targetId)
           targetName = user?.name || user?.email || '未知用户'
         }
         break
       case 'DEPARTMENT':
         if (perm.targetId) {
-          const dept = await prisma.department.findUnique({
-            where: { id: perm.targetId },
-            select: { name: true },
-          })
+          const dept = deptMap.get(perm.targetId)
           targetName = dept?.name || '未知部门'
         }
         break
     }
 
-    const creator = await prisma.user.findUnique({
-      where: { id: perm.createdById },
-      select: { id: true, name: true },
-    })
+    const creator = userMap.get(perm.createdById)
 
     result.push({
       id: perm.id,

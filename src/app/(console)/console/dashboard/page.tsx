@@ -65,8 +65,9 @@ export default function ConsoleDashboardPage() {
     try {
       const res = await fetch('/api/console/stats')
       if (res.ok) {
-        const data = await res.json()
-        setStats(data)
+        const response = await res.json()
+        // ApiResponse.success() 返回 { success, data } 结构
+        setStats(response.data)
       }
     } catch (error) {
       console.error('获取统计数据失败:', error)
@@ -251,11 +252,10 @@ export default function ConsoleDashboardPage() {
                 </div>
                 <div className="text-right">
                   <span
-                    className={`inline-flex items-center rounded-full px-2 py-1 text-xs ${
-                      org.status === 'ACTIVE'
+                    className={`inline-flex items-center rounded-full px-2 py-1 text-xs ${org.status === 'ACTIVE'
                         ? 'bg-green-100 text-green-700'
                         : 'bg-gray-100 text-gray-700'
-                    }`}
+                      }`}
                   >
                     {statusLabels[org.status]}
                   </span>

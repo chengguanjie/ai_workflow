@@ -43,6 +43,15 @@ export interface SaveOptions {
   optimistic?: boolean;
 }
 
+// API 错误响应
+interface ApiErrorResponse {
+  error?: string | {
+    message?: string
+    details?: Array<{ field: string; message: string }>
+  }
+  serverData?: Partial<OfflineWorkflow> & { version?: number }
+}
+
 // 事件监听器类型
 type SyncEventType = "statusChange" | "conflict" | "syncComplete" | "error";
 type SyncEventHandler = (data: unknown) => void;
@@ -226,7 +235,7 @@ class SyncManager {
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const errorData = (await response.json().catch(() => ({}))) as ApiErrorResponse;
 
         // 版本冲突
         if (response.status === 409) {
@@ -236,7 +245,7 @@ class SyncManager {
             localVersion,
             serverVersion: serverData?.version || 0,
             localData: data,
-            serverData,
+            serverData: serverData || {},
             timestamp: Date.now(),
           };
 
@@ -259,10 +268,10 @@ class SyncManager {
           typeof errorData.error === "object" &&
           errorData.error &&
           "details" in errorData.error &&
-          Array.isArray((errorData.error as any).details)
+          Array.isArray(errorData.error.details)
         ) {
-          const details = (errorData.error as any).details
-            .map((d: any) => `${d.field}: ${d.message}`)
+          const details = errorData.error.details
+            .map((d) => `${d.field}: ${d.message}`)
             .join(", ");
           errorMessage += ` (${details})`;
         }

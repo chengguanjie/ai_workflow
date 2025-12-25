@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, Suspense, use } from 'react'
+import { useState, useEffect, Suspense, use, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
@@ -8,7 +8,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { GitBranch, Loader2, CheckCircle2, XCircle, Building2 } from 'lucide-react'
+import { GitBranch, Loader2, CheckCircle2, XCircle, Building2, Check, X } from 'lucide-react'
+import { validatePassword, getRequirementsDescription, DEFAULT_REQUIREMENTS } from '@/lib/auth/password-validator'
 
 interface Invitation {
   id: string
@@ -46,6 +47,13 @@ function InviteForm({ token }: { token: string }) {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
 
+  const passwordRequirements = getRequirementsDescription(DEFAULT_REQUIREMENTS)
+  
+  const validation = useMemo(() => {
+    if (!password) return null
+    return validatePassword(password)
+  }, [password])
+
   useEffect(() => {
     verifyInvitation()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -82,8 +90,9 @@ function InviteForm({ token }: { token: string }) {
       return
     }
 
-    if (password.length < 6) {
-      setError('密码至少需要6位')
+    const validationResult = validatePassword(password)
+    if (!validationResult.isValid) {
+      setError(validationResult.errors[0])
       return
     }
 
@@ -241,11 +250,40 @@ function InviteForm({ token }: { token: string }) {
             <Input
               id="password"
               type="password"
-              placeholder="至少6位"
+              placeholder="请设置密码"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
             />
+            <div className="space-y-1 mt-2">
+              <p className="text-xs text-muted-foreground mb-1">密码要求：</p>
+              {passwordRequirements.map((req, index) => {
+                let isMet = false
+                if (password) {
+                  if (req.includes('12')) isMet = password.length >= 12
+                  else if (req.includes('大写')) isMet = /[A-Z]/.test(password)
+                  else if (req.includes('小写')) isMet = /[a-z]/.test(password)
+                  else if (req.includes('数字')) isMet = /[0-9]/.test(password)
+                  else if (req.includes('特殊')) isMet = /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password)
+                }
+                return (
+                  <div key={index} className="flex items-center gap-1 text-xs">
+                    {password ? (
+                      isMet ? (
+                        <Check className="h-3 w-3 text-green-500" />
+                      ) : (
+                        <X className="h-3 w-3 text-muted-foreground" />
+                      )
+                    ) : (
+                      <span className="w-3 h-3" />
+                    )}
+                    <span className={password && isMet ? 'text-green-600' : 'text-muted-foreground'}>
+                      {req}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -258,9 +296,16 @@ function InviteForm({ token }: { token: string }) {
               onChange={(e) => setConfirmPassword(e.target.value)}
               required
             />
+            {confirmPassword && password !== confirmPassword && (
+              <p className="text-xs text-destructive">两次输入的密码不一致</p>
+            )}
           </div>
 
-          <Button type="submit" className="w-full" disabled={submitting}>
+          <Button 
+            type="submit" 
+            className="w-full" 
+            disabled={submitting || !validation?.isValid || password !== confirmPassword}
+          >
             {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             加入团队
           </Button>

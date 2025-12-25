@@ -142,7 +142,7 @@ describe("Node Panel Structure", () => {
   it("input node should have correct configuration", () => {
     const inputNode = primaryNodes.find((n) => n.type === "input");
     expect(inputNode).toBeDefined();
-    expect(inputNode?.name).toBe("User Input");
+    expect(inputNode?.name).toBe("用户输入");
     expect(inputNode?.description).toContain("输入");
   });
 
@@ -152,19 +152,18 @@ describe("Node Panel Structure", () => {
   it("process node should have correct configuration", () => {
     const processNode = primaryNodes.find((n) => n.type === "process");
     expect(processNode).toBeDefined();
-    expect(processNode?.name).toBe("Agent");
+    expect(processNode?.name).toBe("AI处理");
     expect(processNode?.description).toContain("AI");
   });
 
   /**
-   * 节点名称已更新为新的命名
+   * 节点名称使用中文命名
    */
   it("node names should use new naming convention", () => {
     const inputNode = primaryNodes.find((n) => n.type === "input");
     const processNode = primaryNodes.find((n) => n.type === "process");
 
-    // 确保使用新的命名（英文）
-    expect(inputNode?.name).toBe("User Input");
-    expect(processNode?.name).toBe("Agent");
+    expect(inputNode?.name).toBe("用户输入");
+    expect(processNode?.name).toBe("AI处理");
   });
 });

@@ -33,7 +33,6 @@ import {
   Plus,
   AlertCircle,
   Settings,
-  GripVertical,
   History,
   MessageSquarePlus,
   ChevronLeft,
@@ -50,9 +49,11 @@ import {
   Shield,
   Activity,
   Lightbulb,
+  Eye,
 } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
+import { WorkflowPreview } from "@/components/workflow/workflow-preview";
 import {
   useAIAssistantStore,
   type AIMessage,
@@ -99,26 +100,6 @@ function generateWorkflowContext(
           };
           configSummary = `模型: ${proc.model || "未设置"}, 系统提示词: ${proc.systemPrompt ? "已设置" : "未设置"}, 用户提示词: ${proc.userPrompt ? "已设置" : "未设置"}`;
           break;
-        case "OUTPUT":
-          const out = config as { format?: string; prompt?: string };
-          configSummary = `输出格式: ${out.format || "text"}, 输出提示词: ${out.prompt ? "已设置" : "未设置"}`;
-          break;
-        case "CODE":
-          const code = config as { language?: string; code?: string };
-          configSummary = `语言: ${code.language || "javascript"}, 代码: ${code.code ? "已设置" : "未设置"}`;
-          break;
-        case "CONDITION":
-          const cond = config as { conditions?: unknown[] };
-          configSummary = `条件数量: ${cond.conditions?.length || 0}`;
-          break;
-        case "LOOP":
-          const loop = config as { loopType?: string; maxIterations?: number };
-          configSummary = `循环类型: ${loop.loopType || "FOR"}, 最大迭代: ${loop.maxIterations || 1000}`;
-          break;
-        case "HTTP":
-          const http = config as { method?: string; url?: string };
-          configSummary = `方法: ${http.method || "GET"}, URL: ${http.url || "未设置"}`;
-          break;
         default:
           configSummary = JSON.stringify(config).slice(0, 100);
       }
@@ -159,21 +140,7 @@ ${edgeDescriptions}`;
 
 const nodeTypeNames: Record<string, string> = {
   INPUT: "输入节点",
-  PROCESS: "文本处理节点",
-  CODE: "代码节点",
-  OUTPUT: "输出节点",
-  DATA: "数据节点",
-  IMAGE: "图片节点",
-  VIDEO: "视频节点",
-  AUDIO: "音频节点",
-  CONDITION: "条件节点",
-  LOOP: "循环节点",
-  SWITCH: "分支节点",
-  HTTP: "HTTP请求节点",
-  MERGE: "合并节点",
-  IMAGE_GEN: "图片生成节点",
-  NOTIFICATION: "通知节点",
-  TRIGGER: "触发器节点",
+  PROCESS: "AI处理节点",
 };
 
 const phaseNames: Record<ConversationPhase, string> = {
@@ -224,11 +191,17 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
   const [targetCriteria, setTargetCriteria] = useState("");
   const [lastTestResult, setLastTestResult] = useState<TestResult | null>(null);
   const [lastAESReport, setLastAESReport] = useState<AESReport | null>(null);
+
+  const [previewActions, setPreviewActions] = useState<NodeAction[] | null>(
+    null,
+  );
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [isRefining, setIsRefining] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const [position, setPosition] = useState<{ x: number; y: number } | null>(
+  const [_position, setPosition] = useState<{ x: number; y: number } | null>(
     null,
   );
   const [isDragging, setIsDragging] = useState(false);
@@ -240,6 +213,9 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
   const [isResizing, setIsResizing] = useState(false);
   const resizeStartXRef = useRef(0);
   const resizeStartWidthRef = useRef(420);
+
+  // 用于解决循环依赖，存储最新的 handleTest 函数
+  const handleTestRef = useRef<() => Promise<void>>(async () => {});
 
   const {
     isOpen,
@@ -268,6 +244,8 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
     addOptimizationIteration: _addOptimizationIteration,
     isAutoMode,
     setAutoMode,
+    autoApply,
+    setAutoApply,
   } = useAIAssistantStore();
 
   const { nodes, edges, addNode, updateNode, onConnect } = useWorkflowStore();
@@ -382,18 +360,6 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
     }
   }, [isOpen]);
 
-  const handleDragStart = useCallback((e: React.MouseEvent) => {
-    if (!panelRef.current) return;
-    e.preventDefault();
-
-    const rect = panelRef.current.getBoundingClientRect();
-    dragOffsetRef.current = {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-    };
-    setIsDragging(true);
-  }, []);
-
   useEffect(() => {
     if (!isDragging) return;
 
@@ -459,18 +425,6 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
       document.removeEventListener("mouseup", handleMouseUp);
     };
   }, [isResizing]);
-
-  const panelStyle = useMemo(() => {
-    if (position) {
-      return {
-        left: position.x,
-        top: position.y,
-        right: "auto",
-        bottom: "auto",
-      };
-    }
-    return {};
-  }, [position]);
 
   const workflowContext = generateWorkflowContext(nodes, edges);
 
@@ -661,14 +615,35 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
           });
 
           // 自动模式仅在基于测试的循环中生效
-          if (
-            type === "test" &&
-            opt.nodeActions &&
-            opt.nodeActions.length > 0 &&
-            isAutoMode
-          ) {
-            applyNodeActions(opt.nodeActions);
-            // ... 自动循环逻辑
+          if (type === "test" && isAutoMode) {
+            if (opt.isGoalMet) {
+              // 目标已达成，停止循环
+              stopAutoOptimization();
+              toast.success("🎉 目标已达成，自动优化完成！");
+              addMessage({
+                role: "assistant",
+                content:
+                  "🎯 **目标已达成！**\nAI 判断当前工作流输出已满足设定的目标要求，自动优化流程结束。",
+              });
+            } else if (opt.nodeActions && opt.nodeActions.length > 0) {
+              // 应用更变并继续下一轮测试
+              applyNodeActions(opt.nodeActions);
+
+              // 记录这一轮的优化结果
+              if (lastTestResult) {
+                _addOptimizationIteration(lastTestResult, opt, true);
+              }
+
+              // 延迟执行下一次测试，确保状态更新
+              toast.info("已应用优化，正在准备下一轮测试...");
+              setTimeout(() => {
+                handleTestRef.current();
+              }, 2000);
+            } else {
+              // 没有生成优化动作，可能无法继续
+              stopAutoOptimization();
+              toast.warning("AI 未能生成有效的优化建议，自动优化停止");
+            }
           }
         } else {
           addMessage({
@@ -676,6 +651,9 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
             content: `优化分析失败: ${data.error || "未知错误"}`,
             messageType: "optimization",
           });
+          if (isAutoMode) {
+            stopAutoOptimization();
+          }
         }
       } catch (error) {
         const errorMessage =
@@ -686,6 +664,9 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
           content: `优化分析出错: ${errorMessage}`,
           messageType: "optimization",
         });
+        if (isAutoMode) {
+          stopAutoOptimization();
+        }
       } finally {
         setIsOptimizing(false);
       }
@@ -701,6 +682,13 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
       isAutoMode,
       autoOptimization,
       applyNodeActions,
+      stopAutoOptimization,
+      _addOptimizationIteration,
+      // handleTest needs to be added to dependencies, but it causes circular dependency if not careful
+      // We will solve this by using a ref or ensuring handleTest is stable.
+      // handleTest depends on many things. Using a ref for handleTest involves more changes.
+      // Alternatively, we can assume handleTest is stable enough or suppress the linter if we are careful.
+      // Better approach: move the "next step" logic out or make handleTest available.
     ],
   );
 
@@ -837,6 +825,10 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
     handleAutoOptimize,
   ]);
 
+  useEffect(() => {
+    handleTestRef.current = handleTest;
+  }, [handleTest]);
+
   const handleAbort = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort(
@@ -853,6 +845,13 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
       const trimmedInput = (messageContent || inputValue).trim();
       if (!trimmedInput || isLoading) return;
 
+      console.log("[AI Assistant] 开始发送消息:", {
+        message: trimmedInput.slice(0, 50),
+        model: selectedModel,
+        hasWorkflowContext: !!workflowContext,
+        historyLength: messages.length,
+      });
+
       addMessage({ role: "user", content: trimmedInput });
       if (!messageContent) {
         setInputValue("");
@@ -862,7 +861,10 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
       // 创建新的 AbortController
       abortControllerRef.current = new AbortController();
 
+      const startTime = Date.now();
+
       try {
+        console.log("[AI Assistant] 发送请求到 /api/ai-assistant/chat");
         const response = await fetchWithTimeout("/api/ai-assistant/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -880,12 +882,26 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
           timeoutMs: 120_000,
         });
 
+        const duration = Date.now() - startTime;
+        console.log("[AI Assistant] 收到响应:", {
+          status: response.status,
+          ok: response.ok,
+          duration: `${duration}ms`,
+        });
+
         if (!response.ok) {
           const error = await response.json();
+          console.error("[AI Assistant] 请求失败:", error);
           throw new Error(error.error || "请求失败");
         }
 
         const data = await response.json();
+        console.log("[AI Assistant] 解析响应成功:", {
+          hasContent: !!data.content,
+          contentLength: data.content?.length,
+          hasNodeActions: !!data.nodeActions,
+          phase: data.phase,
+        });
 
         addMessage({
           role: "assistant",
@@ -900,10 +916,27 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
 
         if (data.phase === "workflow_generation") {
           setPhase("workflow_generation");
+
+          // 自动应用生成的节点
+          if (autoApply && data.nodeActions && data.nodeActions.length > 0) {
+            setTimeout(() => {
+              applyNodeActions(data.nodeActions);
+              toast.success("已自动应用到画布");
+            }, 500);
+          }
         }
       } catch (error) {
+        const duration = Date.now() - startTime;
+        console.error("[AI Assistant] 请求异常:", {
+          error,
+          duration: `${duration}ms`,
+          errorName: error instanceof Error ? error.name : "Unknown",
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+
         // 如果是用户主动取消，不显示错误消息
         if (error instanceof Error && error.name === "AbortError") {
+          console.log("[AI Assistant] 用户取消请求");
           return;
         }
         let errorMessage =
@@ -931,6 +964,8 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
       addMessage,
       setLoading,
       setPhase,
+      autoApply,
+      applyNodeActions,
     ],
   );
 
@@ -958,6 +993,8 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
         body: JSON.stringify({
           workflowContext,
           model: selectedModel,
+          testResult: lastTestResult,
+          targetCriteria,
         }),
         timeoutMs: 120_000,
       });
@@ -969,7 +1006,27 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
         setLastAESReport(report);
 
         let reportContent = `## 🛡️ AES 评估报告\n\n`;
-        reportContent += `**总分**: ${report.scores.total}/100\n\n`;
+        reportContent += `**总分**: ${report.scores.total}/100`;
+
+        if (report.targetMatching !== undefined) {
+          reportContent += `  |  **目标达成**: ${report.targetMatching}/100`;
+        }
+        reportContent += `\n\n`;
+
+        if (report.executionAnalysis) {
+          const ea = report.executionAnalysis;
+          const icon = ea.status === "success" ? "✅" : "❌";
+          reportContent += `### ⚡ 动态执行分析\n`;
+          reportContent += `- **状态**: ${icon} ${ea.status}\n`;
+          if (ea.errorAnalysis)
+            reportContent += `- **错误分析**: ${ea.errorAnalysis}\n`;
+          if (ea.durationAnalysis)
+            reportContent += `- **耗时**: ${ea.durationAnalysis}\n`;
+          if (ea.outputQuality)
+            reportContent += `- **输出质量**: ${ea.outputQuality}\n`;
+          reportContent += `\n`;
+        }
+
         reportContent += `### 维度得分\n`;
         reportContent += `- **L (Logic)**: ${report.scores.L}/30\n`;
         reportContent += `- **A (Agentic)**: ${report.scores.A}/25\n`;
@@ -1149,7 +1206,7 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
       </div>
 
       {/* 模型选择 - 带背景色 */}
-      <div className="border-b bg-white px-4 py-2">
+      <div className="border-b bg-white px-4 py-2 space-y-2">
         {isLoadingModels ? (
           <div className="flex items-center gap-2 text-xs text-gray-500">
             <Loader2 className="h-3 w-3 animate-spin" />
@@ -1168,35 +1225,50 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
             </Link>
           </div>
         ) : (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500">模型:</span>
-            <Select value={selectedModel} onValueChange={setSelectedModel}>
-              <SelectTrigger className="h-7 flex-1 text-xs border-gray-200 bg-gray-50">
-                <SelectValue placeholder="选择模型" />
-              </SelectTrigger>
-              <SelectContent>
-                {providerConfigs.map((config) => (
-                  <div key={config.id}>
-                    <div className="px-2 py-1.5 text-xs font-semibold text-gray-500">
-                      {config.displayName}
-                      {config.isDefault && (
-                        <span className="ml-1 text-blue-500">(默认)</span>
-                      )}
+          <>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500">模型:</span>
+              <Select value={selectedModel} onValueChange={setSelectedModel}>
+                <SelectTrigger className="h-7 flex-1 text-xs border-gray-200 bg-gray-50">
+                  <SelectValue placeholder="选择模型" />
+                </SelectTrigger>
+                <SelectContent>
+                  {providerConfigs.map((config) => (
+                    <div key={config.id}>
+                      <div className="px-2 py-1.5 text-xs font-semibold text-gray-500">
+                        {config.displayName}
+                        {config.isDefault && (
+                          <span className="ml-1 text-blue-500">(默认)</span>
+                        )}
+                      </div>
+                      {config.models.map((model) => (
+                        <SelectItem
+                          key={`${config.id}:${model}`}
+                          value={`${config.id}:${model}`}
+                          className="text-xs pl-4"
+                        >
+                          {model}
+                        </SelectItem>
+                      ))}
                     </div>
-                    {config.models.map((model) => (
-                      <SelectItem
-                        key={`${config.id}:${model}`}
-                        value={`${config.id}:${model}`}
-                        className="text-xs pl-4"
-                      >
-                        {model}
-                      </SelectItem>
-                    ))}
-                  </div>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                id="auto-apply"
+                checked={autoApply}
+                onCheckedChange={setAutoApply}
+              />
+              <Label
+                htmlFor="auto-apply"
+                className="text-xs cursor-pointer text-gray-600"
+              >
+                自动应用到画布
+              </Label>
+            </div>
+          </>
         )}
       </div>
 
@@ -1557,6 +1629,10 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
                     onApplyActions={applyNodeActions}
                     onSelectOption={handleSend}
                     onOptimize={handleOptimize}
+                    onPreview={(actions) => {
+                      setPreviewActions(actions);
+                      setIsPreviewOpen(true);
+                    }}
                     isLoading={isLoading}
                   />
                 ))}
@@ -1622,6 +1698,81 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
           </div>
         </>
       )}
+
+      {/* WorkflowPreview Dialog */}
+      {previewActions && (
+        <WorkflowPreview
+          open={isPreviewOpen}
+          onOpenChange={setIsPreviewOpen}
+          currentNodes={nodes}
+          currentEdges={edges}
+          actions={previewActions}
+          isRefining={isRefining}
+          onConfirm={() => {
+            if (previewActions) {
+              applyNodeActions(previewActions);
+              setIsPreviewOpen(false);
+              setPreviewActions(null);
+            }
+          }}
+          onCancel={() => setIsPreviewOpen(false)}
+          onRefine={async (nodeName, requirement) => {
+            // Refinement Logic
+            setIsRefining(true);
+            try {
+              toast.info(`正在根据您的意见优化节点"${nodeName}"...`);
+
+              const response = await fetchWithTimeout(
+                "/api/ai-assistant/chat",
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    mode: "refinement",
+                    currentActions: previewActions,
+                    targetNode: nodeName,
+                    message: requirement,
+                    model: selectedModel,
+                    workflowContext,
+                    workflowId,
+                  }),
+                  timeoutMs: 60_000,
+                },
+              );
+
+              if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || "请求失败");
+              }
+
+              const data = await response.json();
+
+              if (data.nodeActions) {
+                setPreviewActions(data.nodeActions);
+                toast.success("已更新预览方案");
+
+                // Add a small system message to chat to record this interaction
+                addMessage({
+                  role: "system",
+                  content: `用户针对节点 "${nodeName}" 提出了修改意见: "${requirement}"。\nAI 已更新生成方案。`,
+                  messageType: "normal",
+                });
+              } else {
+                toast.warning("AI未返回有效的修改方案");
+              }
+            } catch (error) {
+              console.error(error);
+              toast.error("优化请求失败");
+            } finally {
+              setIsRefining(false);
+            }
+          }}
+          // We can manage an isRefining state here if we want to block multiple requests
+          // For now, let's rely on the internal await.
+          // Actually, WorkflowPreview expects an isRefining prop.
+          // We need a local state for it.
+        />
+      )}
     </div>
   );
 }
@@ -1631,12 +1782,14 @@ function MessageBubble({
   onApplyActions,
   onSelectOption,
   onOptimize,
+  onPreview,
   isLoading,
 }: {
   message: AIMessage;
   onApplyActions: (actions: NodeAction[]) => void;
   onSelectOption: (answer: string) => void;
   onOptimize?: (type: "test" | "aes") => void;
+  onPreview?: (actions: NodeAction[]) => void;
   isLoading: boolean;
 }) {
   const [applied, setApplied] = useState(false);
@@ -1943,6 +2096,19 @@ function MessageBubble({
                 </>
               )}
             </Button>
+
+            {!applied && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-2 h-7 text-xs w-full"
+                onClick={() => onPreview?.(message.nodeActions || [])}
+                disabled={isLoading}
+              >
+                <Eye className="mr-1 h-3 w-3" />
+                预览修改 (Diff)
+              </Button>
+            )}
           </div>
         )}
 
@@ -1976,6 +2142,19 @@ function MessageBubble({
               <Lightbulb className="mr-1 h-3 w-3" />
               生成优化方案
             </Button>
+
+            {!applied && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-2 h-7 text-xs w-full"
+                onClick={() => onPreview?.(message.nodeActions || [])}
+                disabled={isLoading}
+              >
+                <Eye className="mr-1 h-3 w-3" />
+                预览修改 (Diff)
+              </Button>
+            )}
           </div>
         )}
 

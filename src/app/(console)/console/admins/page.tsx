@@ -107,8 +107,9 @@ export default function AdminsPage() {
 
       const res = await fetch(`/api/console/admins?${params}`)
       if (res.ok) {
-        const data = await res.json()
-        setAdmins(data.admins)
+        const result = await res.json()
+        // ApiResponse.paginated() 返回 { success, data: [...], pagination }
+        setAdmins(result.data)
       }
     } catch (error) {
       console.error('获取管理员列表失败:', error)
@@ -337,9 +338,8 @@ export default function AdminsPage() {
                             {admin.name || admin.email}
                           </span>
                           <span
-                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${
-                              roleColors[admin.role]
-                            }`}
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${roleColors[admin.role]
+                              }`}
                           >
                             {roleLabels[admin.role]}
                           </span>

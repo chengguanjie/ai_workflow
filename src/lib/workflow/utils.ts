@@ -17,7 +17,7 @@ const VARIABLE_PATTERN = /\{\{([^.}]+)\.([^}]+)\}\}/g
 function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   const parts = path.split('.')
   let current: unknown = obj
-  
+
   for (const part of parts) {
     if (current === null || current === undefined) {
       return undefined
@@ -28,7 +28,7 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
       return undefined
     }
   }
-  
+
   return current
 }
 
@@ -251,12 +251,12 @@ export function getReachableNodes(
 ): Set<string> {
   const reachable = new Set<string>()
   const queue = [...startNodeIds]
-  
+
   while (queue.length > 0) {
     const nodeId = queue.shift()!
     if (reachable.has(nodeId)) continue
     reachable.add(nodeId)
-    
+
     const outgoingEdges = edges.filter(e => e.source === nodeId)
     for (const edge of outgoingEdges) {
       if (!reachable.has(edge.target)) {
@@ -264,67 +264,11 @@ export function getReachableNodes(
       }
     }
   }
-  
+
   return reachable
 }
 
-/**
- * 判断节点是否为条件节点
- */
-export function isConditionNode(node: NodeConfig): boolean {
-  return node.type === 'CONDITION'
-}
 
-/**
- * 判断节点是否为循环节点
- */
-export function isLoopNode(node: NodeConfig): boolean {
-  return node.type === 'LOOP'
-}
-
-/**
- * 获取循环节点的循环体节点
- * 循环体节点是通过 sourceHandle='body' 连接的直接下游节点
- * 及其所有后续节点（直到遇到循环汇合点）
- */
-export function getLoopBodyNodes(
-  loopNodeId: string,
-  edges: EdgeConfig[],
-  _allNodes: NodeConfig[]
-): string[] {
-  const bodyStartEdges = edges.filter(
-    e => e.source === loopNodeId && e.sourceHandle === 'body'
-  )
-  
-  if (bodyStartEdges.length === 0) {
-    return []
-  }
-  
-  const loopEndEdges = edges.filter(
-    e => e.source === loopNodeId && e.sourceHandle === 'done'
-  )
-  const loopEndTargets = new Set(loopEndEdges.map(e => e.target))
-  
-  const bodyNodes: string[] = []
-  const visited = new Set<string>()
-  const queue = bodyStartEdges.map(e => e.target)
-  
-  while (queue.length > 0) {
-    const nodeId = queue.shift()!
-    if (visited.has(nodeId) || loopEndTargets.has(nodeId)) continue
-    visited.add(nodeId)
-    bodyNodes.push(nodeId)
-    
-    const outgoing = edges.filter(e => e.source === nodeId)
-    for (const edge of outgoing) {
-      if (!visited.has(edge.target) && edge.target !== loopNodeId) {
-        queue.push(edge.target)
-      }
-    }
-  }
-  
-  return bodyNodes
-}
 
 /**
  * 获取节点的所有前置节点输出
@@ -380,51 +324,51 @@ export function getParallelExecutionLayers(
   const adjList = new Map<string, string[]>()
   const inDegree = new Map<string, number>()
   const nodeMap = new Map<string, NodeConfig>()
-  
+
   for (const node of nodes) {
     adjList.set(node.id, [])
     inDegree.set(node.id, 0)
     nodeMap.set(node.id, node)
   }
-  
+
   for (const edge of edges) {
     const targets = adjList.get(edge.source) || []
     targets.push(edge.target)
     adjList.set(edge.source, targets)
     inDegree.set(edge.target, (inDegree.get(edge.target) || 0) + 1)
   }
-  
+
   const layers: ExecutionLayer[] = []
   let currentLevel = 0
-  
+
   let currentQueue: string[] = []
   for (const [nodeId, degree] of inDegree) {
     if (degree === 0) {
       currentQueue.push(nodeId)
     }
   }
-  
+
   while (currentQueue.length > 0) {
     const layerNodes: NodeConfig[] = []
     const nextQueue: string[] = []
-    
+
     for (const nodeId of currentQueue) {
       const node = nodeMap.get(nodeId)
       if (node) {
         layerNodes.push(node)
       }
-      
+
       const neighbors = adjList.get(nodeId) || []
       for (const neighbor of neighbors) {
         const newDegree = (inDegree.get(neighbor) || 0) - 1
         inDegree.set(neighbor, newDegree)
-        
+
         if (newDegree === 0) {
           nextQueue.push(neighbor)
         }
       }
     }
-    
+
     if (layerNodes.length > 0) {
       layers.push({
         level: currentLevel,
@@ -432,15 +376,15 @@ export function getParallelExecutionLayers(
       })
       currentLevel++
     }
-    
+
     currentQueue = nextQueue
   }
-  
+
   const totalProcessed = layers.reduce((sum, layer) => sum + layer.nodes.length, 0)
   if (totalProcessed !== nodes.length) {
     throw new Error('工作流中存在循环依赖')
   }
-  
+
   return layers
 }
 
@@ -456,11 +400,11 @@ export function canNodeExecute(
   const predecessors = edges
     .filter(e => e.target === nodeId)
     .map(e => e.source)
-  
+
   if (predecessors.length === 0) {
     return true
   }
-  
+
   return predecessors.every(
     predId => completedNodes.has(predId) || skippedNodes.has(predId)
   )
@@ -510,4 +454,182 @@ export function isForkNode(
 ): boolean {
   const outgoingEdges = edges.filter(e => e.source === nodeId)
   return outgoingEdges.length > 1
+}
+
+// ============================================
+// Multimodal Content Utilities
+// ============================================
+
+import type { ContentPart } from '@/lib/ai/types'
+
+/**
+ * 将变量值转换为多模态内容部分
+ */
+function convertValueToContentParts(value: unknown): ContentPart[] {
+  if (!value) return []
+
+  // 1. 处理数组 (例如多选图片、Image节点的输出)
+  if (Array.isArray(value)) {
+    return value.flatMap(convertValueToContentParts)
+  }
+
+  // 2. 处理对象
+  if (typeof value === 'object') {
+    const val = value as Record<string, any>
+
+    // 2.1 检查是否是 ImageInfo / AudioInfo / VideoInfo (来自 Image/Audio/Video 节点)
+    if (val.url) {
+      // 尝试推断类型
+      const mimeType = val.type || val.mimeType || detectMimeType(val.url) || ''
+      const format = val.format || detectFormat(val.url)
+
+      // 图片
+      if (mimeType.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(format)) {
+        return [{
+          type: 'image_url',
+          image_url: { url: val.url, detail: 'auto' }
+        }]
+      }
+
+      // 音频 
+      // 注意: 音频通常需要 base64 数据 (input_audio)，但部分模型可能支持 URL (暂不支持)
+      // 如果对象中有 content/base64 ? 目前 ImageNode/AudioNode 没有返回 base64。
+      // 对于 AudioNode，它返回了 url。
+      // 这里的处理比较棘手，标准的 ContentPart for audio 需要 base64。
+      // 暂时如果遇到 audio 只能忽略或当作文本，除非模型支持 video_url 泛化。
+      // 为简单起见，如果检测到 visual 模型支持的 URL (图片/视频)，则转换。
+
+      // 视频
+      if (mimeType.startsWith('video/') || ['mp4', 'webm', 'mov', 'avi'].includes(format)) {
+        return [{
+          type: 'video_url',
+          video_url: { url: val.url }
+        }]
+      }
+    }
+
+    // 2.2 特殊处理 InputNode 的 file 结构
+    // { value, file: { url, mimeType }, url }
+    if (val.file && val.file.url) {
+      return convertValueToContentParts(val.file)
+    }
+  }
+
+  // 3. 默认转换为文本
+  let textVal = ''
+  if (typeof value === 'object') {
+    textVal = JSON.stringify(value, null, 2)
+  } else {
+    textVal = String(value)
+  }
+
+  return [{ type: 'text', text: textVal }]
+}
+
+/**
+ * 简单的 MIME 检测
+ */
+function detectMimeType(url: string): string | null {
+  const ext = url.split('.').pop()?.toLowerCase()
+  if (!ext) return null
+  if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext)) return `image/${ext === 'jpg' ? 'jpeg' : ext}`
+  if (['mp4', 'webm'].includes(ext)) return `video/${ext}`
+  if (['mp3', 'wav', 'ogg'].includes(ext)) return `audio/${ext}`
+  return null
+}
+
+function detectFormat(url: string): string {
+  return url.split('.').pop()?.toLowerCase() || ''
+}
+
+/**
+ * 合并相邻的文本 ContentPart
+ */
+function mergeTextParts(parts: ContentPart[]): ContentPart[] {
+  const result: ContentPart[] = []
+  let currentText = ''
+
+  for (const part of parts) {
+    if (part.type === 'text') {
+      currentText += part.text
+    } else {
+      if (currentText) {
+        result.push({ type: 'text', text: currentText })
+        currentText = ''
+      }
+      result.push(part)
+    }
+  }
+
+  if (currentText) {
+    result.push({ type: 'text', text: currentText })
+  }
+
+  return result
+}
+
+/**
+ * 解析文本并生成多模态内容部分 (ProcessNode使用)
+ */
+export function createContentPartsFromText(
+  text: string,
+  context: ExecutionContext
+): ContentPart[] {
+  const parts: ContentPart[] = []
+  let lastIndex = 0
+  let match
+
+  // 重置正则索引
+  VARIABLE_PATTERN.lastIndex = 0
+
+  while ((match = VARIABLE_PATTERN.exec(text)) !== null) {
+    // 1. 添加前导文本
+    if (match.index > lastIndex) {
+      parts.push({ type: 'text', text: text.slice(lastIndex, match.index) })
+    }
+
+    // 2. 解析变量
+    const nodeName = match[1].trim()
+    const fieldPath = match[2].trim()
+    const nodeOutput = findNodeOutputByName(nodeName, context)
+    let value: unknown
+
+    if (nodeOutput) {
+      if (fieldPath.includes('.')) {
+        value = getNestedValue(nodeOutput.data, fieldPath)
+      } else {
+        value = nodeOutput.data[fieldPath]
+      }
+    } else {
+      console.warn(`Variable reference not found in createContentParts: ${match[0]}`)
+      // 找不到变量时保留原始字符串
+      value = match[0]
+    }
+
+    // 如果值是 undefined/null，保留为 text
+    if (value === undefined || value === null) {
+      value = ''  // 或者 match[0] ?
+    }
+
+    // 如果变量未找到（上面的 else），value已经是 string match[0]
+    // 否则 value 是 node output
+
+    if (value === match[0]) {
+      parts.push({ type: 'text', text: String(value) })
+    } else {
+      // 3. 转换值为 ContentPart
+      const variableParts = convertValueToContentParts(value)
+      parts.push(...variableParts)
+    }
+
+    lastIndex = VARIABLE_PATTERN.lastIndex
+  }
+
+  // 4. 添加剩余文本
+  if (lastIndex < text.length) {
+    parts.push({ type: 'text', text: text.slice(lastIndex) })
+  }
+
+  // 5. 合并
+  return mergeTextParts(parts)
 }

@@ -21,7 +21,7 @@ import {
   Settings,
   Download,
   Eye,
-  Image,
+  Image as ImageIcon,
   Music,
   Video,
   GripVertical,
@@ -43,13 +43,12 @@ import {
 import { cn } from "@/lib/utils";
 import { useWorkflowStore } from "@/stores/workflow-store";
 import { PromptTabContent } from "./node-config-panel/shared/prompt-tab-content";
-import { InputTabs } from "./debug-panel/input-tabs";
+import { InputTabs, type WorkflowNode } from "./debug-panel/input-tabs";
 import {
   ModalitySelector,
   DEFAULT_MODALITY,
 } from "./debug-panel/modality-selector";
 import { InputNodeDebugPanel } from "./input-debug-panel";
-import type { TriggerNodeConfigData } from "@/types/workflow";
 import { OutputTypeSelector } from "./debug-panel/output-type-selector";
 import { PreviewModal } from "./debug-panel/preview-modal";
 import type { KnowledgeItem, RAGConfig } from "@/types/workflow";
@@ -61,6 +60,19 @@ import type {
 } from "@/lib/workflow/debug-panel/types";
 import type { ModelModality } from "@/lib/ai/types";
 import { generateDownloadFileName } from "@/lib/workflow/debug-panel/utils";
+
+type TriggerType = "MANUAL" | "WEBHOOK" | "SCHEDULE";
+
+interface TriggerNodeConfigData {
+  triggerType?: TriggerType;
+  enabled?: boolean;
+  webhookPath?: string;
+  hasWebhookSecret?: boolean;
+  cronExpression?: string;
+  timezone?: string;
+  retryOnFail?: boolean;
+  maxRetries?: number;
+}
 
 interface KnowledgeBase {
   id: string;
@@ -97,7 +109,7 @@ export function NodeDebugPanel() {
     updateNodeExecutionResult,
   } = useWorkflowStore();
   const [mockInputs, setMockInputs] = useState<
-    Record<string, Record<string, any>>
+    Record<string, Record<string, unknown>>
   >({});
   const [isRunning, setIsRunning] = useState(false);
 
@@ -254,17 +266,8 @@ export function NodeDebugPanel() {
     [],
   );
 
-  // 应用优化后的内容
-  const handleApplyOptimizedContent = useCallback(
-    (index: number) => {
-      if (optimizedContent) {
-        updateKnowledgeItem(index, { content: optimizedContent });
-        setOptimizedContent(null);
-        setIsRuleExpandOpen(false);
-      }
-    },
-    [optimizedContent],
-  );
+
+  // 应用优化后的内容 - 将在 updateKnowledgeItem 定义后实现
 
   const predecessorNodes = useMemo(
     () =>
@@ -304,7 +307,7 @@ export function NodeDebugPanel() {
     setSelectedOutputType("json");
     setIsPreviewOpen(false);
     setPreviewContent(null);
-  }, [debugNodeId, predecessorNodes]);
+  }, [debugNodeId, predecessorNodes, updateNodeExecutionResult]);
 
   const handleRunDebug = async () => {
     if (!workflowId || !debugNodeId) return;
@@ -383,7 +386,7 @@ export function NodeDebugPanel() {
   useEffect(() => {
     if (debugNode) {
       const nodeModality =
-        (debugNode.data?.config as any)?.modality || DEFAULT_MODALITY;
+        (debugNode.data?.config as { modality?: ModelModality })?.modality || DEFAULT_MODALITY;
       if (nodeModality !== selectedModality) {
         setSelectedModality(nodeModality);
       }
@@ -395,8 +398,9 @@ export function NodeDebugPanel() {
   useEffect(() => {
     if (isDebugPanelOpen && isProcessNode) {
       // 使用当前选中的 modality 加载模型
-      const currentModality =
-        (debugNode?.data?.config as any)?.modality || selectedModality;
+      const config = debugNode?.data?.config as { modality?: ModelModality } | undefined;
+      const currentModality = config?.modality || selectedModality;
+
       // Load Providers
       fetch(`/api/ai/providers?modality=${currentModality}`)
         .then((res) => (res.ok ? res.json() : null))
@@ -419,18 +423,22 @@ export function NodeDebugPanel() {
         .catch((err) => console.error(err))
         .finally(() => setLoadingKBs(false));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDebugPanelOpen, isProcessNode, debugNode?.id, selectedModality]);
 
   // Helper Config Handlers
-  const handleConfigUpdate = (updates: Record<string, unknown>) => {
+  const handleConfigUpdate = useCallback((updates: Record<string, unknown>) => {
     if (!debugNode) return;
     const currentConfig = debugNode.data.config || {};
     updateNode(debugNode.id, { config: { ...currentConfig, ...updates } });
-  };
+  }, [debugNode, updateNode]);
 
-  const processConfig = (debugNode?.data.config as any) || {};
-  const knowledgeItems = processConfig.knowledgeItems || [];
-  const ragConfig = processConfig.ragConfig || { topK: 5, threshold: 0.7 };
+  const processConfig = (debugNode?.data.config as Record<string, unknown>) || {};
+  const knowledgeItems = useMemo(
+    () => (processConfig.knowledgeItems as KnowledgeItem[]) || [],
+    [processConfig.knowledgeItems],
+  );
+  const ragConfig = (processConfig.ragConfig as RAGConfig) || { topK: 5, threshold: 0.7 };
 
   const handleRAGConfigChange = (key: keyof RAGConfig, value: number) => {
     handleConfigUpdate({ ragConfig: { ...ragConfig, [key]: value } });
@@ -445,19 +453,31 @@ export function NodeDebugPanel() {
     handleConfigUpdate({ knowledgeItems: [...knowledgeItems, newItem] });
   };
 
-  const updateKnowledgeItem = (
+  const updateKnowledgeItem = useCallback((
     index: number,
     updates: Partial<KnowledgeItem>,
   ) => {
     const newItems = [...knowledgeItems];
     newItems[index] = { ...newItems[index], ...updates };
     handleConfigUpdate({ knowledgeItems: newItems });
-  };
+  }, [knowledgeItems, handleConfigUpdate]);
 
   const removeKnowledgeItem = (index: number) => {
-    const newItems = knowledgeItems.filter((_: any, i: number) => i !== index);
+    const newItems = knowledgeItems.filter((_: unknown, i: number) => i !== index);
     handleConfigUpdate({ knowledgeItems: newItems });
   };
+
+  // 应用优化后的内容
+  const handleApplyOptimizedContent = useCallback(
+    (index: number) => {
+      if (optimizedContent) {
+        updateKnowledgeItem(index, { content: optimizedContent });
+        setOptimizedContent(null);
+        setIsRuleExpandOpen(false);
+      }
+    },
+    [optimizedContent, updateKnowledgeItem],
+  );
 
   // Handle download output (新增)
   const handleDownload = useCallback(() => {
@@ -668,7 +688,7 @@ export function NodeDebugPanel() {
                 onTabChange={setInputActiveTab}
                 importedFiles={importedFiles}
                 onFilesChange={setImportedFiles}
-                predecessorNodes={predecessorNodes as any}
+                predecessorNodes={predecessorNodes as WorkflowNode[]}
                 mockInputs={mockInputs}
                 onMockInputChange={updateMockInput}
               />
@@ -702,7 +722,7 @@ export function NodeDebugPanel() {
                       <>
                         <select
                           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                          value={processConfig.knowledgeBaseId || ""}
+                          value={(processConfig.knowledgeBaseId as string) || ""}
                           onChange={(e) =>
                             handleConfigUpdate({
                               knowledgeBaseId: e.target.value || undefined,
@@ -931,7 +951,7 @@ export function NodeDebugPanel() {
                       <div className="space-y-2">
                         <select
                           className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs h-8"
-                          value={processConfig.model || ""}
+                          value={(processConfig.model as string) || ""}
                           onChange={(e) =>
                             handleConfigUpdate({ model: e.target.value })
                           }
@@ -980,9 +1000,9 @@ export function NodeDebugPanel() {
                   {/* Prompt Editor */}
                   <PromptTabContent
                     processConfig={{
-                      systemPrompt: processConfig.systemPrompt,
-                      userPrompt: processConfig.userPrompt,
-                      tools: processConfig.tools || [],
+                      systemPrompt: processConfig.systemPrompt as string | undefined,
+                      userPrompt: processConfig.userPrompt as string | undefined,
+                      tools: (processConfig.tools as any[]) || [],
                     }}
                     knowledgeItems={knowledgeItems}
                     onSystemPromptChange={(v) =>
@@ -1231,7 +1251,7 @@ export function NodeDebugPanel() {
                         <div className="rounded-lg border bg-muted/20 p-6 flex flex-col items-center justify-center">
                           {selectedOutputType === "image" && (
                             <>
-                              <Image className="h-12 w-12 mb-3 text-muted-foreground/50" />
+                              <ImageIcon className="h-12 w-12 mb-3 text-muted-foreground/50" />
                               <p className="text-sm text-muted-foreground mb-3">
                                 图片输出
                               </p>
@@ -1495,7 +1515,7 @@ function Section({
   disabled = false,
 }: {
   title: string;
-  icon: any;
+  icon: React.ElementType;
   children: React.ReactNode;
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;

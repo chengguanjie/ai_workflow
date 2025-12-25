@@ -206,3 +206,65 @@ export function mergeSmallChunks(
     index,
   }))
 }
+
+/**
+ * 父子分块策略
+ * 将文本切分为"父块"（大）和"子块"（小）。
+ * 仅返回子块，但子块的 metadata 中包含父块的内容。
+ * 这种策略实现了 "Index Small, Retrieve Big"。
+ */
+export function splitTextWithParentChild(
+  text: string,
+  options: {
+    parentChunkSize: number
+    childChunkSize: number
+    chunkOverlap: number
+  }
+): TextChunk[] {
+  const { parentChunkSize, childChunkSize, chunkOverlap } = options
+
+  // 1. 切分父块 (大块，不做重叠或由于其目的是上下文，可以做少量重叠)
+  // 这里我们给父块一点重叠以确保边界信息的连续性
+  const parentChunks = splitText(text, {
+    chunkSize: parentChunkSize,
+    chunkOverlap: chunkOverlap * 2, // 父块重叠稍大一点
+  })
+
+  const allChildChunks: TextChunk[] = []
+  let globalIndex = 0
+
+  for (const parent of parentChunks) {
+    // 2. 切分子块
+    const childChunks = splitText(parent.content, {
+      chunkSize: childChunkSize,
+      chunkOverlap: chunkOverlap,
+    })
+
+    // 3. 关联父块信息
+    for (const child of childChunks) {
+      allChildChunks.push({
+        ...child,
+        index: globalIndex++,
+        // 修正偏移量：子块相对于父块的偏移 + 父块相对于全文的偏移
+        startOffset: child.startOffset + parent.startOffset,
+        endOffset: child.endOffset + parent.startOffset,
+        metadata: {
+          ...child.metadata,
+          parentContent: parent.content, // 将父块内容存入 metadata
+          isChild: true,
+        },
+      })
+    }
+  }
+
+  // 4. 去重（因为父块有重叠，子块可能重复）
+  // 简单的去重策略：基于 startOffset
+  const uniqueChunks = new Map<number, TextChunk>()
+  for (const chunk of allChildChunks) {
+    if (!uniqueChunks.has(chunk.startOffset)) {
+      uniqueChunks.set(chunk.startOffset, chunk)
+    }
+  }
+
+  return Array.from(uniqueChunks.values()).sort((a, b) => a.index - b.index)
+}

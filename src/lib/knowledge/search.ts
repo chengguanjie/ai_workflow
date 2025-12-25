@@ -147,13 +147,19 @@ async function searchWithVectorStore(
       const chunk = chunkMap.get(result.id)
       if (!chunk) return null
 
+      const metadata = (chunk.metadata as Record<string, unknown>) || {}
+
+      // 策略：Index Small, Retrieve Big
+      // 如果 metadata 中包含父块内容，则返回父块内容作为上下文
+      const content = (metadata.parentContent as string) || result.content || chunk.content
+
       return {
         chunkId: chunk.id,
         documentId: chunk.document.id,
         documentName: chunk.document.fileName,
-        content: result.content || chunk.content,
+        content,
         score: result.score,
-        metadata: result.metadata,
+        metadata,
       }
     })
     .filter((r: SearchResult | null): r is SearchResult => r !== null)
@@ -198,13 +204,19 @@ async function searchInMemory(
       // 计算余弦相似度
       const score = cosineSimilarity(queryVector, chunkEmbedding)
 
+      const metadata = (chunk.metadata as Record<string, unknown>) || {}
+
+      // 策略：Index Small, Retrieve Big
+      // 如果 metadata 中包含父块内容，则返回父块内容作为上下文
+      const content = (metadata.parentContent as string) || chunk.content
+
       return {
         chunkId: chunk.id,
         documentId: chunk.document.id,
         documentName: chunk.document.fileName,
-        content: chunk.content,
+        content,
         score,
-        metadata: (chunk.metadata as Record<string, unknown>) || {},
+        metadata,
       }
     })
     .filter((result): result is SearchResult => result !== null)
@@ -475,13 +487,18 @@ async function keywordSearch(
       const chunk = chunkMap.get(result.id)
       if (!chunk) continue
 
+      const metadata = (chunk.metadata as Record<string, unknown>) || {}
+
+      // 策略：Index Small, Retrieve Big
+      const content = (metadata.parentContent as string) || chunk.content
+
       searchResults.push({
         chunkId: chunk.id,
         documentId: chunk.document.id,
         documentName: chunk.document.fileName,
-        content: chunk.content,
+        content,
         score: result.score / maxScore, // 归一化到 0-1
-        metadata: (chunk.metadata as Record<string, unknown>) || {},
+        metadata,
         matchedKeywords: result.matchedTerms,
       })
     }
@@ -578,12 +595,12 @@ async function fallbackKeywordSearch(
 
   // 计算关键词匹配得分
   return chunks.map((chunk) => {
-    const content = chunk.content.toLowerCase()
+    const contentLower = chunk.content.toLowerCase()
     let matchCount = 0
     const matched: string[] = []
 
     for (const keyword of keywords) {
-      if (content.includes(keyword)) {
+      if (contentLower.includes(keyword)) {
         matchCount++
         matched.push(keyword)
       }
@@ -591,13 +608,16 @@ async function fallbackKeywordSearch(
 
     const score = matchCount / keywords.length
 
+    const metadata = (chunk.metadata as Record<string, unknown>) || {}
+    const content = (metadata.parentContent as string) || chunk.content
+
     return {
       chunkId: chunk.id,
       documentId: chunk.document.id,
       documentName: chunk.document.fileName,
-      content: chunk.content,
+      content,
       score,
-      metadata: (chunk.metadata as Record<string, unknown>) || {},
+      metadata,
       matchedKeywords: matched,
     }
   })

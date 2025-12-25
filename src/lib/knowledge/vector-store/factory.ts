@@ -6,6 +6,7 @@
 import type { VectorStore, VectorStoreConfig } from './types'
 import { PgVectorStore } from './pg-vector-store'
 import { MemoryVectorStore } from './memory-vector-store'
+import { SupabaseVectorStore } from './supabase-vector-store'
 
 // 缓存已创建的向量存储实例
 const storeInstances: Map<string, VectorStore> = new Map()
@@ -18,6 +19,9 @@ export function createVectorStore(config: VectorStoreConfig): VectorStore {
   switch (config.type) {
     case 'pgvector':
       return PgVectorStore.fromConfig(config)
+
+    case 'supabase':
+      return SupabaseVectorStore.fromConfig(config)
 
     case 'memory':
       return MemoryVectorStore.fromConfig(config)
@@ -52,7 +56,36 @@ export async function getDefaultVectorStore(): Promise<VectorStore> {
     storeInstances.delete(cacheKey)
   }
 
-  // 尝试使用 pgvector
+  // 优先尝试 Supabase (P0: 解决内存溢出)
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (supabaseUrl && supabaseKey) {
+    try {
+      const supabaseStore = new SupabaseVectorStore({
+        url: supabaseUrl,
+        key: supabaseKey,
+      })
+      await supabaseStore.initialize()
+      const healthy = await supabaseStore.healthCheck()
+
+      if (healthy) {
+        console.log('[VectorStore] 使用 Supabase 作为向量存储')
+        storeInstances.set(cacheKey, supabaseStore)
+        return supabaseStore
+      } else {
+        console.warn('[VectorStore] Supabase 连接正常但健康检查失败（可能表未创建），请检查控制台输出的初始化 SQL')
+        // 虽然健康检查失败（可能只是表没建），但我们可以返回它，让上层有机会触发初始化或报错显式提示
+        // 不过为了稳妥，这里如果连基本的 select 都挂了，可能确实有问题
+        // 这里选择返回它，并在后续操作中报错，这样用户能看到具体的 SQL 提示
+        storeInstances.set(cacheKey, supabaseStore)
+        return supabaseStore
+      }
+    } catch (error) {
+      console.warn('[VectorStore] Supabase 初始化失败，降级:', error)
+    }
+  }
+
+  // 其次尝试本地 pgvector
   const pgConnectionString = process.env.PGVECTOR_DATABASE_URL
   if (pgConnectionString) {
     try {
@@ -172,7 +205,7 @@ function getDefaultDimensions(): number {
 export async function checkVectorStoreAvailability(): Promise<{
   pgvector: boolean
   memory: boolean
-  recommended: 'pgvector' | 'memory'
+  recommended: 'pgvector' | 'memory' | 'supabase'
 }> {
   let pgvectorAvailable = false
   const memoryAvailable = true
@@ -195,6 +228,6 @@ export async function checkVectorStoreAvailability(): Promise<{
   return {
     pgvector: pgvectorAvailable,
     memory: memoryAvailable,
-    recommended: pgvectorAvailable ? 'pgvector' : 'memory',
+    recommended: (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) ? 'supabase' : (pgvectorAvailable ? 'pgvector' : 'memory'),
   }
 }

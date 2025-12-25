@@ -14,7 +14,6 @@ import type {
   OpenAITool,
   ClaudeTool,
   ClaudeToolUse,
-  AIProviderFormat,
 } from './types'
 import { convertTools, getProviderFormat } from './converter'
 import { toolRegistry } from './executors'
@@ -273,7 +272,7 @@ export class FunctionCallingService {
 
       // 构建新的请求，包含工具调用结果
       const format = getProviderFormat(provider)
-      
+
       if (format === 'claude') {
         // Claude 格式：将工具调用和结果作为 content 数组
         currentRequest = {

@@ -10,10 +10,6 @@
  *   - index.tsx                 - Main panel component (entry point)
  *   - input-node-config.tsx     - Input node configuration
  *   - process-node-config.tsx   - Process node configuration
- *   - code-node-config.tsx      - Code node configuration
- *   - output-node-config.tsx    - Output node configuration
- *   - data-node-config.tsx      - Data/Image/Video/Audio node configurations
- *   - media-node-config.tsx     - Base media node configuration component
  *   - shared/
  *     - types.ts                - Shared type definitions
  *     - ai-provider-select.tsx  - AI provider selection component
@@ -25,11 +21,4 @@ export {
   NodeConfigPanel,
   InputNodeConfigPanel,
   ProcessNodeConfigPanel,
-  CodeNodeConfigPanel,
-  OutputNodeConfigPanel,
-  DataNodeConfigPanel,
-  ImageNodeConfigPanel,
-  VideoNodeConfigPanel,
-  AudioNodeConfigPanel,
-  MediaNodeConfigPanel,
 } from './node-config-panel/index'

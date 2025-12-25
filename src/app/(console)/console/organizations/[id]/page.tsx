@@ -137,8 +137,9 @@ export default function OrganizationDetailPage({
     try {
       const res = await fetch(`/api/console/organizations/${id}`)
       if (res.ok) {
-        const data = await res.json()
-        setOrganization(data)
+        const result = await res.json()
+        // ApiResponse.success() 返回 { success, data }
+        setOrganization(result.data)
       } else if (res.status === 404) {
         router.push('/console/organizations')
       }
@@ -181,10 +182,11 @@ export default function OrganizationDetailPage({
       })
 
       if (res.ok) {
-        const data = await res.json()
+        const result = await res.json()
+        // ApiResponse.success() 返回 { success, data }
         setResetResult({
-          email: data.email,
-          tempPassword: data.tempPassword,
+          email: result.data.email,
+          tempPassword: result.data.tempPassword,
         })
       }
     } catch (error) {
@@ -245,9 +247,8 @@ export default function OrganizationDetailPage({
                   {planLabels[organization.plan]}
                 </span>
                 <span
-                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${
-                    statusColors[organization.status]
-                  }`}
+                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${statusColors[organization.status]
+                    }`}
                 >
                   {statusLabels[organization.status]}
                 </span>
@@ -394,11 +395,10 @@ export default function OrganizationDetailPage({
                       <TableCell>{roleLabels[user.role]}</TableCell>
                       <TableCell>
                         <span
-                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${
-                            user.isActive
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${user.isActive
                               ? 'bg-green-100 text-green-700'
                               : 'bg-gray-100 text-gray-700'
-                          }`}
+                            }`}
                         >
                           {user.isActive ? '正常' : '已禁用'}
                         </span>

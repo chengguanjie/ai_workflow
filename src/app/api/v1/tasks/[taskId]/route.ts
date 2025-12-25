@@ -1,47 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/db'
 import { executionQueue } from '@/lib/workflow/queue'
-import { createHash } from 'crypto'
 import { ApiResponse } from '@/lib/api/api-response'
+import {
+  validateApiTokenWithScope,
+  validateCrossOrganization,
+  createCrossOrgNotFoundResponse,
+  updateTokenUsage,
+} from '@/lib/auth'
 
 interface RouteParams {
   params: Promise<{ taskId: string }>
-}
-
-type AuthResult =
-  | { organizationId: string }
-  | { error: string; status: number }
-
-// 验证 API Token
-async function verifyApiToken(authHeader: string | null): Promise<AuthResult> {
-  if (!authHeader?.startsWith('Bearer ')) {
-    return { error: '缺少 Authorization 头', status: 401 }
-  }
-
-  const token = authHeader.slice(7)
-  if (!token) {
-    return { error: '无效的 Token', status: 401 }
-  }
-
-  const tokenHash = createHash('sha256').update(token).digest('hex')
-
-  const apiToken = await prisma.apiToken.findUnique({
-    where: { tokenHash },
-  })
-
-  if (!apiToken) {
-    return { error: '无效的 Token', status: 401 }
-  }
-
-  if (!apiToken.isActive) {
-    return { error: 'Token 已禁用', status: 403 }
-  }
-
-  if (apiToken.expiresAt && new Date(apiToken.expiresAt) < new Date()) {
-    return { error: 'Token 已过期', status: 403 }
-  }
-
-  return { organizationId: apiToken.organizationId }
 }
 
 /**
@@ -50,18 +18,35 @@ async function verifyApiToken(authHeader: string | null): Promise<AuthResult> {
  */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    // 验证 Token
-    const authResult = await verifyApiToken(request.headers.get('Authorization'))
-    if ('error' in authResult) {
-      return ApiResponse.error(authResult.error, authResult.status)
+    // 验证 Token 和作用域 (tasks 使用 executions 作用域)
+    const authResult = await validateApiTokenWithScope(request, 'executions')
+    if (!authResult.success) {
+      return authResult.response
     }
 
+    const { token } = authResult
     const { taskId } = await params
     const { task, execution } = await executionQueue.getTaskWithDetails(taskId)
 
     if (!task) {
       return ApiResponse.error('任务不存在或已过期', 404)
     }
+
+    // 跨组织验证：验证任务关联的执行记录是否属于Token所属组织
+    // 如果有执行记录，验证其组织ID
+    if (execution) {
+      const crossOrgResult = validateCrossOrganization(
+        token.organizationId,
+        execution.organizationId
+      )
+      if (!crossOrgResult.success) {
+        // 返回404而非403，避免信息泄露
+        return createCrossOrgNotFoundResponse('任务')
+      }
+    }
+
+    // 更新Token使用统计
+    await updateTokenUsage(token.id)
 
     // 返回任务状态
     const data: Record<string, unknown> = {

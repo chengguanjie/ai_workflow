@@ -105,6 +105,7 @@ class InMemoryQueue {
       error?: string
       duration?: number
       totalTokens?: number
+      organizationId?: string
     }
   }> {
     const task = this.tasks.get(taskId)
@@ -128,6 +129,7 @@ class InMemoryQueue {
         error: true,
         duration: true,
         totalTokens: true,
+        organizationId: true,
       },
     })
 
@@ -135,13 +137,14 @@ class InMemoryQueue {
       task,
       execution: execution
         ? {
-            id: execution.id,
-            status: execution.status,
-            output: execution.output,
-            error: execution.error || undefined,
-            duration: execution.duration || undefined,
-            totalTokens: execution.totalTokens,
-          }
+          id: execution.id,
+          status: execution.status,
+          output: execution.output,
+          error: execution.error || undefined,
+          duration: execution.duration || undefined,
+          totalTokens: execution.totalTokens,
+          organizationId: execution.organizationId,
+        }
         : undefined,
     }
   }
@@ -359,6 +362,7 @@ class ExecutionQueue {
       error?: string
       duration?: number
       totalTokens?: number
+      organizationId?: string
     }
   }> {
     if (this.useBullMQ) {
@@ -420,6 +424,7 @@ class ExecutionQueue {
             output: jobStatus.result.output,
             error: jobStatus.result.error || taskError,
             duration: jobStatus.result.duration,
+            organizationId: task.organizationId,
           },
         }
       }
@@ -440,6 +445,7 @@ class ExecutionQueue {
             error: true,
             duration: true,
             totalTokens: true,
+            organizationId: true,
           },
         })
 
@@ -453,6 +459,7 @@ class ExecutionQueue {
               error: execution.error || undefined,
               duration: execution.duration || undefined,
               totalTokens: execution.totalTokens,
+              organizationId: execution.organizationId,
             },
           }
         }

@@ -122,14 +122,15 @@ export default function ConsoleAccuracyPage() {
       }
 
       const response = await fetch(`/api/console/accuracy?${params}`)
-      const data = await response.json()
+      const result = await response.json()
 
       if (response.ok) {
-        setOrgStats(data.organizations)
-        setPlatformStats(data.platformStats)
-        setPagination(data.pagination)
+        // ApiResponse.success() 返回 { success, data: { organizations, platformStats, pagination } }
+        setOrgStats(result.data.organizations)
+        setPlatformStats(result.data.platformStats)
+        setPagination(result.data.pagination)
       } else {
-        toast.error(data.error || '获取统计数据失败')
+        toast.error(result.error?.message || '获取统计数据失败')
       }
     } catch {
       toast.error('获取统计数据失败')

@@ -59,6 +59,7 @@ export {
   type AuditLogStorage,
   type AuditQueryFilters,
 } from './audit-service'
+import type { PrismaClient } from '@prisma/client'
 
 /**
  * 便捷初始化函数
@@ -78,8 +79,7 @@ export async function initializeCodeExecutor(options?: {
     queueTimeout?: number
   }
   auditEnabled?: boolean
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  prisma?: any
+  prisma?: PrismaClient
 }): Promise<{
   factory: import('./runner-factory').TaskRunnerFactoryImpl
   queue: import('./execution-queue').ExecutionQueue

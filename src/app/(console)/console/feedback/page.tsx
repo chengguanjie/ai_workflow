@@ -164,14 +164,15 @@ export default function ConsoleFeedbackPage() {
       if (searchQuery) params.set('search', searchQuery)
 
       const response = await fetch(`/api/console/platform-feedback?${params}`)
-      const data = await response.json()
+      const result = await response.json()
 
       if (response.ok) {
-        setFeedbacks(data.feedbacks)
-        setPagination(data.pagination)
-        setStats(data.stats)
+        // ApiResponse.success() 返回 { success, data: { feedbacks, pagination, stats } }
+        setFeedbacks(result.data.feedbacks)
+        setPagination(result.data.pagination)
+        setStats(result.data.stats)
       } else {
-        toast.error(data.error || '获取反馈列表失败')
+        toast.error(result.error?.message || '获取反馈列表失败')
       }
     } catch {
       toast.error('获取反馈列表失败')

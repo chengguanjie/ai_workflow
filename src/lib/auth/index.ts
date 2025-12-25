@@ -1,3 +1,30 @@
+// Re-export token scope middleware for API routes
+export {
+  extractAndValidateToken,
+  validateTokenScope,
+  validateTokenScopeForPath,
+  validateCrossOrganization,
+  validateApiTokenWithScope,
+  updateTokenUsage,
+  createCrossOrgNotFoundResponse,
+  type ValidatedApiToken,
+  type TokenValidationResult,
+  type ScopeValidationResult,
+  type CrossOrgValidationResult,
+} from './token-scope-middleware'
+
+// Re-export token scope validator
+export type { TokenScope } from './token-scope-validator'
+export {
+  VALID_SCOPES,
+  WILDCARD_SCOPE,
+  validateScope,
+  inferScopeFromPath,
+  validateScopeForPath,
+  normalizeScopes,
+  isValidScope,
+} from './token-scope-validator'
+
 import NextAuth from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
 import { compare } from 'bcryptjs'
@@ -34,19 +61,57 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null
         }
 
+        // 检查账户是否被锁定
+        if (user.lockedUntil && new Date() < user.lockedUntil) {
+          // 账户仍处于锁定状态
+          return null
+        }
+
+        // 检查企业状态
+        const orgStatus = user.organization.status
+        if (orgStatus === 'SUSPENDED' || orgStatus === 'DISABLED' || orgStatus === 'PENDING') {
+          // 企业被暂停、禁用或待激活时，用户无法登录
+          return null
+        }
+
         const isPasswordValid = await compare(
           credentials.password as string,
           user.passwordHash
         )
 
         if (!isPasswordValid) {
+          // 登录失败，增加失败次数
+          const newAttempts = (user.loginAttempts || 0) + 1
+          const maxAttempts = 5
+          const lockDurationMinutes = 30
+
+          if (newAttempts >= maxAttempts) {
+            // 达到最大失败次数，锁定账户
+            await prisma.user.update({
+              where: { id: user.id },
+              data: {
+                loginAttempts: newAttempts,
+                lockedUntil: new Date(Date.now() + lockDurationMinutes * 60 * 1000),
+              },
+            })
+          } else {
+            // 更新失败次数
+            await prisma.user.update({
+              where: { id: user.id },
+              data: { loginAttempts: newAttempts },
+            })
+          }
           return null
         }
 
-        // 更新最后登录时间
+        // 登录成功，重置失败次数和锁定时间
         await prisma.user.update({
           where: { id: user.id },
-          data: { lastLoginAt: new Date() },
+          data: {
+            lastLoginAt: new Date(),
+            loginAttempts: 0,
+            lockedUntil: null,
+          },
         })
 
         // 检查是否是部门负责人

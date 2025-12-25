@@ -57,22 +57,51 @@ export {
 
 export type { FunctionCallingServiceConfig } from './service'
 
+// 工具名称映射
+export {
+  mapUIToolToExecutor,
+  mapExecutorToUITool,
+  getNotificationPlatform,
+  isNotificationTool,
+  isToolImplemented,
+  getUnimplementedToolMessage,
+} from './tool-name-mapper'
+
 // 初始化默认工具
 import { toolRegistry } from './executors'
 import { NotificationToolExecutor } from './executors/notification'
 import { HttpToolExecutor } from './executors/http'
 
+// 工具初始化状态
+let toolsInitialized = false
+
 /**
- * 初始化默认工具执行器
+ * 初始化默认工具执行器（防重复初始化）
  */
 export function initializeDefaultTools(): void {
+  if (toolsInitialized) {
+    return
+  }
+  
   // 注册通用通知工具
-  toolRegistry.register(new NotificationToolExecutor())
+  if (!toolRegistry.has('send_notification')) {
+    toolRegistry.register(new NotificationToolExecutor())
+  }
   
   // 注册通用 HTTP 工具
-  toolRegistry.register(new HttpToolExecutor())
+  if (!toolRegistry.has('http_request')) {
+    toolRegistry.register(new HttpToolExecutor())
+  }
   
+  toolsInitialized = true
   console.log('[FunctionCalling] 已初始化默认工具')
+}
+
+/**
+ * 确保工具已初始化（用于处理器等需要工具的场景）
+ */
+export function ensureToolsInitialized(): void {
+  initializeDefaultTools()
 }
 
 /**

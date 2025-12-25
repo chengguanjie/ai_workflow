@@ -119,9 +119,10 @@ export default function ApplicationsPage() {
 
       const res = await fetch(`/api/console/applications?${params}`)
       if (res.ok) {
-        const data = await res.json()
-        setApplications(data.data)
-        setPagination(data.pagination)
+        const response = await res.json()
+        // ApiResponse.success() 返回 { success, data: { data, pagination } }
+        setApplications(response.data.data)
+        setPagination(response.data.pagination)
       }
     } catch (error) {
       console.error('获取申请列表失败:', error)
@@ -153,10 +154,11 @@ export default function ApplicationsPage() {
       })
 
       if (res.ok) {
-        const data = await res.json()
+        const response = await res.json()
+        // ApiResponse.success() 返回 { success, data }
         setApproveResult({
-          email: data.owner.email,
-          tempPassword: data.owner.tempPassword,
+          email: response.data.owner.email,
+          tempPassword: response.data.owner.tempPassword,
         })
         fetchApplications()
       }

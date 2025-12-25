@@ -10,19 +10,12 @@ import {
   Music,
   Video,
   Trash2,
-  ChevronDown,
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+
 import { cn } from "@/lib/utils";
 import {
   type InputTabType,
@@ -38,7 +31,7 @@ import {
 // Types
 // ============================================
 
-interface WorkflowNode {
+export interface WorkflowNode {
   id: string;
   type?: string;
   data: {
@@ -55,7 +48,9 @@ interface WorkflowNode {
 function getNodeOutputFields(
   node: WorkflowNode,
 ): Array<{ id: string; name: string; type?: string }> {
-  const config = node.data.config as any;
+  const config = node.data.config as {
+    outputFields?: Array<{ id: string; name: string; type?: string }>;
+  };
   if (config?.outputFields && Array.isArray(config.outputFields)) {
     return config.outputFields;
   }
@@ -369,6 +364,7 @@ export function InputTabs({
                         {/* File Icon or Preview */}
                         {file.previewUrl ? (
                           <div className="h-10 w-10 rounded overflow-hidden bg-muted flex-shrink-0">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
                               src={file.previewUrl}
                               alt={file.name}

@@ -126,11 +126,12 @@ export default function SystemLogsPage() {
 
       const res = await fetch(`/api/console/system-logs?${params}`)
       if (res.ok) {
-        const data = await res.json()
-        setLogs(data.logs)
-        setPagination(data.pagination)
-        setCategories(data.filters.categories)
-        setStats(data.stats)
+        const result = await res.json()
+        // ApiResponse.success() 返回 { success, data: { logs, pagination, filters, stats } }
+        setLogs(result.data.logs)
+        setPagination(result.data.pagination)
+        setCategories(result.data.filters.categories)
+        setStats(result.data.stats)
       }
     } catch (error) {
       console.error('获取系统日志失败:', error)
@@ -210,9 +211,8 @@ export default function SystemLogsPage() {
           return (
             <Card
               key={level}
-              className={`cursor-pointer transition-colors hover:border-primary ${
-                selectedLevel === level ? 'border-primary' : ''
-              }`}
+              className={`cursor-pointer transition-colors hover:border-primary ${selectedLevel === level ? 'border-primary' : ''
+                }`}
               onClick={() => {
                 setSelectedLevel(selectedLevel === level ? '' : level)
                 setPagination((prev) => ({ ...prev, page: 1 }))
@@ -293,10 +293,10 @@ export default function SystemLogsPage() {
               search ||
               startDate ||
               endDate) && (
-              <Button variant="ghost" size="sm" onClick={clearFilters}>
-                清除筛选
-              </Button>
-            )}
+                <Button variant="ghost" size="sm" onClick={clearFilters}>
+                  清除筛选
+                </Button>
+              )}
           </div>
         </CardContent>
       </Card>

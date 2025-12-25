@@ -6,9 +6,6 @@ import {
   FileJson,
   Sparkles,
   PenTool,
-  Download,
-  Trash2,
-  Copy,
   Check,
   AlertCircle,
   BookOpen,
@@ -20,7 +17,6 @@ import {
   Search,
   Plus,
   X,
-  ChevronRight,
   Eye,
 } from "lucide-react";
 import {

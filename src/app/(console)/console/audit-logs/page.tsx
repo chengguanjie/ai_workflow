@@ -119,10 +119,11 @@ export default function AuditLogsPage() {
 
       const res = await fetch(`/api/console/audit-logs?${params}`)
       if (res.ok) {
-        const data = await res.json()
-        setLogs(data.logs)
-        setPagination(data.pagination)
-        setFilters(data.filters)
+        const result = await res.json()
+        // ApiResponse.success() 返回 { success, data: { logs, pagination, filters } }
+        setLogs(result.data.logs)
+        setPagination(result.data.pagination)
+        setFilters(result.data.filters)
       }
     } catch (error) {
       console.error('获取审计日志失败:', error)

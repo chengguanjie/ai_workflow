@@ -1,6 +1,7 @@
 // 胜算云 API Provider (OpenAI 兼容)
 
 import type { AIProvider, ChatRequest, ChatResponse, Model, TranscriptionOptions, TranscriptionResponse, ContentPart } from '../types'
+import { getModelModality } from '../types'
 import { fetchWithTimeout } from '@/lib/http/fetch-with-timeout'
 
 const DEFAULT_SHENSUAN_BASE_URL = process.env.SHENSUAN_BASE_URL || 'https://router.shengsuanyun.com/api/v1'
@@ -9,6 +10,15 @@ export class ShensuanProvider implements AIProvider {
   name = 'shensuan'
 
   async chat(request: ChatRequest, apiKey: string, baseUrl?: string): Promise<ChatResponse> {
+    // 检查是否误用了生成类模型（视频/图片生成）
+    const modality = getModelModality(request.model)
+    if (modality === 'video-gen' || modality === 'image-gen') {
+      throw new Error(
+        `模型配置错误：模型 '${request.model}' 是媒体生成模型（${modality === 'video-gen' ? '视频' : '图片'}），不支持文本对话/处理任务。` +
+        `请在节点配置中选择文本或对话模型（如 Claude, GPT, Gemini Pro 等）。`
+      )
+    }
+
     const url = baseUrl || DEFAULT_SHENSUAN_BASE_URL
 
     const messages = request.messages.map(m => ({
@@ -230,6 +240,8 @@ export class ShensuanProvider implements AIProvider {
     const lower = modelId.toLowerCase()
     return audioKeywords.some(a => lower.includes(a))
   }
+
+
 
   private isVideoModel(modelId: string): boolean {
     const videoKeywords = ['qwen3-omni', 'qwen3-vl', 'gemini-2', 'gemini-1.5', 'video']

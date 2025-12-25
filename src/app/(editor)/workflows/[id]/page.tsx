@@ -44,6 +44,8 @@ import {
   Minimize2,
   Menu,
   MonitorPlay,
+  Undo2,
+  Redo2,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -153,6 +155,7 @@ function WorkflowEditor() {
     save: saveWorkflow,
     resolveConflict,
     retry: retrySave,
+    setServerVersion,
   } = useWorkflowSave({
     workflowId,
     debounceMs: 1500,
@@ -219,6 +222,10 @@ function WorkflowEditor() {
     updateNodeExecutionStatus,
     clearNodeExecutionStatus,
     openDebugPanel,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
   } = useWorkflowStore();
 
   // 加载工作流数据
@@ -240,6 +247,11 @@ function WorkflowEditor() {
           ...workflow.config,
         });
 
+        // 同步服务器版本号到本地，避免版本冲突
+        if (workflow.version !== undefined) {
+          await setServerVersion(workflow.version);
+        }
+
         // 恢复 viewport
         setTimeout(() => {
           const savedViewport = useWorkflowStore.getState().viewport;
@@ -260,7 +272,7 @@ function WorkflowEditor() {
     };
 
     loadWorkflow();
-  }, [workflowId, setWorkflow]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [workflowId, setWorkflow, setServerVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 手动保存处理
   const handleSave = useCallback(async () => {
@@ -327,6 +339,39 @@ function WorkflowEditor() {
     setEdgeContextMenu(null);
     setNodeContextMenu(null);
   }, [selectNode]);
+
+  // 键盘快捷键：撤销/重做
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+Z 或 Cmd+Z 撤销
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        if (canUndo()) {
+          undo();
+          toast.success("已撤销");
+        }
+      }
+      // Ctrl+Shift+Z 或 Cmd+Shift+Z 重做
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && e.shiftKey) {
+        e.preventDefault();
+        if (canRedo()) {
+          redo();
+          toast.success("已重做");
+        }
+      }
+      // Ctrl+Y 重做 (Windows 风格)
+      if ((e.ctrlKey || e.metaKey) && e.key === "y") {
+        e.preventDefault();
+        if (canRedo()) {
+          redo();
+          toast.success("已重做");
+        }
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [undo, redo, canUndo, canRedo]);
 
   // 点击外部关闭选区右键菜单
   useEffect(() => {
@@ -567,9 +612,11 @@ function WorkflowEditor() {
     // 3. 处理环路中的剩余节点 (inDegree > 0)
     // 将它们放到最后发现的最大层级 + 1
     let maxFoundLevel = 0;
-    Object.values(maxLevels).forEach(l => maxFoundLevel = Math.max(maxFoundLevel, l));
+    Object.values(maxLevels).forEach(
+      (l) => (maxFoundLevel = Math.max(maxFoundLevel, l)),
+    );
 
-    nodes.forEach(n => {
+    nodes.forEach((n) => {
       if (maxLevels[n.id] === undefined) {
         maxLevels[n.id] = maxFoundLevel + 1;
       }
@@ -597,7 +644,7 @@ function WorkflowEditor() {
     setIsZenMode(true); // 自动进入 Zen Mode
 
     // 聚焦到第一步的节点
-    await new Promise(resolve => setTimeout(resolve, 100)); // 等待状态更新
+    await new Promise((resolve) => setTimeout(resolve, 100)); // 等待状态更新
     const firstStepNodes = levels[0];
     if (firstStepNodes.length > 0) {
       // 简单 fitView 可能会有问题，这里先不做复杂聚焦
@@ -613,7 +660,9 @@ function WorkflowEditor() {
   }, []);
 
   const nextStep = useCallback(() => {
-    setPresentationStep((prev) => Math.min(prev + 1, presentationLevels.length - 1));
+    setPresentationStep((prev) =>
+      Math.min(prev + 1, presentationLevels.length - 1),
+    );
   }, [presentationLevels]);
 
   const prevStep = useCallback(() => {
@@ -622,22 +671,22 @@ function WorkflowEditor() {
 
   // 计算当前应该显示的节点和边
   const visibleNodes = isPresentationMode
-    ? nodes.filter(n => {
-      // 找到当前节点所在的层级
-      let nodeLevel = -1;
-      presentationLevels.forEach((level, index) => {
-        if (level.includes(n.id)) nodeLevel = index;
-      });
-      return nodeLevel !== -1 && nodeLevel <= presentationStep;
-    })
+    ? nodes.filter((n) => {
+        // 找到当前节点所在的层级
+        let nodeLevel = -1;
+        presentationLevels.forEach((level, index) => {
+          if (level.includes(n.id)) nodeLevel = index;
+        });
+        return nodeLevel !== -1 && nodeLevel <= presentationStep;
+      })
     : nodes;
 
   const visibleEdges = isPresentationMode
-    ? edges.filter(e => {
-      const sourceVisible = visibleNodes.some(n => n.id === e.source);
-      const targetVisible = visibleNodes.some(n => n.id === e.target);
-      return sourceVisible && targetVisible;
-    })
+    ? edges.filter((e) => {
+        const sourceVisible = visibleNodes.some((n) => n.id === e.source);
+        const targetVisible = visibleNodes.some((n) => n.id === e.target);
+        return sourceVisible && targetVisible;
+      })
     : edges;
 
   if (isLoading) {
@@ -684,13 +733,50 @@ function WorkflowEditor() {
             <TooltipContent side="right">保存工作流</TooltipContent>
           </Tooltip>
 
+          {/* 撤销/重做按钮 */}
+          <div className="flex flex-col gap-1 border-t pt-2 mt-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={undo}
+                  disabled={!canUndo()}
+                  className="h-8 w-8"
+                >
+                  <Undo2 className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">撤销 (Ctrl+Z)</TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={redo}
+                  disabled={!canRedo()}
+                  className="h-8 w-8"
+                >
+                  <Redo2 className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">重做 (Ctrl+Shift+Z)</TooltipContent>
+            </Tooltip>
+          </div>
+
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant={isPresentationMode ? "secondary" : "ghost"}
                 size="icon"
-                onClick={isPresentationMode ? stopPresentation : startPresentation}
-                className={isPresentationMode ? "bg-blue-100 text-blue-600" : ""}
+                onClick={
+                  isPresentationMode ? stopPresentation : startPresentation
+                }
+                className={
+                  isPresentationMode ? "bg-blue-100 text-blue-600" : ""
+                }
               >
                 <MonitorPlay className="h-4 w-4" />
               </Button>
@@ -819,7 +905,6 @@ function WorkflowEditor() {
             ref={reactFlowWrapper}
             className="flex-1 transition-all duration-300"
           >
-
             <ReactFlow
               nodes={visibleNodes}
               edges={visibleEdges}
@@ -916,7 +1001,8 @@ function WorkflowEditor() {
         {isPresentationMode && (
           <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 rounded-full border bg-white/90 px-6 py-3 shadow-xl backdrop-blur-sm animate-in slide-in-from-bottom-5">
             <div className="text-sm font-medium text-muted-foreground mr-2">
-              播放模式: 第 {presentationStep + 1} / {presentationLevels.length} 步
+              播放模式: 第 {presentationStep + 1} / {presentationLevels.length}{" "}
+              步
             </div>
 
             <Button

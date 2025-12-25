@@ -16,7 +16,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import type { ModelModality } from "@/lib/ai/types";

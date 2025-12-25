@@ -16,6 +16,7 @@ import type {
 } from './types'
 import { BaseTaskRunner, LogCollector } from './base-runner'
 import type { RunnerType } from './types'
+import type { Database } from 'better-sqlite3'
 
 // 动态加载 better-sqlite3
 let Database: typeof import('better-sqlite3') | null = null
@@ -107,8 +108,7 @@ export class NativeRunner extends BaseTaskRunner {
       )
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let db: any = null
+    let db: Database | null = null
 
     try {
       // 创建内存数据库
@@ -159,7 +159,7 @@ export class NativeRunner extends BaseTaskRunner {
             const header = columns.join(' | ')
             const separator = columns.map(c => '-'.repeat(Math.max(c.length, 4))).join('-+-')
 
-            const dataRows = rows.slice(0, 100).map((row: Record<string, unknown>) =>
+            const dataRows = (rows as Array<Record<string, unknown>>).slice(0, 100).map((row) =>
               columns.map(col => {
                 const val = row[col]
                 return val === null ? 'NULL' : String(val).slice(0, 50)

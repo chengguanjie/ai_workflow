@@ -10,6 +10,7 @@ import type {
   ExecutionLanguage,
   RunnerType,
 } from './types'
+import { PrismaClient } from '@prisma/client'
 
 /**
  * 审计日志存储后端接口
@@ -91,7 +92,7 @@ export class InMemoryAuditStorage implements AuditLogStorage {
       if (filters.userId && entry.userId === filters.userId) return false
       if (filters.workflowId && entry.workflowId === filters.workflowId) return false
       if (filters.startTime && filters.endTime &&
-          entry.timestamp >= filters.startTime && entry.timestamp <= filters.endTime) {
+        entry.timestamp >= filters.startTime && entry.timestamp <= filters.endTime) {
         return false
       }
       return true
@@ -115,17 +116,16 @@ export class InMemoryAuditStorage implements AuditLogStorage {
  * 使用 Prisma 存储审计日志
  */
 export class DatabaseAuditStorage implements AuditLogStorage {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private prisma: any
+  private prisma: PrismaClient
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  constructor(prisma: any) {
+  constructor(prisma: PrismaClient) {
     this.prisma = prisma
   }
 
   async save(entry: AuditLogEntry): Promise<void> {
     // 检查 CodeExecutionAudit 模型是否存在
-    if (!this.prisma.codeExecutionAudit) {
+    const prismaAny = this.prisma as any
+    if (!prismaAny.codeExecutionAudit) {
       // 如果模型不存在，降级到控制台日志
       console.log('[AuditLog]', JSON.stringify(entry))
       return
@@ -138,7 +138,7 @@ export class DatabaseAuditStorage implements AuditLogStorage {
       'native': 'native',
     }
 
-    await this.prisma.codeExecutionAudit.create({
+    await prismaAny.codeExecutionAudit.create({
       data: {
         id: entry.id,
         eventType: entry.eventType,
@@ -159,7 +159,8 @@ export class DatabaseAuditStorage implements AuditLogStorage {
   }
 
   async query(filters: AuditQueryFilters): Promise<AuditLogEntry[]> {
-    if (!this.prisma.codeExecutionAudit) {
+    const prismaAny = this.prisma as any
+    if (!prismaAny.codeExecutionAudit) {
       return []
     }
 
@@ -182,7 +183,7 @@ export class DatabaseAuditStorage implements AuditLogStorage {
       }
     }
 
-    const results = await this.prisma.codeExecutionAudit.findMany({
+    const results = await prismaAny.codeExecutionAudit.findMany({
       where,
       orderBy: { timestamp: 'desc' },
       skip: filters.offset ?? 0,
@@ -193,7 +194,8 @@ export class DatabaseAuditStorage implements AuditLogStorage {
   }
 
   async count(filters: AuditQueryFilters): Promise<number> {
-    if (!this.prisma.codeExecutionAudit) {
+    const prismaAny = this.prisma as any
+    if (!prismaAny.codeExecutionAudit) {
       return 0
     }
 
@@ -203,11 +205,12 @@ export class DatabaseAuditStorage implements AuditLogStorage {
     if (filters.workflowId) where.workflowId = filters.workflowId
     if (filters.eventType) where.eventType = filters.eventType
 
-    return this.prisma.codeExecutionAudit.count({ where })
+    return prismaAny.codeExecutionAudit.count({ where })
   }
 
   async delete(filters: AuditQueryFilters): Promise<number> {
-    if (!this.prisma.codeExecutionAudit) {
+    const prismaAny = this.prisma as any
+    if (!prismaAny.codeExecutionAudit) {
       return 0
     }
 
@@ -223,11 +226,10 @@ export class DatabaseAuditStorage implements AuditLogStorage {
       }
     }
 
-    const result = await this.prisma.codeExecutionAudit.deleteMany({ where })
+    const result = await prismaAny.codeExecutionAudit.deleteMany({ where })
     return result.count
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private mapToAuditLogEntry(row: any): AuditLogEntry {
     return {
       id: row.id,
@@ -423,8 +425,7 @@ export function getAuditService(storage?: AuditLogStorage): AuditLogServiceImpl 
 /**
  * 初始化数据库审计日志服务
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function initDatabaseAuditService(prisma: any): AuditLogServiceImpl {
+export function initDatabaseAuditService(prisma: PrismaClient): AuditLogServiceImpl {
   const storage = new DatabaseAuditStorage(prisma)
   auditServiceInstance = new AuditLogServiceImpl(storage)
   return auditServiceInstance

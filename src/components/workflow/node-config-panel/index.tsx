@@ -10,26 +10,8 @@ import { Separator } from '@/components/ui/separator'
 import { X, Plus } from 'lucide-react'
 import type { InputField } from '@/types/workflow'
 
-// Import split components
-import { TriggerNodeConfigPanel } from './trigger-node-config'
 import { InputNodeConfigPanel } from './input-node-config'
 import { ProcessNodeConfigPanel } from './process-node-config'
-import { CodeNodeConfigPanel } from './code-node-config'
-import { OutputNodeConfigPanel } from './output-node-config'
-import { ConditionNodeConfigPanel } from './condition-node-config'
-import { LoopNodeConfigPanel } from './loop-node-config'
-import { SwitchNodeConfigPanel } from './switch-node-config'
-import { HttpNodeConfigPanel } from './http-node-config'
-import { MergeNodeConfigPanel } from './merge-node-config'
-import { ImageGenNodeConfigPanel } from './image-gen-node-config'
-import { NotificationNodeConfigPanel } from './notification-node-config'
-import {
-  DataNodeConfigPanel,
-  ImageNodeConfigPanel,
-  VideoNodeConfigPanel,
-  AudioNodeConfigPanel
-} from './data-node-config'
-import { GroupNodeConfigPanel } from './group-node-config'
 
 function NodeConfigPanelInner() {
   const selectedNode = useWorkflowStore((state) =>
@@ -46,10 +28,8 @@ function NodeConfigPanelInner() {
   const [panelWidth, setPanelWidth] = useState(576)
   const panelWidthRef = useRef(panelWidth)
 
-  // Update ref when panelWidth changes
   panelWidthRef.current = panelWidth
 
-  // 处理配置面板宽度拖拽
   const handlePanelResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     const startX = e.clientX
@@ -58,15 +38,13 @@ function NodeConfigPanelInner() {
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
       try {
-        // Capture currentX immediately to ensure accuracy within the frame
         const currentX = moveEvent.clientX
 
-        // Prevent stacking animation frames
         if (animationFrameId !== null) return
 
         animationFrameId = requestAnimationFrame(() => {
           try {
-            const deltaX = startX - currentX // 向左拖变宽
+            const deltaX = startX - currentX
             const newWidth = Math.max(400, Math.min(900, startWidth + deltaX))
             setPanelWidth(newWidth)
             panelWidthRef.current = newWidth
@@ -119,14 +97,6 @@ function NodeConfigPanelInner() {
     const nodeType = nodeData.type.toLowerCase()
 
     switch (nodeType) {
-      case 'trigger':
-        return (
-          <TriggerNodeConfigPanel
-            nodeId={selectedNodeId!}
-            config={nodeData.config}
-            onUpdate={handleConfigChange}
-          />
-        )
       case 'input':
         return (
           <InputNodeConfigPanel
@@ -143,116 +113,6 @@ function NodeConfigPanelInner() {
             onUpdate={handleConfigChange}
           />
         )
-      case 'code':
-        return (
-          <CodeNodeConfigPanel
-            nodeId={selectedNodeId!}
-            config={nodeData.config}
-            onUpdate={handleConfigChange}
-          />
-        )
-      case 'output':
-        return (
-          <OutputNodeConfigPanel
-            nodeId={selectedNodeId!}
-            config={nodeData.config}
-            onUpdate={handleConfigChange}
-          />
-        )
-      case 'data':
-        return (
-          <DataNodeConfigPanel
-            nodeId={selectedNodeId!}
-            config={nodeData.config}
-            onUpdate={handleConfigChange}
-          />
-        )
-      case 'image':
-        return (
-          <ImageNodeConfigPanel
-            nodeId={selectedNodeId!}
-            config={nodeData.config}
-            onUpdate={handleConfigChange}
-          />
-        )
-      case 'video':
-        return (
-          <VideoNodeConfigPanel
-            nodeId={selectedNodeId!}
-            config={nodeData.config}
-            onUpdate={handleConfigChange}
-          />
-        )
-      case 'audio':
-        return (
-          <AudioNodeConfigPanel
-            nodeId={selectedNodeId!}
-            config={nodeData.config}
-            onUpdate={handleConfigChange}
-          />
-        )
-      case 'condition':
-        return (
-          <ConditionNodeConfigPanel
-            nodeId={selectedNodeId!}
-            config={nodeData.config}
-            onUpdate={handleConfigChange}
-          />
-        )
-      case 'loop':
-        return (
-          <LoopNodeConfigPanel
-            nodeId={selectedNodeId!}
-            config={nodeData.config}
-            onUpdate={handleConfigChange}
-          />
-        )
-      case 'switch':
-        return (
-          <SwitchNodeConfigPanel
-            nodeId={selectedNodeId!}
-            config={nodeData.config}
-            onUpdate={handleConfigChange}
-          />
-        )
-      case 'http':
-        return (
-          <HttpNodeConfigPanel
-            nodeId={selectedNodeId!}
-            config={nodeData.config}
-            onUpdate={handleConfigChange}
-          />
-        )
-      case 'merge':
-        return (
-          <MergeNodeConfigPanel
-            nodeId={selectedNodeId!}
-            config={nodeData.config}
-            onUpdate={handleConfigChange}
-          />
-        )
-      case 'image_gen':
-        return (
-          <ImageGenNodeConfigPanel
-            nodeId={selectedNodeId!}
-            config={nodeData.config}
-            onUpdate={handleConfigChange}
-          />
-        )
-      case 'notification':
-        return (
-          <NotificationNodeConfigPanel
-            config={nodeData.config}
-            onUpdate={handleConfigChange}
-          />
-        )
-      case 'group':
-        return (
-          <GroupNodeConfigPanel
-            config={nodeData.config}
-            onUpdate={handleConfigChange}
-          />
-        )
       default:
         return null
     }
@@ -260,14 +120,12 @@ function NodeConfigPanelInner() {
 
   return (
     <div className="flex border-l bg-background overflow-y-auto" style={{ width: panelWidth }}>
-      {/* 左侧拖拽手柄 */}
       <div
         className="w-1 hover:w-1.5 bg-border hover:bg-primary cursor-ew-resize flex-shrink-0 transition-all"
         onMouseDown={handlePanelResizeStart}
       />
 
       <div className="flex-1 min-w-0">
-        {/* 主标题 - 第一层 sticky */}
         <div className="flex items-center justify-between border-b p-4 sticky top-0 bg-background z-20">
           <h3 className="font-medium">节点配置</h3>
           <Button variant="ghost" size="icon" onClick={() => selectNode(null)}>
@@ -275,7 +133,6 @@ function NodeConfigPanelInner() {
           </Button>
         </div>
 
-        {/* Input 节点的第二层 sticky 标题 */}
         {nodeData.type.toLowerCase() === 'input' && (
           <div className="flex items-center justify-between p-4 py-3 sticky top-[57px] bg-background z-10 border-b">
             <h4 className="text-sm font-medium">输入字段</h4>
@@ -300,7 +157,6 @@ function NodeConfigPanelInner() {
         )}
 
         <div className="space-y-6">
-          {/* 基本信息 */}
           <div className="p-4 pb-0 space-y-4">
             <div className="space-y-2">
               <Label>节点名称</Label>
@@ -313,7 +169,6 @@ function NodeConfigPanelInner() {
 
           <Separator />
 
-          {/* 节点特定配置 */}
           <div className="px-4 pb-4">
             {renderConfigPanel()}
           </div>
@@ -325,24 +180,5 @@ function NodeConfigPanelInner() {
 
 export const NodeConfigPanel = memo(NodeConfigPanelInner)
 
-// Re-export all sub-components for direct access if needed
-export { TriggerNodeConfigPanel } from './trigger-node-config'
 export { InputNodeConfigPanel } from './input-node-config'
 export { ProcessNodeConfigPanel } from './process-node-config'
-export { CodeNodeConfigPanel } from './code-node-config'
-export { OutputNodeConfigPanel } from './output-node-config'
-export { ConditionNodeConfigPanel } from './condition-node-config'
-export { LoopNodeConfigPanel } from './loop-node-config'
-export { SwitchNodeConfigPanel } from './switch-node-config'
-export { HttpNodeConfigPanel } from './http-node-config'
-export { MergeNodeConfigPanel } from './merge-node-config'
-export { ImageGenNodeConfigPanel } from './image-gen-node-config'
-export { NotificationNodeConfigPanel } from './notification-node-config'
-export {
-  DataNodeConfigPanel,
-  ImageNodeConfigPanel,
-  VideoNodeConfigPanel,
-  AudioNodeConfigPanel
-} from './data-node-config'
-export { MediaNodeConfigPanel } from './media-node-config'
-export { GroupNodeConfigPanel } from './group-node-config'

@@ -3,15 +3,15 @@ import { Button } from "@/components/ui/button";
 import { ArrowRight, CheckCircle } from "lucide-react";
 
 const benefits = [
-  "免费版永久可用",
-  "无需信用卡",
-  "5分钟快速上手",
-  "专业技术支持",
+  "实战案例深度解析",
+  "落地模版即拿即用",
+  "专家 1 对 1 诊断",
+  "企业人效增长方案",
 ];
 
 export function CTASection() {
   return (
-    <section className="py-20 lg:py-32">
+    <section className="py-20 lg:py-32 w-full">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="relative rounded-3xl bg-primary px-8 py-16 sm:px-16 sm:py-24 overflow-hidden">
           {/* Background decoration */}
@@ -22,11 +22,11 @@ export function CTASection() {
 
           <div className="relative text-center">
             <h2 className="text-3xl font-bold tracking-tight text-primary-foreground sm:text-4xl lg:text-5xl">
-              准备好提升工作效率了吗？
+              开启您的组织人效增长之旅
             </h2>
             <p className="mt-6 text-lg text-primary-foreground/80 max-w-2xl mx-auto">
-              立即注册，免费体验 AI Workflow 的强大功能。<br />
-              让自动化为您创造更多价值。
+              立即预约《人效冠军》实战课程，掌握 AI 时代的领先竞争力。<br />
+              让 AI 成为您企业的人效倍增器。
             </p>
 
             {/* Benefits list */}
@@ -47,18 +47,18 @@ export function CTASection() {
                 className="text-base px-8 h-12 bg-white text-primary hover:bg-white/90"
                 asChild
               >
-                <Link href="/register">
-                  免费开始使用
+                <Link href="/apply">
+                  立即预约报名
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
               </Button>
               <Button
                 size="lg"
                 variant="outline"
-                className="text-base px-8 h-12 border-white/30 text-primary-foreground hover:bg-white/10"
+                className="text-base px-8 h-12 bg-white/10 border-white text-white hover:bg-white hover:text-primary transition-colors"
                 asChild
               >
-                <Link href="/pricing">查看定价方案</Link>
+                <Link href="#use-cases">查看更多案例</Link>
               </Button>
             </div>
           </div>

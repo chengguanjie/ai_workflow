@@ -12,10 +12,17 @@ import { applyNodeChanges, applyEdgeChanges, addEdge } from "@xyflow/react";
 import type {
   NodeConfig,
   WorkflowConfig,
-  GroupNodeConfigData,
   NodePosition,
+  InputFieldType,
 } from "@/types/workflow";
 import dagre from "dagre";
+
+interface GroupNodeConfigData {
+  childNodeIds?: string[];
+  label?: string;
+  collapsed?: boolean;
+  childRelativePositions?: Record<string, { x: number; y: number }>;
+}
 
 function createThrottledStorage<T>(delay: number = 1000): PersistStorage<T> {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -54,6 +61,13 @@ function createThrottledStorage<T>(delay: number = 1000): PersistStorage<T> {
   };
 }
 
+// 历史记录项
+interface HistoryEntry {
+  nodes: Node[];
+  edges: Edge[];
+  timestamp: number;
+}
+
 interface WorkflowState {
   // 基本信息
   id: string | null;
@@ -65,6 +79,11 @@ interface WorkflowState {
   nodes: Node[];
   edges: Edge[];
   viewport: Viewport;
+
+  // 撤销/重做历史
+  history: HistoryEntry[];
+  historyIndex: number;
+  maxHistorySize: number;
 
   // 选中状态
   // 选中状态
@@ -141,6 +160,13 @@ interface WorkflowState {
   toggleGroupCollapse: (groupId: string) => void;
   getSelectedNodeIds: () => string[];
 
+  // 撤销/重做操作
+  undo: () => void;
+  redo: () => void;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
+  pushHistory: () => void;
+
   // 调试操作
   openDebugPanel: (nodeId: string) => void;
   closeDebugPanel: () => void;
@@ -201,6 +227,9 @@ const initialState = {
   nodes: [] as Node[],
   edges: [] as Edge[],
   viewport: { x: 0, y: 0, zoom: 1 } as Viewport,
+  history: [] as HistoryEntry[],
+  historyIndex: -1,
+  maxHistorySize: 50,
   selectedNodeId: null as string | null,
   connectedNodeIds: [] as string[],
   connectedEdgeIds: [] as string[],
@@ -235,104 +264,79 @@ export const useWorkflowStore = create<WorkflowState>()(
       ...initialState,
 
       setWorkflow: (config) => {
-        // 统一的尺寸参数
-        const nodeWidth = 260; // 节点实际宽度约240px，增加一些余量
-        const nodeGap = 30; // 节点间距
-        const padding = 30; // 内边距
-        const headerHeight = 60;
-        const nodeHeight = 140; // 子节点高度
+        // 首先找出所有组节点，建立子节点到组节点的映射
+        const groupNodeMap = new Map<string, string>(); // childId -> groupId
 
-        // 首先找出所有组节点及其子节点关系，以及折叠状态
-        const groupChildMap = new Map<
-          string,
-          {
-            groupId: string;
-            childNodeIds: string[];
-            isCollapsed: boolean;
-          }
-        >();
         config.nodes.forEach((node) => {
-          if (node.type === "GROUP") {
+          if (node.type.toLowerCase() === "group") {
             const groupConfig = node.config as GroupNodeConfigData;
             const childNodeIds = groupConfig?.childNodeIds || [];
-            const isCollapsed = groupConfig?.collapsed || false;
             childNodeIds.forEach((childId) => {
-              groupChildMap.set(childId, {
-                groupId: node.id,
-                childNodeIds,
-                isCollapsed,
-              });
+              groupNodeMap.set(childId, node.id);
             });
           }
         });
 
         const nodes: Node[] = config.nodes.map((node) => {
-          const groupInfo = groupChildMap.get(node.id);
-          const baseNode: Node = {
-            id: node.id,
-            type: node.type.toLowerCase(),
-            position: node.position,
-            data: node,
-          };
+          const nodeType = node.type.toLowerCase();
+          const parentGroupId = groupNodeMap.get(node.id);
 
-          // 如果是组的子节点，恢复 parentId 和 extent
-          if (groupInfo) {
-            // 强制重新计算位置，确保使用最新的尺寸参数
-            const nodeIndex = groupInfo.childNodeIds.indexOf(node.id);
-            const calculatedPosition = {
-              x: padding + nodeIndex * (nodeWidth + nodeGap),
-              y: padding + headerHeight,
-            };
-            return {
-              ...baseNode,
-              parentId: groupInfo.groupId,
-              extent: "parent" as const,
-              // 强制使用计算的位置，确保间距正确
-              position: calculatedPosition,
-              // 如果组是折叠状态，隐藏子节点
-              hidden: groupInfo.isCollapsed,
-            };
-          }
-
-          // 如果是组节点，设置样式
-          if (node.type === "GROUP") {
+          // 如果是组节点
+          if (nodeType === "group") {
             const groupConfig = node.config as GroupNodeConfigData;
-            const childNodeIds = groupConfig?.childNodeIds || [];
             const isCollapsed = groupConfig?.collapsed || false;
-            // 根据折叠状态设置不同尺寸
-            const childCount = childNodeIds.length;
+            const childCount = groupConfig?.childNodeIds?.length || 0;
+
+            // 计算组节点尺寸
+            const nodeWidth = 260;
+            const nodeGap = 30;
+            const padding = 30;
+            const headerHeight = 60;
+            const nodeHeight = 140;
+
             return {
-              ...baseNode,
+              id: node.id,
+              type: nodeType,
+              position: node.position,
+              data: node,
               style: isCollapsed
                 ? { width: 280, height: 80 }
                 : {
-                  width:
-                    childCount * nodeWidth +
-                    (childCount - 1) * nodeGap +
-                    padding * 2,
-                  height: nodeHeight + padding * 2 + headerHeight,
-                },
+                    width:
+                      childCount * nodeWidth +
+                      (childCount - 1) * nodeGap +
+                      padding * 2,
+                    height: nodeHeight + padding * 2 + headerHeight,
+                  },
             };
           }
 
-          return baseNode;
-        });
+          // 如果是子节点（属于某个组）
+          if (parentGroupId) {
+            const parentNode = config.nodes.find((n) => n.id === parentGroupId);
+            const parentConfig = parentNode?.config as GroupNodeConfigData;
+            const isCollapsed = parentConfig?.collapsed || false;
 
-        // 收集所有折叠的组及其子节点
-        const collapsedGroupChildMap = new Map<string, string>(); // childId -> groupId
-        config.nodes.forEach((node) => {
-          if (node.type === "GROUP") {
-            const groupConfig = node.config as GroupNodeConfigData;
-            if (groupConfig?.collapsed) {
-              const childNodeIds = groupConfig.childNodeIds || [];
-              childNodeIds.forEach((childId) => {
-                collapsedGroupChildMap.set(childId, node.id);
-              });
-            }
+            return {
+              id: node.id,
+              type: nodeType,
+              position: node.position,
+              data: node,
+              parentId: parentGroupId,
+              extent: "parent" as const,
+              hidden: isCollapsed,
+            };
           }
+
+          // 普通节点
+          return {
+            id: node.id,
+            type: nodeType,
+            position: node.position,
+            data: node,
+          };
         });
 
-        // Deduplicate edges by ID, appending suffix for duplicates
         const seenEdgeIds = new Set<string>();
         const edges: Edge[] = config.edges.map((edge, index) => {
           let edgeId = edge.id;
@@ -340,55 +344,6 @@ export const useWorkflowStore = create<WorkflowState>()(
             edgeId = `${edge.id}-dup-${index}`;
           }
           seenEdgeIds.add(edgeId);
-
-          const sourceGroupId = collapsedGroupChildMap.get(edge.source);
-          const targetGroupId = collapsedGroupChildMap.get(edge.target);
-
-          // 如果两端都是同一个折叠组的子节点，隐藏这条边
-          if (
-            sourceGroupId &&
-            targetGroupId &&
-            sourceGroupId === targetGroupId
-          ) {
-            return {
-              id: edgeId,
-              source: edge.source,
-              target: edge.target,
-              sourceHandle: edge.sourceHandle,
-              targetHandle: edge.targetHandle,
-              hidden: true,
-            };
-          }
-
-          // 如果 source 是折叠组的子节点，映射到组节点
-          if (sourceGroupId && !targetGroupId) {
-            return {
-              id: edgeId,
-              source: sourceGroupId,
-              sourceHandle: null,
-              target: edge.target,
-              targetHandle: edge.targetHandle,
-              data: {
-                _originalSource: edge.source,
-                _originalSourceHandle: edge.sourceHandle,
-              },
-            };
-          }
-
-          // 如果 target 是折叠组的子节点，映射到组节点
-          if (targetGroupId && !sourceGroupId) {
-            return {
-              id: edgeId,
-              source: edge.source,
-              sourceHandle: edge.sourceHandle,
-              target: targetGroupId,
-              targetHandle: null,
-              data: {
-                _originalTarget: edge.target,
-                _originalTargetHandle: edge.targetHandle,
-              },
-            };
-          }
 
           return {
             id: edgeId,
@@ -408,6 +363,9 @@ export const useWorkflowStore = create<WorkflowState>()(
           edges,
           isDirty: false,
           lastSavedAt: Date.now(),
+          // 加载工作流时初始化历史记录
+          history: [{ nodes, edges, timestamp: Date.now() }],
+          historyIndex: 0,
         });
       },
 
@@ -415,18 +373,94 @@ export const useWorkflowStore = create<WorkflowState>()(
       setDescription: (description) => set({ description, isDirty: true }),
       setManual: (manual) => set({ manual, isDirty: true }),
 
+      // 撤销/重做功能
+      pushHistory: () => {
+        const { nodes, edges, history, historyIndex, maxHistorySize } = get();
+        // 截断当前索引之后的历史（如果在撤销后进行了新操作）
+        const newHistory = history.slice(0, historyIndex + 1);
+        // 添加新的历史记录
+        newHistory.push({
+          nodes: JSON.parse(JSON.stringify(nodes)),
+          edges: JSON.parse(JSON.stringify(edges)),
+          timestamp: Date.now(),
+        });
+        // 限制历史记录大小
+        if (newHistory.length > maxHistorySize) {
+          newHistory.shift();
+        }
+        set({
+          history: newHistory,
+          historyIndex: newHistory.length - 1,
+        });
+      },
+
+      undo: () => {
+        const { history, historyIndex } = get();
+        if (historyIndex > 0) {
+          const newIndex = historyIndex - 1;
+          const entry = history[newIndex];
+          set({
+            nodes: JSON.parse(JSON.stringify(entry.nodes)),
+            edges: JSON.parse(JSON.stringify(entry.edges)),
+            historyIndex: newIndex,
+            isDirty: true,
+          });
+        }
+      },
+
+      redo: () => {
+        const { history, historyIndex } = get();
+        if (historyIndex < history.length - 1) {
+          const newIndex = historyIndex + 1;
+          const entry = history[newIndex];
+          set({
+            nodes: JSON.parse(JSON.stringify(entry.nodes)),
+            edges: JSON.parse(JSON.stringify(entry.edges)),
+            historyIndex: newIndex,
+            isDirty: true,
+          });
+        }
+      },
+
+      canUndo: () => {
+        return get().historyIndex > 0;
+      },
+
+      canRedo: () => {
+        const { history, historyIndex } = get();
+        return historyIndex < history.length - 1;
+      },
+
       onNodesChange: (changes) => {
+        // 只有在位置变化结束时才记录历史（避免拖拽过程中产生大量历史记录）
+        const hasPositionEnd = changes.some(
+          (c) => c.type === "position" && !c.dragging,
+        );
+        const hasRemove = changes.some((c) => c.type === "remove");
+
         set({
           nodes: applyNodeChanges(changes, get().nodes),
           isDirty: true,
         });
+
+        // 如果有位置变化结束或删除操作，记录历史
+        if (hasPositionEnd || hasRemove) {
+          get().pushHistory();
+        }
       },
 
       onEdgesChange: (changes) => {
+        const hasRemove = changes.some((c) => c.type === "remove");
+
         set({
           edges: applyEdgeChanges(changes, get().edges),
           isDirty: true,
         });
+
+        // 如果有删除操作，记录历史
+        if (hasRemove) {
+          get().pushHistory();
+        }
       },
 
       onConnect: (connection) => {
@@ -440,6 +474,8 @@ export const useWorkflowStore = create<WorkflowState>()(
           ),
           isDirty: true,
         });
+        // 连接时记录历史
+        get().pushHistory();
       },
 
       addNode: (nodeConfig) => {
@@ -454,6 +490,8 @@ export const useWorkflowStore = create<WorkflowState>()(
           nodes: [...get().nodes, newNode],
           isDirty: true,
         });
+        // 添加节点时记录历史
+        get().pushHistory();
       },
 
       updateNode: (nodeId, data) => {
@@ -901,12 +939,12 @@ export const useWorkflowStore = create<WorkflowState>()(
               style: newCollapsedState
                 ? { width: 280, height: 80 } // 折叠后的小尺寸
                 : {
-                  width:
-                    childCount * nodeWidth +
-                    (childCount - 1) * nodeGap +
-                    padding * 2,
-                  height: nodeHeight + padding * 2 + headerHeight,
-                }, // 展开后的尺寸
+                    width:
+                      childCount * nodeWidth +
+                      (childCount - 1) * nodeGap +
+                      padding * 2,
+                    height: nodeHeight + padding * 2 + headerHeight,
+                  }, // 展开后的尺寸
             };
           }
 
@@ -927,14 +965,18 @@ export const useWorkflowStore = create<WorkflowState>()(
                   ...node,
                   position,
                   hidden: false,
+                  parentId: groupId, // 保持父节点关联
+                  extent: "parent" as const, // 保持子节点限制在父节点内
                 };
               }
             }
 
-            // 折叠时只隐藏
+            // 折叠时只隐藏，但保持父节点关联
             return {
               ...node,
               hidden: newCollapsedState,
+              parentId: groupId, // 保持父节点关联
+              extent: "parent" as const, // 保持子节点限制在父节点内
             };
           }
 
@@ -1205,10 +1247,16 @@ export const useWorkflowStore = create<WorkflowState>()(
           const targetNode = nodes.find((n) => n.id === edge.target);
 
           // 如果连接的是子节点，映射到其父组节点（如果是顶层布局）
-          if (sourceNode?.parentId && topLevelNodeIds.has(sourceNode.parentId)) {
+          if (
+            sourceNode?.parentId &&
+            topLevelNodeIds.has(sourceNode.parentId)
+          ) {
             sourceId = sourceNode.parentId;
           }
-          if (targetNode?.parentId && topLevelNodeIds.has(targetNode.parentId)) {
+          if (
+            targetNode?.parentId &&
+            topLevelNodeIds.has(targetNode.parentId)
+          ) {
             targetId = targetNode.parentId;
           }
 
@@ -1354,12 +1402,63 @@ export const useWorkflowStore = create<WorkflowState>()(
       getWorkflowConfig: () => {
         const { nodes, edges, manual } = get();
 
+        // fieldType 映射表：将无效值转换为有效值
+        const fieldTypeMapping: Record<string, InputFieldType> = {
+          textarea: "text",
+          file: "pdf",
+          document: "pdf",
+        };
+
+        // 有效的 fieldType 值
+        const validFieldTypes: InputFieldType[] = [
+          "text",
+          "image",
+          "pdf",
+          "word",
+          "excel",
+          "audio",
+          "video",
+          "select",
+          "multiselect",
+        ];
+
         return {
           version: 1,
-          nodes: nodes.map((node) => ({
-            ...(node.data as NodeConfig),
-            position: node.position, // 确保使用最新的位置
-          })),
+          nodes: nodes.map((node) => {
+            const nodeData = node.data as NodeConfig;
+
+            // 如果是 INPUT 节点，清洗 fieldType
+            if (nodeData.type === "INPUT" && nodeData.config?.fields) {
+              const cleanedFields = nodeData.config.fields.map((field) => {
+                let fieldType: InputFieldType = field.fieldType || "text";
+
+                // 如果是无效值，进行映射
+                if (!validFieldTypes.includes(fieldType)) {
+                  const fieldTypeStr = fieldType as string;
+                  fieldType = fieldTypeMapping[fieldTypeStr] || "text";
+                }
+
+                return {
+                  ...field,
+                  fieldType,
+                };
+              });
+
+              return {
+                ...nodeData,
+                config: {
+                  ...nodeData.config,
+                  fields: cleanedFields,
+                },
+                position: node.position,
+              };
+            }
+
+            return {
+              ...nodeData,
+              position: node.position, // 确保使用最新的位置
+            };
+          }),
           edges: edges.map((edge) => ({
             id: edge.id,
             source: edge.source,

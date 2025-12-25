@@ -25,7 +25,7 @@ function ensureInitialized() {
 /**
  * GET /api/tools - 获取所有已注册的工具
  */
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
     const session = await auth()
     if (!session?.user) {
@@ -65,6 +65,15 @@ export async function POST(request: NextRequest) {
     const session = await auth()
     if (!session?.user) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
+    }
+
+    // 角色权限检查：只有 OWNER/ADMIN 可以注册工具
+    const allowedRoles = ['OWNER', 'ADMIN']
+    if (!allowedRoles.includes(session.user.role)) {
+      return NextResponse.json(
+        { error: '权限不足：只有企业所有者和管理员可以注册工具' },
+        { status: 403 }
+      )
     }
 
     ensureInitialized()

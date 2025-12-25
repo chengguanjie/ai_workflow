@@ -89,19 +89,25 @@ interface Invitation {
 // 仅用于修改角色时使用（OWNER/ADMIN可以修改其他成员的角色）
 const ROLES = [
   { value: 'ADMIN', label: '管理员', icon: Shield, description: '可管理成员和设置' },
+  { value: 'EDITOR', label: '编辑者', icon: UserCog, description: '可编辑工作流和知识库' },
   { value: 'MEMBER', label: '成员', icon: Users, description: '可使用工作流和知识库' },
+  { value: 'VIEWER', label: '查看者', icon: Users, description: '只能查看，无法编辑' },
 ]
 
 const ROLE_COLORS: Record<string, string> = {
   OWNER: 'bg-amber-500',
   ADMIN: 'bg-blue-500',
+  EDITOR: 'bg-green-500',
   MEMBER: 'bg-gray-500',
+  VIEWER: 'bg-slate-400',
 }
 
 const ROLE_LABELS: Record<string, string> = {
   OWNER: '所有者',
   ADMIN: '管理员',
+  EDITOR: '编辑者',
   MEMBER: '成员',
+  VIEWER: '查看者',
 }
 
 export default function MembersPage() {
@@ -127,6 +133,10 @@ export default function MembersPage() {
   const [inviteMaxUses, setInviteMaxUses] = useState('10')
   const [createdInviteUrl, setCreatedInviteUrl] = useState('')
 
+  // 新创建成员的临时密码
+  const [createdMemberInfo, setCreatedMemberInfo] = useState<{ name: string; email: string; password: string } | null>(null)
+  const [showPasswordDialog, setShowPasswordDialog] = useState(false)
+
   const isAdmin = session?.user?.role === 'OWNER' || session?.user?.role === 'ADMIN'
 
   useEffect(() => {
@@ -143,16 +153,20 @@ export default function MembersPage() {
       ])
 
       if (membersRes.ok) {
-        const data = await membersRes.json()
-        setMembers(data.members || [])
-        setCanManageMembers(data.canManageMembers ?? false)
-        setManagedDepartmentIds(data.managedDepartmentIds || [])
-        setIsAdminUser(data.isAdmin ?? false)
+        const result = await membersRes.json()
+        if (result.success && result.data) {
+          setMembers(result.data.members || [])
+          setCanManageMembers(result.data.canManageMembers ?? false)
+          setManagedDepartmentIds(result.data.managedDepartmentIds || [])
+          setIsAdminUser(result.data.isAdmin ?? false)
+        }
       }
 
       if (invitationsRes?.ok) {
-        const data = await invitationsRes.json()
-        setInvitations(data.invitations || [])
+        const result = await invitationsRes.json()
+        if (result.success && result.data) {
+          setInvitations(result.data.invitations || [])
+        }
       }
     } catch (error) {
       console.error('Failed to load data:', error)
@@ -166,8 +180,10 @@ export default function MembersPage() {
     try {
       const res = await fetch('/api/settings/departments')
       if (res.ok) {
-        const data = await res.json()
-        setDepartments(data.departments || [])
+        const result = await res.json()
+        if (result.success && result.data) {
+          setDepartments(result.data.departments || [])
+        }
       }
     } catch (error) {
       console.error('Failed to load departments:', error)
@@ -284,10 +300,20 @@ export default function MembersPage() {
           throw new Error(errorMessage)
         }
 
-        toast.success('成员创建成功，初始密码为 123456')
-        setInviteDialogOpen(false)
-        resetInviteForm()
-        loadData()
+        const result = await res.json()
+
+        // 保存成员信息和临时密码，显示密码对话框
+        if (result.success && result.data) {
+          setCreatedMemberInfo({
+            name: inviteName,
+            email: inviteEmail,
+            password: result.data.tempPassword,
+          })
+          setInviteDialogOpen(false)
+          setShowPasswordDialog(true)
+          resetInviteForm()
+          loadData()
+        }
       } catch (error) {
         toast.error(error instanceof Error ? error.message : '创建成员失败')
       } finally {
@@ -325,15 +351,17 @@ export default function MembersPage() {
         throw new Error(errorMessage)
       }
 
-      const data = await res.json()
+      const result = await res.json()
 
-      if (inviteType === 'LINK') {
-        setCreatedInviteUrl(data.invitation.inviteUrl)
-        toast.success('邀请链接已创建')
-      } else {
-        toast.success('邀请已发送')
-        setInviteDialogOpen(false)
-        resetInviteForm()
+      if (result.success && result.data) {
+        if (inviteType === 'LINK') {
+          setCreatedInviteUrl(result.data.invitation.inviteUrl)
+          toast.success('邀请链接已创建')
+        } else {
+          toast.success('邀请已发送')
+          setInviteDialogOpen(false)
+          resetInviteForm()
+        }
       }
 
       loadData()
@@ -940,6 +968,63 @@ export default function MembersPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* 新成员临时密码显示对话框 */}
+      <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>成员创建成功</DialogTitle>
+            <DialogDescription>
+              请将以下登录信息发送给新成员，密码仅显示一次
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label className="text-muted-foreground">姓名</Label>
+              <div className="font-medium">{createdMemberInfo?.name}</div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-muted-foreground">账号</Label>
+              <div className="font-medium">{createdMemberInfo?.email}</div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-muted-foreground">临时密码</Label>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 rounded bg-muted px-3 py-2 font-mono text-sm">
+                  {createdMemberInfo?.password}
+                </code>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (createdMemberInfo?.password) {
+                      copyToClipboard(createdMemberInfo.password)
+                    }
+                  }}
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+            <div className="rounded-md bg-amber-50 p-3 text-sm text-amber-800">
+              <p className="font-medium">安全提示</p>
+              <ul className="mt-1 list-disc list-inside space-y-1 text-xs">
+                <li>请通过安全渠道发送密码给成员</li>
+                <li>成员首次登录后需修改密码</li>
+                <li>此密码不会再次显示</li>
+              </ul>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => {
+              setShowPasswordDialog(false)
+              setCreatedMemberInfo(null)
+            }}>
+              我已记录，关闭
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

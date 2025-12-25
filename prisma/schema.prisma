@@ -60,6 +60,8 @@ model User {
   organizationId      String
   departmentId        String?
   mustChangePassword  Boolean              @default(false)
+  loginAttempts       Int                  @default(0)
+  lockedUntil         DateTime?
   organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   department          Department?          @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   workflows           Workflow[]
@@ -593,6 +595,24 @@ model OrgApplication {
 }
 
 // =========================================================================================
+// Password Reset
+// =========================================================================================
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  email     String
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([email])
+  @@index([token])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
+}
+
+// =========================================================================================
 // Knowledge Base (RAG)
 // =========================================================================================
 
@@ -886,16 +906,16 @@ model ApprovalRequest {
   workflowId        String
   workflowName      String?
   executionId       String
-  nodeId            String                 // 审批节点ID
+  nodeId            String // 审批节点ID
   title             String
   description       String?                @db.Text
   requestData       Json?
   approvers         Json?
   status            ApprovalStatus         @default(PENDING)
   requiredApprovals Int                    @default(1) // 需要的审批数量
-  finalDecision     String?                // 'APPROVE' | 'REJECT'
-  decidedAt         DateTime?              // 最终决定时间
-  requestedAt       DateTime?              // 请求创建时间
+  finalDecision     String? // 'APPROVE' | 'REJECT'
+  decidedAt         DateTime? // 最终决定时间
+  requestedAt       DateTime? // 请求创建时间
   approvedBy        String?
   approvedAt        DateTime?
   rejectedBy        String?
@@ -903,8 +923,8 @@ model ApprovalRequest {
   comment           String?                @db.Text
   expiresAt         DateTime?
   timeoutAction     TimeoutAction?
-  customFields      Json?                  // 自定义表单字段
-  inputSnapshot     Json?                  // 输入数据快照
+  customFields      Json? // 自定义表单字段
+  inputSnapshot     Json? // 输入数据快照
   createdAt         DateTime               @default(now())
   updatedAt         DateTime               @updatedAt
   notifications     ApprovalNotification[]
@@ -922,9 +942,9 @@ model ApprovalRequest {
 
 model ApprovalDecision {
   id                String          @id @default(cuid())
-  decision          String          // 'APPROVE' | 'REJECT'
+  decision          String // 'APPROVE' | 'REJECT'
   comment           String?         @db.Text
-  customFieldValues Json?           // 自定义字段值
+  customFieldValues Json? // 自定义字段值
   userId            String
   userName          String?
   decidedAt         DateTime        @default(now())

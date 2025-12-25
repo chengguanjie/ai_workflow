@@ -9,11 +9,11 @@ describe('Workflow Validation', () => {
         nodes: [
           {
             id: '1',
-            type: 'TRIGGER',
-            name: 'Start',
+            type: 'INPUT',
+            name: '用户输入',
             position: { x: 0, y: 0 },
             config: {
-              triggerType: 'MANUAL'
+              fields: []
             }
           }
         ],
@@ -44,52 +44,48 @@ describe('Workflow Validation', () => {
     expect(result.success).toBe(false)
   })
 
-  it('should reject missing config fields for TRIGGER node', () => {
-    const invalidWorkflow = {
-      name: 'Invalid Config',
+  it('should validate INPUT node with empty fields array', () => {
+    const validWorkflow = {
+      name: 'Valid Config',
       config: {
         nodes: [
           {
             id: '1',
-            type: 'TRIGGER',
-            name: 'Start',
+            type: 'INPUT',
+            name: '用户输入',
             position: { x: 0, y: 0 },
             config: {
-              // Missing triggerType
+              fields: []
             }
           }
         ],
         edges: []
       }
     }
-    const result = workflowCreateSchema.safeParse(invalidWorkflow)
-    expect(result.success).toBe(false)
+    const result = workflowCreateSchema.safeParse(validWorkflow)
+    expect(result.success).toBe(true)
   })
   
-  it('should validate complex nested config (HTTP node)', () => {
-      const validHttpWorkflow = {
-        name: 'HTTP Workflow',
+  it('should validate PROCESS node', () => {
+      const validProcessWorkflow = {
+        name: 'Process Workflow',
         config: {
           nodes: [
             {
-              id: 'node-http',
-              type: 'HTTP',
-              name: 'API Call',
+              id: 'node-process',
+              type: 'PROCESS',
+              name: 'AI处理',
               position: { x: 100, y: 100 },
               config: {
-                  method: 'POST',
-                  url: 'https://api.example.com',
-                  body: {
-                      type: 'json',
-                      content: '{"key":"value"}'
-                  }
+                  systemPrompt: 'You are a helpful assistant',
+                  userPrompt: '{{input.text}}'
               }
             }
           ],
           edges: []
         }
       }
-      const result = workflowCreateSchema.safeParse(validHttpWorkflow)
+      const result = workflowCreateSchema.safeParse(validProcessWorkflow)
       expect(result.success).toBe(true)
   })
 })

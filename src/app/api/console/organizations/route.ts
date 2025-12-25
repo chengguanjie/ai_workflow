@@ -6,15 +6,28 @@ import { hash } from 'bcryptjs'
 import { ApiResponse } from '@/lib/api/api-response'
 import type { PlatformRole, Plan, OrgStatus } from '@prisma/client'
 
-// 生成随机密码
-function generatePassword(length = 12): string {
-  const chars =
-    'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%'
+// 生成安全的随机密码（16位，包含大小写字母、数字、特殊字符）
+function generateSecurePassword(): string {
+  const uppercase = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
+  const lowercase = 'abcdefghjkmnpqrstuvwxyz'
+  const numbers = '23456789'
+  const symbols = '!@#$%&*'
+  const allChars = uppercase + lowercase + numbers + symbols
+
   let password = ''
-  for (let i = 0; i < length; i++) {
-    password += chars.charAt(Math.floor(Math.random() * chars.length))
+  // 确保至少包含每种字符类型
+  password += uppercase.charAt(Math.floor(Math.random() * uppercase.length))
+  password += lowercase.charAt(Math.floor(Math.random() * lowercase.length))
+  password += numbers.charAt(Math.floor(Math.random() * numbers.length))
+  password += symbols.charAt(Math.floor(Math.random() * symbols.length))
+
+  // 填充剩余字符
+  for (let i = 4; i < 16; i++) {
+    password += allChars.charAt(Math.floor(Math.random() * allChars.length))
   }
-  return password
+
+  // 打乱密码顺序
+  return password.split('').sort(() => Math.random() - 0.5).join('')
 }
 
 // GET - 获取企业列表
@@ -156,7 +169,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 生成或使用提供的密码
-    const tempPassword = owner.password || generatePassword()
+    const tempPassword = owner.password || generateSecurePassword()
     const passwordHash = await hash(tempPassword, 12)
 
     // 创建企业和企业主（事务）
@@ -174,9 +187,9 @@ export async function POST(request: NextRequest) {
         notes,
         securitySettings: {
           passwordMinLength: 8,
-          passwordRequireUppercase: false,
-          passwordRequireNumber: false,
-          passwordRequireSymbol: false,
+          passwordRequireUppercase: true,
+          passwordRequireNumber: true,
+          passwordRequireSymbol: true,
           sessionTimeout: 10080, // 7天
           maxLoginAttempts: 5,
           ipWhitelist: [],
@@ -189,6 +202,7 @@ export async function POST(request: NextRequest) {
             passwordHash,
             role: 'OWNER',
             isActive: true,
+            mustChangePassword: true,
           },
         },
       },

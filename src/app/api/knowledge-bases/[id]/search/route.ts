@@ -12,11 +12,14 @@ import { prisma } from '@/lib/db'
 import { searchKnowledgeBase } from '@/lib/knowledge/search'
 import { safeDecryptApiKey } from '@/lib/crypto'
 import { checkKnowledgeBasePermission } from '@/lib/permissions/knowledge-base'
+import { enhanceQuery } from '@/lib/knowledge/query-enhance'
 
 interface SearchRequest {
   query: string
   topK?: number
   threshold?: number
+  chatHistory?: { role: string; content: string }[]
+  enableRewrite?: boolean
 }
 
 interface SearchResult {
@@ -31,6 +34,7 @@ interface SearchResult {
 interface SearchResponse {
   results: SearchResult[]
   query: string
+  rewrittenQuery?: string | null
   totalResults: number
 }
 
@@ -71,7 +75,7 @@ export const POST = withAuth<ApiSuccessResponse<SearchResponse>>(
     }
 
     const body = (await request.json()) as SearchRequest
-    const { query, topK = 5, threshold = 0.7 } = body
+    const { query, topK = 5, threshold = 0.3, chatHistory, enableRewrite = false } = body
 
     if (!query?.trim()) {
       throw new ValidationError('搜索内容不能为空')
@@ -108,10 +112,37 @@ export const POST = withAuth<ApiSuccessResponse<SearchResponse>>(
       baseUrl = aiConfig.baseUrl || undefined
     }
 
+    let searchQuery = query.trim()
+    let rewrittenQuery: string | null = null
+
+    // 智能查询重写 (P0 Optimization)
+    // 如果启用了重写或提供了历史记录，尝试优化查询
+    if ((enableRewrite || (chatHistory && chatHistory.length > 0)) && apiKey) {
+      try {
+        const enhancement = await enhanceQuery({
+          query: searchQuery,
+          chatHistory: chatHistory as { role: string; content: string }[],
+          apiKey,
+          baseUrl,
+          enableRewrite: true,
+          enableExpansion: false, // 暂时只启用重写
+        })
+
+        if (enhancement.rewritten && enhancement.rewritten !== searchQuery) {
+          console.log(`[Search] Query Rewritten: "${searchQuery}" -> "${enhancement.rewritten}"`)
+          searchQuery = enhancement.rewritten
+          rewrittenQuery = enhancement.rewritten
+        }
+      } catch (error) {
+        console.warn('[Search] Query rewrite failed:', error)
+        // Fallback to original query
+      }
+    }
+
     // 执行搜索
     const results = await searchKnowledgeBase({
       knowledgeBaseId,
-      query: query.trim(),
+      query: searchQuery,
       topK,
       threshold,
       embeddingModel: knowledgeBase.embeddingModel,
@@ -122,7 +153,8 @@ export const POST = withAuth<ApiSuccessResponse<SearchResponse>>(
 
     return ApiResponse.success({
       results,
-      query: query.trim(),
+      query: body.query.trim(), // 返回原始查询
+      rewrittenQuery, // 返回重写后的查询以便前端展示
       totalResults: results.length,
     })
   }

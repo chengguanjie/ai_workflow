@@ -40,6 +40,13 @@ export interface AESReport {
     R: number
     total: number
   }
+  targetMatching?: number
+  executionAnalysis?: {
+    status: 'success' | 'failed'
+    durationAnalysis?: string
+    errorAnalysis?: string
+    outputQuality?: string
+  }
   report: string
   diagnosis: Array<{
     dimension: string
@@ -103,7 +110,7 @@ export interface RequirementAnalysis {
   }
 }
 
-export type ConversationPhase = 
+export type ConversationPhase =
   | 'requirement_gathering'
   | 'requirement_clarification'
   | 'workflow_design'
@@ -176,6 +183,9 @@ interface AIAssistantState {
   addOptimizationIteration: (testResult: TestResult, optimization?: OptimizationSuggestion, applied?: boolean) => void
   setAutoMode: (enabled: boolean) => void
   setTestInput: (input: Record<string, unknown>) => void
+
+  autoApply: boolean
+  setAutoApply: (enabled: boolean) => void
 }
 
 function generateTitle(messages: AIMessage[]): string {
@@ -327,8 +337,8 @@ export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
   setPhase: (phase) => set((state) => {
     const updatedConversations = state.currentConversationId
       ? state.conversations.map(c =>
-          c.id === state.currentConversationId ? { ...c, phase, updatedAt: Date.now() } : c
-        )
+        c.id === state.currentConversationId ? { ...c, phase, updatedAt: Date.now() } : c
+      )
       : state.conversations
 
     return { currentPhase: phase, conversations: updatedConversations }
@@ -357,10 +367,10 @@ export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
 
     const updatedConversations = state.currentConversationId
       ? state.conversations.map(c =>
-          c.id === state.currentConversationId
-            ? { ...c, autoOptimization, updatedAt: Date.now() }
-            : c
-        )
+        c.id === state.currentConversationId
+          ? { ...c, autoOptimization, updatedAt: Date.now() }
+          : c
+      )
       : state.conversations
 
     return {
@@ -377,10 +387,10 @@ export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
 
     const updatedConversations = state.currentConversationId
       ? state.conversations.map(c =>
-          c.id === state.currentConversationId
-            ? { ...c, autoOptimization: stoppedOptimization, updatedAt: Date.now() }
-            : c
-        )
+        c.id === state.currentConversationId
+          ? { ...c, autoOptimization: stoppedOptimization, updatedAt: Date.now() }
+          : c
+      )
       : state.conversations
 
     return {
@@ -407,10 +417,10 @@ export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
 
     const updatedConversations = state.currentConversationId
       ? state.conversations.map(c =>
-          c.id === state.currentConversationId
-            ? { ...c, autoOptimization: updatedOptimization, updatedAt: Date.now() }
-            : c
-        )
+        c.id === state.currentConversationId
+          ? { ...c, autoOptimization: updatedOptimization, updatedAt: Date.now() }
+          : c
+      )
       : state.conversations
 
     return {
@@ -422,4 +432,7 @@ export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
   setAutoMode: (enabled) => set({ isAutoMode: enabled }),
 
   setTestInput: (input) => set({ testInput: input }),
+
+  autoApply: true,
+  setAutoApply: (enabled) => set({ autoApply: enabled }),
 }))

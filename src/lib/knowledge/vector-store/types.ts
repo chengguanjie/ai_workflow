@@ -90,7 +90,7 @@ export interface VectorStore {
  * 向量存储配置
  */
 export interface VectorStoreConfig {
-  type: 'pgvector' | 'memory' | 'pinecone' | 'qdrant' | 'milvus'
+  type: 'pgvector' | 'memory' | 'pinecone' | 'qdrant' | 'milvus' | 'supabase'
 
   // pgvector 配置
   pgvector?: {
@@ -103,6 +103,14 @@ export interface VectorStoreConfig {
       m?: number         // HNSW 的 M 参数
       efConstruction?: number  // HNSW 构建时的 ef 参数
     }
+  }
+
+  // Supabase 配置
+  supabase?: {
+    url: string
+    key: string
+    tableName?: string
+    functionName?: string
   }
 
   // 内存存储配置

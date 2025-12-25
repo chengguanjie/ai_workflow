@@ -7,7 +7,7 @@
 import type { NodeConfig, ProcessNodeConfig } from '@/types/workflow'
 import type { NodeProcessor, NodeOutput, ExecutionContext, AIConfigCache } from '../types'
 import type { ChatResponseWithTools, OpenAITool, ToolCall, ToolCallResult, ClaudeTool } from '@/lib/ai/function-calling/types'
-import { replaceVariables } from '../utils'
+import { replaceVariables, createContentPartsFromText } from '../utils'
 import { prisma } from '@/lib/db'
 import { safeDecryptApiKey } from '@/lib/crypto'
 import { getRelevantContext } from '@/lib/knowledge/search'
@@ -19,14 +19,32 @@ import {
   toOpenAIFormat,
   toClaudeFormat,
   getProviderFormat,
+  mapUIToolToExecutor,
+  isNotificationTool,
+  getNotificationPlatform,
+  isToolImplemented,
+  initializeDefaultTools,
 } from '@/lib/ai/function-calling'
+
+/**
+ * UI 层工具配置类型（来自 tools-section.tsx）
+ */
+interface UIToolConfig {
+  id: string
+  type: string
+  name: string
+  enabled: boolean
+  config: Record<string, unknown>
+}
 
 /**
  * 扩展的处理节点配置（支持工具）
  */
 interface ProcessNodeWithToolsConfig extends ProcessNodeConfig {
   config: ProcessNodeConfig['config'] & {
-    /** 启用的工具列表 */
+    /** UI 配置的工具列表 */
+    tools?: UIToolConfig[]
+    /** 启用的工具列表（后端格式，会从 tools 自动转换） */
     enabledTools?: string[]
     /** 是否启用工具调用 */
     enableToolCalling?: boolean
@@ -49,6 +67,9 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
   ): Promise<NodeOutput> {
     const startedAt = new Date()
     const processNode = node as ProcessNodeWithToolsConfig
+
+    // 确保工具已初始化
+    initializeDefaultTools()
 
     try {
       // 1. 获取 AI 配置
@@ -92,23 +113,25 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
         systemPrompt = `${systemPrompt}\n\n上传的文件资料：\n${filesText}`
       }
 
-      // 3. 处理用户提示词中的变量引用
+      // 3. 处理用户提示词中的变量引用 (支持多模态)
       const rawUserPrompt = processNode.config?.userPrompt || ''
-      context.addLog?.('step', '正在解析用户提示词变量...', 'VARIABLE')
-      const userPrompt = replaceVariables(
-        rawUserPrompt,
-        context
-      )
+      context.addLog?.('step', '正在解析用户提示词变量 (支持多模态)...', 'VARIABLE')
 
-      if (!userPrompt.trim()) {
+      const userContentParts = createContentPartsFromText(rawUserPrompt, context)
+      const userPromptText = userContentParts
+        .map(p => p.type === 'text' ? p.text : `[${p.type}]`)
+        .join('')
+
+      if (!userPromptText.trim() && userContentParts.length === 0) {
         throw new Error('用户提示词不能为空')
       }
 
       // 记录变量替换结果
-      if (rawUserPrompt !== userPrompt) {
+      if (rawUserPrompt !== userPromptText) {
         context.addLog?.('info', '变量替换完成', 'VARIABLE', {
           original: rawUserPrompt,
-          replaced: userPrompt
+          replacedPreview: userPromptText.slice(0, 100) + '...',
+          partsCount: userContentParts.length
         })
       }
 
@@ -116,20 +139,19 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
       const knowledgeBaseId = processNode.config?.knowledgeBaseId
       if (knowledgeBaseId) {
         context.addLog?.('step', `正在检索知识库 (ID: ${knowledgeBaseId})...`, 'RAG', {
-          query: userPrompt
+          query: userPromptText
         })
         try {
           const ragContext = await this.retrieveKnowledgeContext(
             knowledgeBaseId,
-            userPrompt,
+            userPromptText,
             processNode.config?.ragConfig,
             { apiKey: aiConfig.apiKey, baseUrl: aiConfig.baseUrl }
           )
           if (ragContext) {
-            context.addLog?.('success', '知识库检索成功', 'RAG', {
-              contextPreview: ragContext.slice(0, 200) + '...'
-            })
+            // ...
             systemPrompt = `${systemPrompt}\n\n## 知识库检索结果\n${ragContext}`
+            // ...
           } else {
             context.addLog?.('warning', '知识库检索未找到相关内容', 'RAG')
           }
@@ -140,34 +162,42 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
 
       // 5. 准备工具
       const enableToolCalling = processNode.config?.enableToolCalling ?? false
-      context.addLog?.('step', `准备工具... (启用状态: ${enableToolCalling})`, 'TOOLS')
-      const { openaiTools, claudeTools } = this.prepareTools(
+      
+      // 从 UI 工具配置转换为后端工具名称
+      const uiTools = processNode.config?.tools || []
+      const enabledToolNames = this.convertUIToolsToExecutorNames(uiTools, context)
+      
+      // 如果没有指定工具但启用了工具调用，使用后端提供的 enabledTools 或全部工具
+      const finalEnabledTools = enabledToolNames.length > 0 
+        ? enabledToolNames 
+        : processNode.config?.enabledTools
+
+      const { openaiTools, claudeTools, toolDescriptions } = this.prepareToolsWithDescriptions(
         enableToolCalling,
-        processNode.config?.enabledTools,
+        finalEnabledTools,
         aiConfig.provider
       )
 
-      if (enableToolCalling) {
-        const toolCount = openaiTools.length + claudeTools.length
-        context.addLog?.('info', `已加载 ${toolCount} 个工具定义`, 'TOOLS', {
-          tools: [
-            ...openaiTools.map(t => t.function.name),
-            ...claudeTools.map(t => t.name)
-          ]
+      if (openaiTools.length > 0 || claudeTools.length > 0) {
+        const toolListText = toolDescriptions.map(t => `- ${t.name}: ${t.description}`).join('\n')
+        systemPrompt = `${systemPrompt}\n\n## 可用工具\n${toolListText}\n\n当需要执行上述操作时，请调用相应的工具。`
+        context.addLog?.('info', `已启用 ${toolDescriptions.length} 个工具`, 'TOOLS', {
+          tools: toolDescriptions.map(t => t.name)
         })
       }
 
-      // 如果启用了工具，添加工具使用说明到系统提示词
-      if (openaiTools.length > 0 || claudeTools.length > 0) {
-        systemPrompt = `${systemPrompt}\n\n你可以使用以下工具来完成任务。当需要执行某个操作时，请调用相应的工具。`
-      }
-
       // 6. 构建消息
-      const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string; tool_calls?: ToolCall[] }> = []
+      const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | any[]; tool_calls?: ToolCall[] }> = []
       if (systemPrompt.trim()) {
         messages.push({ role: 'system', content: systemPrompt })
       }
-      messages.push({ role: 'user', content: userPrompt })
+
+      const isPureText = userContentParts.every(p => p.type === 'text')
+      if (isPureText) {
+        messages.push({ role: 'user', content: userPromptText })
+      } else {
+        messages.push({ role: 'user', content: userContentParts })
+      }
 
       const model = processNode.config?.model || aiConfig.defaultModel
       const maxRounds = processNode.config?.maxToolCallRounds ?? 5 // default increased
@@ -234,14 +264,56 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
   }
 
   /**
-   * 准备工具列表
+   * 将 UI 工具配置转换为后端执行器名称
    */
-  private prepareTools(
+  private convertUIToolsToExecutorNames(
+    uiTools: UIToolConfig[],
+    context: ExecutionContext
+  ): string[] {
+    const enabledExecutorNames: string[] = []
+    
+    for (const tool of uiTools) {
+      if (!tool.enabled) continue
+      
+      const executorName = mapUIToolToExecutor(tool.type)
+      
+      // 检查工具是否已实现
+      if (!isToolImplemented(tool.type)) {
+        context.addLog?.('warning', `工具 "${tool.name}" (${tool.type}) 尚未实现，将被跳过`, 'TOOLS')
+        continue
+      }
+      
+      // 检查执行器是否存在
+      const executor = toolRegistry.get(executorName)
+      if (!executor) {
+        context.addLog?.('warning', `未找到工具执行器: ${executorName} (来自 ${tool.type})`, 'TOOLS')
+        continue
+      }
+      
+      // 避免重复添加（通知工具共用一个执行器）
+      if (!enabledExecutorNames.includes(executorName)) {
+        enabledExecutorNames.push(executorName)
+      }
+    }
+    
+    return enabledExecutorNames
+  }
+
+  /**
+   * 准备工具列表（带描述信息）
+   */
+  private prepareToolsWithDescriptions(
     enabled: boolean,
     enabledToolNames: string[] | undefined,
     provider: string
-  ): { openaiTools: OpenAITool[]; claudeTools: ClaudeTool[] } {
-    if (!enabled) return { openaiTools: [], claudeTools: [] }
+  ): { 
+    openaiTools: OpenAITool[]
+    claudeTools: ClaudeTool[]
+    toolDescriptions: Array<{ name: string; description: string }>
+  } {
+    if (!enabled) {
+      return { openaiTools: [], claudeTools: [], toolDescriptions: [] }
+    }
 
     const definitions = enabledToolNames && enabledToolNames.length > 0
       ? enabledToolNames
@@ -249,18 +321,40 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
         .filter((d): d is NonNullable<typeof d> => d !== undefined)
       : toolRegistry.getAllDefinitions()
 
+    const toolDescriptions = definitions.map(d => ({
+      name: d.name,
+      description: d.description,
+    }))
+
     const format = getProviderFormat(provider)
 
     if (format === 'claude') {
       return {
         openaiTools: [],
         claudeTools: definitions.map(toClaudeFormat),
+        toolDescriptions,
       }
     }
 
     return {
       openaiTools: definitions.map(toOpenAIFormat),
       claudeTools: [],
+      toolDescriptions,
+    }
+  }
+
+  /**
+   * 准备工具列表（保留旧方法以兼容）
+   */
+  private prepareTools(
+    enabled: boolean,
+    enabledToolNames: string[] | undefined,
+    provider: string
+  ): { openaiTools: OpenAITool[]; claudeTools: ClaudeTool[] } {
+    const result = this.prepareToolsWithDescriptions(enabled, enabledToolNames, provider)
+    return {
+      openaiTools: result.openaiTools,
+      claudeTools: result.claudeTools,
     }
   }
 
@@ -270,7 +364,7 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
   private async executeWithTools(
     aiConfig: AIConfigCache,
     model: string,
-    initialMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string; tool_calls?: ToolCall[] }>,
+    initialMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | any[]; tool_calls?: ToolCall[] }>,
     openaiTools: OpenAITool[],
     claudeTools: ClaudeTool[],
     toolChoice: 'auto' | 'none' | 'required',
@@ -286,8 +380,8 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
     rounds: number
   }> {
     const toolCallHistory: Array<{ call: ToolCall; result: ToolCallResult }> = []
-    let messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string; tool_calls?: ToolCall[] }> = [...initialMessages]
-    let totalUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+    let messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | any[]; tool_calls?: ToolCall[] }> = [...initialMessages]
+    const totalUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
     let rounds = 0
     let lastResponse: ChatResponseWithTools | null = null
 
@@ -362,25 +456,35 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
       }
 
       // 构建新的消息，包含工具调用结果
+      const provider = aiConfig.provider.toLowerCase()
+      const isClaudeProvider = provider.includes('anthropic') || provider.includes('claude')
+      
       messages = [
         ...messages,
         {
           role: 'assistant' as const,
           content: response.content || '',
-          tool_calls: response.toolCalls, // 确保传递 tool_calls 以保持对话历史完整性
+          tool_calls: response.toolCalls,
         },
       ]
 
-      // 添加工具结果消息
-      for (let i = 0; i < response.toolCalls.length; i++) {
-        const result = toolResults[i]
+      // 添加工具结果消息（使用正确的格式）
+      if (isClaudeProvider) {
+        // Claude 格式：使用 user 角色但包含 tool_result 内容
+        const toolResultContent = functionCallingService.buildClaudeToolResultMessages(toolResults)
         messages.push({
           role: 'user' as const,
-          content: `工具 ${result.toolName} 执行结果: ${result.success
-            ? JSON.stringify(result.result)
-            : `错误: ${result.error}`
-            }`,
+          content: toolResultContent as any,
         })
+      } else {
+        // OpenAI 格式：使用 tool 角色
+        const toolResultMessages = functionCallingService.buildToolResultMessages(
+          response.toolCalls,
+          toolResults
+        )
+        for (const msg of toolResultMessages) {
+          messages.push(msg as any)
+        }
       }
     }
 
@@ -399,7 +503,7 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
   private async callAIWithTools(
     aiConfig: AIConfigCache,
     model: string,
-    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string; tool_calls?: ToolCall[] }>,
+    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | any[]; tool_calls?: ToolCall[] }>,
     openaiTools: OpenAITool[],
     claudeTools: ClaudeTool[],
     toolChoice: 'auto' | 'none' | 'required',

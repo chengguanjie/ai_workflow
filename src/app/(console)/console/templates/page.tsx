@@ -158,10 +158,11 @@ export default function ConsoleTemplatesPage() {
       const data = await res.json()
 
       if (res.ok) {
+        // ApiResponse.paginated() 返回 { success, data: [...], pagination }
         setTemplates(data.data || [])
         setPagination(prev => data.pagination || prev)
       } else {
-        toast.error(data.error || '加载模板失败')
+        toast.error(data.error?.message || '加载模板失败')
       }
     } catch {
       toast.error('网络错误')

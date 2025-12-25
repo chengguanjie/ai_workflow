@@ -6,7 +6,7 @@ import {
   HeroSection,
   LandingFooter,
   LandingHeader,
-  StatsSection,
+  // StatsSection, // Removed
   TestimonialsSection,
   UseCasesSection,
 } from '@/components/landing'
@@ -23,7 +23,7 @@ export default async function Home() {
       <LandingHeader />
       <main>
         <HeroSection />
-        <StatsSection />
+        {/* StatsSection removed */}
         <FeaturesSection />
         <UseCasesSection />
         <TestimonialsSection />

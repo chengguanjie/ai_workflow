@@ -12,15 +12,10 @@ import {
   ChevronDown,
   ChevronRight,
   Settings,
-  Link,
-  FileJson,
-  Send,
-  Key,
   Trash2,
   GripVertical,
   Sparkles,
   Bell,
-  AtSign,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -296,7 +291,7 @@ export function ToolsSection({ tools, onToolsChange }: ToolsSectionProps) {
       {/* 已添加的工具列表 */}
       {tools.length === 0 && !isAddingTool ? (
         <div className="text-center py-6 text-muted-foreground border-2 border-dashed rounded-lg text-xs">
-          暂无调用工具，点击"添加工具"开始配置
+          暂无调用工具，点击“添加工具”开始配置
         </div>
       ) : (
         <div className="space-y-2">
@@ -378,9 +373,9 @@ export function ToolsSection({ tools, onToolsChange }: ToolsSectionProps) {
                         onEditSkill={
                           tool.type === "claude-skill"
                             ? () => {
-                                setEditingSkillToolId(tool.id);
-                                setIsSkillDialogOpen(true);
-                              }
+                              setEditingSkillToolId(tool.id);
+                              setIsSkillDialogOpen(true);
+                            }
                             : undefined
                         }
                       />
@@ -671,31 +666,31 @@ function HttpRequestConfig({
       {["POST", "PUT", "PATCH"].includes(
         (config.method as string) || "GET",
       ) && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <Label className="text-xs">请求体</Label>
-            <Select
-              value={(config.bodyType as string) || "json"}
-              onValueChange={(value) => onConfigChange({ bodyType: value })}
-            >
-              <SelectTrigger className="h-6 w-20 text-[10px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="json">JSON</SelectItem>
-                <SelectItem value="form">Form</SelectItem>
-                <SelectItem value="raw">Raw</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs">请求体</Label>
+              <Select
+                value={(config.bodyType as string) || "json"}
+                onValueChange={(value) => onConfigChange({ bodyType: value })}
+              >
+                <SelectTrigger className="h-6 w-20 text-[10px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="json">JSON</SelectItem>
+                  <SelectItem value="form">Form</SelectItem>
+                  <SelectItem value="raw">Raw</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Textarea
+              value={(config.body as string) || ""}
+              onChange={(e) => onConfigChange({ body: e.target.value })}
+              className="min-h-[80px] text-xs font-mono resize-y"
+              placeholder='{"key": "value"}'
+            />
           </div>
-          <Textarea
-            value={(config.body as string) || ""}
-            onChange={(e) => onConfigChange({ body: e.target.value })}
-            className="min-h-[80px] text-xs font-mono resize-y"
-            placeholder='{"key": "value"}'
-          />
-        </div>
-      )}
+        )}
 
       {/* 超时设置 */}
       <div className="flex items-center gap-2">
@@ -1086,16 +1081,16 @@ function NotificationConfig({
         (config.messageType as string) === "card" ||
         (config.messageType as string) === "actionCard" ||
         (config.messageType as string) === "news") && (
-        <div className="space-y-1.5">
-          <Label className="text-xs">消息标题</Label>
-          <Input
-            value={(config.title as string) || ""}
-            onChange={(e) => onConfigChange({ title: e.target.value })}
-            className="h-8 text-xs"
-            placeholder="输入消息标题，支持 {{变量}} 引用"
-          />
-        </div>
-      )}
+          <div className="space-y-1.5">
+            <Label className="text-xs">消息标题</Label>
+            <Input
+              value={(config.title as string) || ""}
+              onChange={(e) => onConfigChange({ title: e.target.value })}
+              className="h-8 text-xs"
+              placeholder="输入消息标题，支持 {{变量}} 引用"
+            />
+          </div>
+        )}
 
       {/* 消息内容 */}
       <div className="space-y-1.5">
@@ -1333,7 +1328,7 @@ async function execute(params, context) {
 // Claude Skill 配置
 function ClaudeSkillConfig({
   config,
-  onConfigChange,
+  onConfigChange: _onConfigChange,
   onEditSkill,
 }: {
   config: Record<string, unknown>;

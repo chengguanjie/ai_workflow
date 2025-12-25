@@ -159,8 +159,30 @@ export default function OrganizationPage() {
   const loadOrganization = async () => {
     try {
       const res = await fetch('/api/settings/organization')
-      if (res.ok) {
-        const data = await res.json()
+      const data = await res.json()
+      
+      if (!res.ok) {
+        // 处理API错误响应
+        const errorMessage = data?.error?.message || data?.error || '加载企业信息失败'
+        console.error('Failed to load organization:', errorMessage, 'Status:', res.status)
+        toast.error(errorMessage)
+        return
+      }
+      
+      if (data.data?.organization) {
+        // 新的API响应格式 { success: true, data: { organization: ... } }
+        setOrganization(data.data.organization)
+        setInfoForm({
+          name: data.data.organization.name || '',
+          description: data.data.organization.description || '',
+          industry: data.data.organization.industry || '',
+          website: data.data.organization.website || '',
+          phone: data.data.organization.phone || '',
+          address: data.data.organization.address || '',
+        })
+        setSecurityForm(data.data.organization.securitySettings)
+      } else if (data.organization) {
+        // 兼容旧的API响应格式 { organization: ... }
         setOrganization(data.organization)
         setInfoForm({
           name: data.organization.name || '',
@@ -171,6 +193,9 @@ export default function OrganizationPage() {
           address: data.organization.address || '',
         })
         setSecurityForm(data.organization.securitySettings)
+      } else {
+        console.error('Unexpected API response format:', data)
+        toast.error('加载企业信息失败：响应格式错误')
       }
     } catch (error) {
       console.error('Failed to load organization:', error)

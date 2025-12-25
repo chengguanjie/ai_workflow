@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { ApiResponse } from '@/lib/api/api-response'
 import { randomBytes, createHash } from 'crypto'
+import { logApiTokenChange } from '@/lib/audit'
 
 // 生成 API Token
 function generateToken(): { token: string; hash: string; prefix: string } {
@@ -96,6 +97,20 @@ export async function POST(request: NextRequest) {
         createdById: session.user.id,
       },
     })
+
+    // 记录审计日志
+    await logApiTokenChange(
+      session.user.id,
+      session.user.organizationId,
+      'created',
+      {
+        tokenId: apiToken.id,
+        tokenName: apiToken.name,
+        tokenPrefix: apiToken.prefix,
+        scopes: Array.isArray(scopes) ? scopes : [],
+        expiresAt: apiToken.expiresAt,
+      }
+    )
 
     // 返回完整 Token（仅此一次）
     return ApiResponse.success({

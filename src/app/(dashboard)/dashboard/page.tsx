@@ -1,5 +1,5 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { GitBranch, PlayCircle, Clock, Zap } from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { GitBranch, PlayCircle, Clock, Zap, TrendingUp, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import Link from 'next/link'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
@@ -9,6 +9,7 @@ async function getDashboardStats(organizationId: string) {
   const now = new Date()
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
 
   const [
     workflowCount,
@@ -16,15 +17,16 @@ async function getDashboardStats(organizationId: string) {
     monthTokens,
     avgDuration,
     recentExecutions,
+    weeklyExecutions,
+    topWorkflows,
+    recentErrors,
   ] = await Promise.all([
-    // 工作流总数
     prisma.workflow.count({
       where: {
         organizationId,
         deletedAt: null,
       },
     }),
-    // 今日执行次数
     prisma.execution.count({
       where: {
         organizationId,
@@ -33,7 +35,6 @@ async function getDashboardStats(organizationId: string) {
         },
       },
     }),
-    // 本月 Token 消耗
     prisma.execution.aggregate({
       where: {
         organizationId,
@@ -45,7 +46,6 @@ async function getDashboardStats(organizationId: string) {
         totalTokens: true,
       },
     }),
-    // 平均执行耗时（毫秒）
     prisma.execution.aggregate({
       where: {
         organizationId,
@@ -58,7 +58,6 @@ async function getDashboardStats(organizationId: string) {
         duration: true,
       },
     }),
-    // 最近执行记录
     prisma.execution.findMany({
       where: {
         organizationId,
@@ -77,7 +76,81 @@ async function getDashboardStats(organizationId: string) {
         },
       },
     }),
+    prisma.execution.findMany({
+      where: {
+        organizationId,
+        createdAt: { gte: weekAgo },
+      },
+      select: {
+        status: true,
+        createdAt: true,
+      },
+    }),
+    prisma.execution.groupBy({
+      by: ['workflowId'],
+      where: {
+        organizationId,
+        createdAt: { gte: monthStart },
+      },
+      _count: { id: true },
+      orderBy: { _count: { id: 'desc' } },
+      take: 5,
+    }),
+    prisma.execution.findMany({
+      where: {
+        organizationId,
+        status: 'FAILED',
+        createdAt: { gte: weekAgo },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      select: {
+        id: true,
+        error: true,
+        createdAt: true,
+        workflow: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    }),
   ])
+
+  const workflowIds = topWorkflows.map(w => w.workflowId)
+  const workflowNames = workflowIds.length > 0 ? await prisma.workflow.findMany({
+    where: { id: { in: workflowIds } },
+    select: { id: true, name: true },
+  }) : []
+
+  const workflowNameMap = new Map(workflowNames.map(w => [w.id, w.name]))
+
+  const dailyStats = new Map<string, { total: number; success: number }>()
+  for (const exec of weeklyExecutions) {
+    const date = exec.createdAt.toISOString().split('T')[0]
+    if (!dailyStats.has(date)) {
+      dailyStats.set(date, { total: 0, success: 0 })
+    }
+    const stat = dailyStats.get(date)!
+    stat.total++
+    if (exec.status === 'COMPLETED') {
+      stat.success++
+    }
+  }
+
+  const trend = Array.from(dailyStats.entries())
+    .map(([date, stat]) => ({
+      date,
+      total: stat.total,
+      success: stat.success,
+      successRate: stat.total > 0 ? (stat.success / stat.total * 100).toFixed(1) : '0',
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+
+  const totalWeekly = weeklyExecutions.length
+  const successWeekly = weeklyExecutions.filter(e => e.status === 'COMPLETED').length
+  const weeklySuccessRate = totalWeekly > 0 ? (successWeekly / totalWeekly * 100).toFixed(1) : '0'
 
   return {
     workflowCount,
@@ -85,6 +158,15 @@ async function getDashboardStats(organizationId: string) {
     monthTokens: monthTokens._sum.totalTokens || 0,
     avgDuration: avgDuration._avg.duration,
     recentExecutions,
+    trend,
+    weeklySuccessRate,
+    totalWeekly,
+    topWorkflows: topWorkflows.map(w => ({
+      workflowId: w.workflowId,
+      name: workflowNameMap.get(w.workflowId) || '未知工作流',
+      count: w._count.id,
+    })),
+    recentErrors,
   }
 }
 
@@ -150,8 +232,7 @@ export default async function DashboardPage() {
         <p className="text-muted-foreground">欢迎回来！查看您的工作流概况</p>
       </div>
 
-      {/* 统计卡片 */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">工作流总数</CardTitle>
@@ -171,6 +252,17 @@ export default async function DashboardPage() {
           <CardContent>
             <div className="text-2xl font-bold">{stats.todayExecutions}</div>
             <p className="text-xs text-muted-foreground">今日执行次数</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">周成功率</CardTitle>
+            <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">{stats.weeklySuccessRate}%</div>
+            <p className="text-xs text-muted-foreground">最近7天 {stats.totalWeekly} 次执行</p>
           </CardContent>
         </Card>
 
@@ -197,7 +289,116 @@ export default async function DashboardPage() {
         </Card>
       </div>
 
-      {/* 快速操作 */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4" />
+              7天执行趋势
+            </CardTitle>
+            <CardDescription>每日执行次数和成功率</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {stats.trend.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">暂无数据</p>
+            ) : (
+              <div className="space-y-2">
+                {stats.trend.map((day) => (
+                  <div key={day.date} className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground w-20">
+                      {day.date.slice(5)}
+                    </span>
+                    <div className="flex-1 h-4 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-green-500 rounded-full"
+                        style={{ width: `${Math.min(100, day.total * 5)}%` }}
+                      />
+                    </div>
+                    <span className="text-xs w-12 text-right">{day.total}次</span>
+                    <span className="text-xs w-12 text-right text-green-600">{day.successRate}%</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <PlayCircle className="h-4 w-4" />
+              热门工作流
+            </CardTitle>
+            <CardDescription>本月执行次数最多的工作流</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {stats.topWorkflows.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">暂无数据</p>
+            ) : (
+              <div className="space-y-3">
+                {stats.topWorkflows.map((wf, index) => (
+                  <Link
+                    key={wf.workflowId}
+                    href={`/workflows/${wf.workflowId}`}
+                    className="flex items-center gap-3 hover:bg-muted/50 -mx-2 px-2 py-1 rounded"
+                  >
+                    <span className="text-lg font-bold text-muted-foreground w-6">
+                      {index + 1}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{wf.name}</p>
+                    </div>
+                    <span className="text-sm text-muted-foreground">{wf.count} 次</span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-red-500" />
+              近期错误
+            </CardTitle>
+            <CardDescription>最近7天失败的执行</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {stats.recentErrors.length === 0 ? (
+              <div className="text-center py-4">
+                <CheckCircle2 className="h-8 w-8 text-green-500 mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">太棒了！最近没有错误</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {stats.recentErrors.map((err) => (
+                  <Link
+                    key={err.id}
+                    href={`/executions/${err.id}`}
+                    className="block hover:bg-muted/50 -mx-2 px-2 py-1 rounded"
+                  >
+                    <p className="text-sm font-medium truncate">{err.workflow.name}</p>
+                    <p className="text-xs text-red-600 truncate">
+                      {err.error || '执行失败'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(err.createdAt).toLocaleString('zh-CN')}
+                    </p>
+                  </Link>
+                ))}
+                <Link
+                  href="/executions?status=FAILED"
+                  className="text-sm text-primary hover:underline block text-center pt-2"
+                >
+                  查看全部错误
+                </Link>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>

@@ -41,7 +41,14 @@ import {
   ChevronRight,
   ChevronDown,
   FolderTree,
+  UserCircle,
 } from 'lucide-react'
+
+interface Member {
+  id: string
+  name: string | null
+  email: string
+}
 
 interface Department {
   id: string
@@ -49,6 +56,8 @@ interface Department {
   description: string | null
   parentId: string | null
   sortOrder: number
+  managerId?: string | null
+  manager?: { id: string; name: string | null; email: string } | null
   _count: {
     users: number
   }
@@ -59,6 +68,7 @@ export default function DepartmentsPage() {
   const { data: session } = useSession()
   const [departments, setDepartments] = useState<Department[]>([])
   const [tree, setTree] = useState<Department[]>([])
+  const [members, setMembers] = useState<Member[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
@@ -69,6 +79,7 @@ export default function DepartmentsPage() {
     name: '',
     description: '',
     parentId: '',
+    managerId: '',
   })
 
   // 展开状态
@@ -78,24 +89,41 @@ export default function DepartmentsPage() {
 
   useEffect(() => {
     loadDepartments()
+    loadMembers()
   }, [])
 
   const loadDepartments = async () => {
     try {
       const res = await fetch('/api/settings/departments')
       if (res.ok) {
-        const data = await res.json()
-        setDepartments(data.departments || [])
-        setTree(data.tree || [])
-        // 默认展开所有
-        const allIds = new Set<string>((data.departments || []).map((d: Department) => d.id))
-        setExpandedIds(allIds)
+        const result = await res.json()
+        if (result.success && result.data) {
+          setDepartments(result.data.departments || [])
+          setTree(result.data.tree || [])
+          // 默认展开所有
+          const allIds = new Set<string>((result.data.departments || []).map((d: Department) => d.id))
+          setExpandedIds(allIds)
+        }
       }
     } catch (error) {
       console.error('Failed to load departments:', error)
       toast.error('加载部门列表失败')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadMembers = async () => {
+    try {
+      const res = await fetch('/api/settings/members')
+      if (res.ok) {
+        const result = await res.json()
+        if (result.success && result.data) {
+          setMembers(result.data.members || [])
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load members:', error)
     }
   }
 
@@ -106,10 +134,11 @@ export default function DepartmentsPage() {
         name: dept.name,
         description: dept.description || '',
         parentId: dept.parentId || '',
+        managerId: dept.managerId || '',
       })
     } else {
       setEditingDept(null)
-      setFormData({ name: '', description: '', parentId: '' })
+      setFormData({ name: '', description: '', parentId: '', managerId: '' })
     }
     setDialogOpen(true)
   }
@@ -117,7 +146,7 @@ export default function DepartmentsPage() {
   const handleCloseDialog = () => {
     setDialogOpen(false)
     setEditingDept(null)
-    setFormData({ name: '', description: '', parentId: '' })
+    setFormData({ name: '', description: '', parentId: '', managerId: '' })
   }
 
   const handleSubmit = async () => {
@@ -140,12 +169,13 @@ export default function DepartmentsPage() {
           name: formData.name,
           description: formData.description || null,
           parentId: formData.parentId || null,
+          managerId: formData.managerId || null,
         }),
       })
 
       if (!res.ok) {
         const error = await res.json()
-        throw new Error(error.error || '操作失败')
+        throw new Error(error.error?.message || error.message || '操作失败')
       }
 
       toast.success(editingDept ? '部门已更新' : '部门已创建')
@@ -168,7 +198,7 @@ export default function DepartmentsPage() {
 
       if (!res.ok) {
         const error = await res.json()
-        throw new Error(error.error || '删除失败')
+        throw new Error(error.error?.message || error.message || '删除失败')
       }
 
       toast.success('部门已删除')
@@ -225,6 +255,12 @@ export default function DepartmentsPage() {
           </div>
 
           <div className="flex items-center gap-4">
+            {dept.manager && (
+              <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                <UserCircle className="h-4 w-4" />
+                <span>{dept.manager.name || dept.manager.email}</span>
+              </div>
+            )}
             <div className="flex items-center gap-1 text-sm text-muted-foreground">
               <Users className="h-4 w-4" />
               <span>{dept._count.users} 人</span>
@@ -336,6 +372,29 @@ export default function DepartmentsPage() {
                         ))}
                     </SelectContent>
                   </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>部门负责人</Label>
+                  <Select
+                    value={formData.managerId || '_none'}
+                    onValueChange={(value) => setFormData({ ...formData, managerId: value === '_none' ? '' : value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="选择负责人（可选）" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none">暂不指定</SelectItem>
+                      {members.map((member) => (
+                        <SelectItem key={member.id} value={member.id}>
+                          {member.name || member.email}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    部门负责人可以管理本部门及子部门的成员和资源
+                  </p>
                 </div>
               </div>
 

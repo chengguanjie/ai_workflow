@@ -39,7 +39,13 @@ export async function debugNode(request: DebugRequest): Promise<DebugResult> {
   const logs: string[] = []
 
   /* Structured logs for detailed debugging */
-  const executionLogs: any[] = []
+  const executionLogs: Array<{
+    type: 'info' | 'step' | 'success' | 'warning' | 'error'
+    message: string
+    step?: string
+    data?: unknown
+    timestamp: Date
+  }> = []
 
   const addLog = (type: 'info' | 'step' | 'success' | 'warning' | 'error', message: string, step?: string, data?: unknown) => {
     // 1. Add to structured logs
@@ -69,7 +75,7 @@ export async function debugNode(request: DebugRequest): Promise<DebugResult> {
       if (typeof data === 'object') {
         try {
           logs.push(`  ${JSON.stringify(data, null, 2).split('\n').join('\n  ')}`)
-        } catch (e) {
+        } catch {
           logs.push(`  [Data] ${String(data)}`)
         }
       } else {
@@ -116,7 +122,7 @@ export async function debugNode(request: DebugRequest): Promise<DebugResult> {
     let processor = getProcessor(node.type)
 
     // 如果是 PROCESS 节点且启用了工具调用，切换到带工具的处理器
-    if (node.type === 'PROCESS' && (node.config as any)?.enableToolCalling) {
+    if (node.type === 'PROCESS' && (node.config as { enableToolCalling?: boolean })?.enableToolCalling) {
       const toolProcessor = getProcessor('PROCESS_WITH_TOOLS')
       if (toolProcessor) {
         processor = toolProcessor
