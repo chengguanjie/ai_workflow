@@ -12,7 +12,19 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { RefreshCw, Play, CheckCircle } from "lucide-react";
+import { RefreshCw, Play, CheckCircle, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { RunningSection } from "@/components/execution/running-section";
 import {
   HistorySection,
@@ -197,6 +209,38 @@ export default function ExecutionsPage() {
     }
   };
 
+  // 清理卡住的执行记录
+  const [isCleaning, setIsCleaning] = useState(false);
+  const handleCleanupStuck = async () => {
+    setIsCleaning(true);
+    try {
+      const response = await fetch("/api/executions/cleanup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timeoutMs: 10 * 60 * 1000 }), // 10分钟超时
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          toast.success(result.data.message || "清理完成");
+          // 刷新列表
+          loadRunningExecutions();
+          loadHistoryExecutions();
+        } else {
+          toast.error(result.error?.message || "清理失败");
+        }
+      } else {
+        toast.error("清理请求失败");
+      }
+    } catch (error) {
+      console.error("Cleanup error:", error);
+      toast.error("清理过程中发生错误");
+    } finally {
+      setIsCleaning(false);
+    }
+  };
+
   // 处理 Tab 切换
   const handleTabChange = (value: string) => {
     setActiveTab(value as TabValue);
@@ -264,6 +308,43 @@ export default function ExecutionsPage() {
                 </span>
                 自动刷新中
               </span>
+            )}
+            {/* 清理卡住的执行记录按钮 */}
+            {activeTab === "running" && runningExecutions.length > 0 && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-destructive hover:text-destructive"
+                    disabled={isCleaning}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    清理卡住
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>清理卡住的执行记录？</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      此操作将把运行超过 10 分钟的执行记录标记为失败。
+                      如果执行确实还在进行中，可能会导致数据不一致。
+                      <br />
+                      <br />
+                      建议仅在确认执行已经卡住（如服务器重启后）时使用此功能。
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>取消</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleCleanupStuck}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      确认清理
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             )}
             <Button
               variant="outline"
