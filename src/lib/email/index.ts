@@ -10,95 +10,94 @@
 import nodemailer from 'nodemailer'
 
 export interface EmailOptions {
-                  to: string | string[]
-                  subject: string
-                  html: string
-                  text?: string
+  to: string | string[]
+  subject: string
+  html: string
+  text?: string
 }
 
 export interface EmailResult {
-                  success: boolean
-                  messageId?: string
-                  error?: string
+  success: boolean
+  messageId?: string
+  error?: string
 }
 
 // 获取邮件传输器
 function getTransporter() {
-                  const smtpHost = process.env.SMTP_HOST
-                  const smtpPort = parseInt(process.env.SMTP_PORT || '587')
-                  const smtpUser = process.env.SMTP_USER
-                  const smtpPass = process.env.SMTP_PASS
-                  const smtpSecure = process.env.SMTP_SECURE === 'true'
+  const smtpHost = process.env.SMTP_HOST
+  const smtpPort = parseInt(process.env.SMTP_PORT || '587')
+  const smtpUser = process.env.SMTP_USER
+  const smtpPass = process.env.SMTP_PASS
+  const smtpSecure = process.env.SMTP_SECURE === 'true'
 
-                  if (!smtpHost || !smtpUser || !smtpPass) {
-                                    return null
-                  }
+  if (!smtpHost || !smtpUser || !smtpPass) {
+    return null
+  }
 
-                  return nodemailer.createTransport({
-                                    host: smtpHost,
-                                    port: smtpPort,
-                                    secure: smtpSecure,
-                                    auth: {
-                                                      user: smtpUser,
-                                                      pass: smtpPass,
-                                    },
-                  })
+  return nodemailer.createTransport({
+    host: smtpHost,
+    port: smtpPort,
+    secure: smtpSecure,
+    auth: {
+      user: smtpUser,
+      pass: smtpPass,
+    },
+  })
 }
 
 // 发送邮件
 export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
-                  const transporter = getTransporter()
+  const transporter = getTransporter()
 
-                  // 开发模式或无邮件配置时，模拟发送
-                  if (!transporter || process.env.NODE_ENV === 'development') {
-                                    console.log('📧 模拟发送邮件:')
-                                    console.log('  收件人:', Array.isArray(options.to) ? options.to.join(', ') : options.to)
-                                    console.log('  主题:', options.subject)
-                                    console.log('  内容:', options.html.substring(0, 200) + '...')
+  // 如果没有邮件配置，则模拟发送
+  if (!transporter) {
+    console.log('📧 模拟发送邮件 (未配置 SMTP):')
+    console.log('  收件人:', Array.isArray(options.to) ? options.to.join(', ') : options.to)
+    console.log('  主题:', options.subject)
+    console.log('  内容:', options.html.substring(0, 200) + '...')
 
-                                    // 在开发模式下返回成功
-                                    return {
-                                                      success: true,
-                                                      messageId: `dev-${Date.now()}`,
-                                    }
-                  }
+    return {
+      success: true,
+      messageId: `dev-${Date.now()}`,
+    }
+  }
 
-                  const fromEmail = process.env.SMTP_FROM || process.env.SMTP_USER
-                  const fromName = process.env.SMTP_FROM_NAME || 'AI Workflow'
+  const fromEmail = process.env.SMTP_FROM || process.env.SMTP_USER
+  const fromName = process.env.SMTP_FROM_NAME || 'AI Workflow'
 
-                  try {
-                                    const result = await transporter.sendMail({
-                                                      from: `"${fromName}" <${fromEmail}>`,
-                                                      to: Array.isArray(options.to) ? options.to.join(', ') : options.to,
-                                                      subject: options.subject,
-                                                      html: options.html,
-                                                      text: options.text,
-                                    })
+  try {
+    const result = await transporter.sendMail({
+      from: `"${fromName}" <${fromEmail}>`,
+      to: Array.isArray(options.to) ? options.to.join(', ') : options.to,
+      subject: options.subject,
+      html: options.html,
+      text: options.text,
+    })
 
-                                    return {
-                                                      success: true,
-                                                      messageId: result.messageId,
-                                    }
-                  } catch (error) {
-                                    console.error('发送邮件失败:', error)
-                                    return {
-                                                      success: false,
-                                                      error: error instanceof Error ? error.message : '发送邮件失败',
-                                    }
-                  }
+    return {
+      success: true,
+      messageId: result.messageId,
+    }
+  } catch (error) {
+    console.error('发送邮件失败:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : '发送邮件失败',
+    }
+  }
 }
 
 // 密码重置邮件模板
 export function getPasswordResetEmailTemplate(params: {
-                  userName?: string
-                  resetUrl: string
-                  expiresInMinutes: number
+  userName?: string
+  resetUrl: string
+  expiresInMinutes: number
 }): { subject: string; html: string; text: string } {
-                  const { userName, resetUrl, expiresInMinutes } = params
+  const { userName, resetUrl, expiresInMinutes } = params
 
-                  const subject = '【AI Workflow】重置您的密码'
+  const subject = '【AI Workflow】重置您的密码'
 
-                  const html = `
+  const html = `
 <!DOCTYPE html>
 <html>
 <head>
@@ -178,7 +177,7 @@ export function getPasswordResetEmailTemplate(params: {
 </html>
   `.trim()
 
-                  const text = `
+  const text = `
 AI Workflow - 重置您的密码
 
 ${userName ? `${userName}，您好！` : '您好！'}
@@ -194,5 +193,5 @@ ${resetUrl}
 © ${new Date().getFullYear()} AI Workflow. All rights reserved.
   `.trim()
 
-                  return { subject, html, text }
+  return { subject, html, text }
 }
