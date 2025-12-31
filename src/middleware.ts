@@ -101,8 +101,9 @@ const DEFAULT_MIDDLEWARE_CONFIG: RateLimitMiddlewareConfig = {
     maxRequests: 60,  // 60 requests per minute
   },
   whitelist: [
-    // NextAuth.js callback routes should not be rate limited
-    /^\/api\/auth\/\[\.\.\.nextauth\]/,
+    // NextAuth.js session/auth routes should not be rate limited
+    // These are called frequently by the client for session management
+    /^\/api\/auth\/(session|csrf|providers|signin|signout|callback|error|verify-request)/,
     // Static assets
     /^\/_next\//,
     /^\/favicon\.ico$/,
