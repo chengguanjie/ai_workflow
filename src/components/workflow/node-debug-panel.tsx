@@ -108,6 +108,8 @@ export function NodeDebugPanel() {
     updateNode,
     nodeExecutionResults,
     updateNodeExecutionResult,
+    nodeExecutionStatus,
+    updateNodeExecutionStatus,
   } = useWorkflowStore();
   const [mockInputs, setMockInputs] = useState<
     Record<string, Record<string, unknown>>
@@ -171,6 +173,10 @@ export function NodeDebugPanel() {
   const debugNode = nodes.find((n) => n.id === debugNodeId);
   const isProcessNode =
     debugNode?.type === "process" || debugNode?.type === "PROCESS";
+
+  // 计算节点是否正在运行（结合本地状态和 store 状态）
+  const currentNodeStatus = debugNodeId ? nodeExecutionStatus[debugNodeId] : undefined;
+  const isNodeRunning = isRunning || currentNodeStatus === "running";
 
   // 初始化编辑标题
   useEffect(() => {
@@ -313,16 +319,47 @@ export function NodeDebugPanel() {
     // Reset new state variables
     setInputActiveTab("upstream-data");
     setImportedFiles([]);
-    setSelectedModality(DEFAULT_MODALITY);
-    setSelectedOutputType("json");
+
+    // 从节点配置中读取 modality（优先从模型推断）
+    const currentNode = nodes.find((n) => n.id === debugNodeId);
+    const nodeConfig = currentNode?.data?.config as { modality?: ModelModality; model?: string } | undefined;
+    const configModel = nodeConfig?.model;
+    const configModality = nodeConfig?.modality;
+
+    let targetModality: ModelModality = DEFAULT_MODALITY;
+    if (configModel) {
+      const inferredModality = getModelModality(configModel);
+      if (inferredModality) {
+        targetModality = inferredModality;
+      }
+    } else if (configModality) {
+      targetModality = configModality;
+    }
+    setSelectedModality(targetModality);
+
+    // 根据 modality 设置默认输出类型
+    const modalityToOutputType: Record<ModelModality, OutputType> = {
+      'text': 'json',
+      'code': 'json',
+      'image-gen': 'image',
+      'video-gen': 'video',
+      'audio-transcription': 'text',
+      'audio-tts': 'audio',
+      'embedding': 'json',
+      'ocr': 'text',
+    };
+    setSelectedOutputType(modalityToOutputType[targetModality] || 'json');
+
     setIsPreviewOpen(false);
     setPreviewContent(null);
-  }, [debugNodeId, predecessorNodes, nodeExecutionResults]);
+  }, [debugNodeId, predecessorNodes, nodeExecutionResults, nodes]);
 
   const handleRunDebug = async () => {
     if (!workflowId || !debugNodeId) return;
 
     setIsRunning(true);
+    // 更新 store 中的执行状态，让节点图标也能同步显示
+    updateNodeExecutionStatus(debugNodeId, "running");
     // 清除之前的结果
     updateNodeExecutionResult(debugNodeId, null);
     setIsProcessOpen(true);
@@ -359,6 +396,7 @@ export function NodeDebugPanel() {
       if (data.success) {
         // 存储结果到 store
         updateNodeExecutionResult(debugNodeId, data.data);
+        updateNodeExecutionStatus(debugNodeId, "completed");
         setIsOutputOpen(true);
       } else {
         const errorResult: DebugResult = {
@@ -369,6 +407,7 @@ export function NodeDebugPanel() {
           logs: ["[ERROR] 请求失败"],
         };
         updateNodeExecutionResult(debugNodeId, errorResult);
+        updateNodeExecutionStatus(debugNodeId, "failed");
         setIsOutputOpen(true);
       }
     } catch (error) {
@@ -382,6 +421,7 @@ export function NodeDebugPanel() {
         ],
       };
       updateNodeExecutionResult(debugNodeId, errorResult);
+      updateNodeExecutionStatus(debugNodeId, "failed");
       setIsOutputOpen(true);
     } finally {
       setIsRunning(false);
@@ -431,15 +471,34 @@ export function NodeDebugPanel() {
   useEffect(() => {
     if (isDebugPanelOpen && isProcessNode) {
       // 使用当前选中的 modality 加载模型
-      const config = debugNode?.data?.config as { modality?: ModelModality } | undefined;
+      const config = debugNode?.data?.config as { modality?: ModelModality; model?: string } | undefined;
       const currentModality = config?.modality || selectedModality;
+      const currentModel = config?.model;
 
       // Load Providers
       fetch(`/api/ai/providers?modality=${currentModality}`)
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
           if (data?.success) {
-            setProviders(data.data.providers || []);
+            const newProviders = data.data.providers || [];
+            setProviders(newProviders);
+
+            // 检查当前选中的模型是否属于该类别
+            // 如果不属于，自动切换到默认模型
+            if (currentModel) {
+              const allModelsInProviders = newProviders.flatMap((p: { models: string[] }) => p.models);
+              if (!allModelsInProviders.includes(currentModel)) {
+                // 当前模型不在该类别中，需要更新为默认模型
+                const defaultProvider = newProviders[0];
+                if (defaultProvider?.defaultModel) {
+                  handleConfigUpdate({
+                    model: defaultProvider.defaultModel,
+                    aiConfigId: defaultProvider.id,
+                  });
+                  console.log(`[NodeDebugPanel] 模型 "${currentModel}" 不属于类别 "${currentModality}"，已自动切换到 "${defaultProvider.defaultModel}"`);
+                }
+              }
+            }
           }
         })
         .catch((err) => console.error(err))
@@ -1099,19 +1158,19 @@ export function NodeDebugPanel() {
             icon={Terminal}
             isOpen={isProcessOpen}
             onOpenChange={setIsProcessOpen}
-            status={isRunning ? "running" : result ? "completed" : "idle"}
+            status={isNodeRunning ? "running" : result ? "completed" : "idle"}
           >
             <div className="space-y-4 pt-2">
               <Button
                 onClick={handleRunDebug}
-                disabled={isRunning}
+                disabled={isNodeRunning}
                 className={cn(
                   "w-full transition-all duration-300",
-                  isRunning ? "bg-primary/80" : "hover:scale-[1.02]",
+                  isNodeRunning ? "bg-primary/80" : "hover:scale-[1.02]",
                 )}
                 size="lg"
               >
-                {isRunning ? (
+                {isNodeRunning ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     正在执行...
