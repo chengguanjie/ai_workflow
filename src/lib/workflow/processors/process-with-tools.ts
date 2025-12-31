@@ -161,26 +161,34 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
       }
 
       // 5. 准备工具
-      const enableToolCalling = processNode.config?.enableToolCalling ?? false
-      
       // 从 UI 工具配置转换为后端工具名称
       const uiTools = processNode.config?.tools || []
       const enabledToolNames = this.convertUIToolsToExecutorNames(uiTools, context)
-      
+
+      // 判断是否启用工具调用：显式设置 enableToolCalling 或有已启用的 UI 工具
+      const hasEnabledUITools = uiTools.some(tool => tool.enabled)
+      const enableToolCalling = processNode.config?.enableToolCalling ?? hasEnabledUITools
+
       // 如果没有指定工具但启用了工具调用，使用后端提供的 enabledTools 或全部工具
-      const finalEnabledTools = enabledToolNames.length > 0 
-        ? enabledToolNames 
+      const finalEnabledTools = enabledToolNames.length > 0
+        ? enabledToolNames
         : processNode.config?.enabledTools
 
+      const model = processNode.config?.model || aiConfig.defaultModel
       const { openaiTools, claudeTools, toolDescriptions } = this.prepareToolsWithDescriptions(
         enableToolCalling,
         finalEnabledTools,
-        aiConfig.provider
+        aiConfig.provider,
+        model
       )
 
       if (openaiTools.length > 0 || claudeTools.length > 0) {
         const toolListText = toolDescriptions.map(t => `- ${t.name}: ${t.description}`).join('\n')
-        systemPrompt = `${systemPrompt}\n\n## 可用工具\n${toolListText}\n\n当需要执行上述操作时，请调用相应的工具。`
+
+        // 生成用户预配置的工具参数说明
+        const toolConfigText = this.buildToolConfigInstructions(uiTools)
+
+        systemPrompt = `${systemPrompt}\n\n## 可用工具\n${toolListText}${toolConfigText}\n\n当需要执行上述操作时，请调用相应的工具。`
         context.addLog?.('info', `已启用 ${toolDescriptions.length} 个工具`, 'TOOLS', {
           tools: toolDescriptions.map(t => t.name)
         })
@@ -199,7 +207,6 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
         messages.push({ role: 'user', content: userContentParts })
       }
 
-      const model = processNode.config?.model || aiConfig.defaultModel
       const maxRounds = processNode.config?.maxToolCallRounds ?? 5 // default increased
 
       // 7. 执行带工具的 AI 调用
@@ -207,6 +214,22 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
         model,
         maxRounds,
         toolChoice: processNode.config?.toolChoice || 'auto'
+      })
+
+      const useClaudeAPI = this.isClaudeFormat(aiConfig.provider, model)
+      const isProxy = this.isProxyProvider(aiConfig.provider.toLowerCase())
+
+      context.addLog?.('info', '准备调用 AI', 'AI_CALL', {
+        provider: aiConfig.provider,
+        model,
+        isProxyService: isProxy,
+        useClaudeAPI,
+        apiFormat: useClaudeAPI ? 'Anthropic (/v1/messages)' : 'OpenAI (/v1/chat/completions)',
+        hasOpenAITools: openaiTools.length > 0,
+        hasClaudeTools: claudeTools.length > 0,
+        toolCount: openaiTools.length + claudeTools.length,
+        enableToolCalling,
+        baseUrl: aiConfig.baseUrl ? `${aiConfig.baseUrl.substring(0, 30)}...` : 'default',
       })
 
       const result = await this.executeWithTools(
@@ -264,6 +287,53 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
   }
 
   /**
+   * 构建工具配置说明（告诉 AI 用户预配置的参数）
+   */
+  private buildToolConfigInstructions(uiTools: UIToolConfig[]): string {
+    const instructions: string[] = []
+
+    for (const tool of uiTools) {
+      if (!tool.enabled || !tool.config) continue
+
+      const executorName = mapUIToolToExecutor(tool.type)
+
+      // HTTP 请求工具的预配置参数
+      if (tool.type === 'http-request' && tool.config.url) {
+        const params: string[] = []
+        params.push(`url: "${tool.config.url}"`)
+        if (tool.config.method) params.push(`method: "${tool.config.method}"`)
+        if (tool.config.extractContent) {
+          params.push(`extract_content: true`)
+          if (tool.config.maxContentLength) {
+            params.push(`max_content_length: ${tool.config.maxContentLength}`)
+          }
+        }
+        if (tool.config.headers && Array.isArray(tool.config.headers) && (tool.config.headers as Array<{ key: string; value: string }>).length > 0) {
+          const headersObj: Record<string, string> = {}
+          for (const h of tool.config.headers as Array<{ key: string; value: string }>) {
+            if (h.key) headersObj[h.key] = h.value
+          }
+          if (Object.keys(headersObj).length > 0) {
+            params.push(`headers: ${JSON.stringify(headersObj)}`)
+          }
+        }
+        if (tool.config.timeout && tool.config.timeout !== 30000) {
+          params.push(`timeout: ${tool.config.timeout}`)
+        }
+        if (tool.config.body) {
+          params.push(`body: ${tool.config.body}`)
+        }
+
+        instructions.push(`\n### 工具 "${tool.name}" (${executorName}) 的预设参数：\n请使用以下参数调用此工具：\n${params.join('\n')}`)
+      }
+
+      // 可以为其他工具类型添加类似的逻辑
+    }
+
+    return instructions.length > 0 ? '\n' + instructions.join('\n') : ''
+  }
+
+  /**
    * 将 UI 工具配置转换为后端执行器名称
    */
   private convertUIToolsToExecutorNames(
@@ -305,8 +375,9 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
   private prepareToolsWithDescriptions(
     enabled: boolean,
     enabledToolNames: string[] | undefined,
-    provider: string
-  ): { 
+    provider: string,
+    model: string
+  ): {
     openaiTools: OpenAITool[]
     claudeTools: ClaudeTool[]
     toolDescriptions: Array<{ name: string; description: string }>
@@ -326,9 +397,10 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
       description: d.description,
     }))
 
-    const format = getProviderFormat(provider)
+    // 使用新的检测方法，同时检查 provider 和 model
+    const isClaudeFormat = this.isClaudeFormat(provider, model)
 
-    if (format === 'claude') {
+    if (isClaudeFormat) {
       return {
         openaiTools: [],
         claudeTools: definitions.map(toClaudeFormat),
@@ -349,9 +421,10 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
   private prepareTools(
     enabled: boolean,
     enabledToolNames: string[] | undefined,
-    provider: string
+    provider: string,
+    model: string = ''
   ): { openaiTools: OpenAITool[]; claudeTools: ClaudeTool[] } {
-    const result = this.prepareToolsWithDescriptions(enabled, enabledToolNames, provider)
+    const result = this.prepareToolsWithDescriptions(enabled, enabledToolNames, provider, model)
     return {
       openaiTools: result.openaiTools,
       claudeTools: result.claudeTools,
@@ -397,6 +470,9 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
       rounds++
       context.addLog?.('info', `第 ${rounds} 轮: 等待 AI 响应...`, 'ROUND', { rounds, maxRounds })
 
+      console.log(`[PROCESS_WITH_TOOLS] 第 ${rounds} 轮开始，调用 AI...`)
+      const startTime = Date.now()
+
       // 调用 AI
       const response = await this.callAIWithTools(
         aiConfig,
@@ -408,6 +484,8 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
         temperature,
         maxTokens
       )
+
+      console.log(`[PROCESS_WITH_TOOLS] 第 ${rounds} 轮 AI 响应完成，耗时 ${Date.now() - startTime}ms`)
 
       // 累计 token 使用
       totalUsage.promptTokens += response.usage.promptTokens
@@ -456,8 +534,7 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
       }
 
       // 构建新的消息，包含工具调用结果
-      const provider = aiConfig.provider.toLowerCase()
-      const isClaudeProvider = provider.includes('anthropic') || provider.includes('claude')
+      const isClaudeProvider = this.isClaudeFormat(aiConfig.provider, model)
       
       messages = [
         ...messages,
@@ -498,6 +575,49 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
   }
 
   /**
+   * 检测是否应该使用 Anthropic 原生 API（/v1/messages）
+   *
+   * 重要：代理服务（如 SHENSUAN、OpenRouter）使用 OpenAI 兼容 API 格式，
+   * 即使底层模型是 Claude，也应该使用 OpenAI 格式。
+   * 只有直连 Anthropic 时才使用 Claude 原生格式。
+   */
+  private isClaudeFormat(provider: string, _model: string): boolean {
+    const providerLower = provider.toLowerCase()
+
+    // 只有直连 Anthropic 时才使用 Claude 原生 API 格式
+    // 代理服务（SHENSUAN、OpenRouter 等）使用 OpenAI 兼容 API
+    if (providerLower === 'anthropic' || providerLower === 'claude') {
+      return true
+    }
+
+    // 检查是否包含 anthropic（但排除代理服务）
+    // 注意：不检查模型名称，因为代理服务可能路由到 Claude 但使用 OpenAI API 格式
+    if (providerLower.includes('anthropic') && !this.isProxyProvider(providerLower)) {
+      return true
+    }
+
+    return false
+  }
+
+  /**
+   * 检测是否是代理服务提供商
+   */
+  private isProxyProvider(provider: string): boolean {
+    const proxyProviders = [
+      'shensuan',    // 胜算云
+      'openrouter',  // OpenRouter
+      'together',    // Together AI
+      'fireworks',   // Fireworks AI
+      'groq',        // Groq
+      'deepinfra',   // DeepInfra
+      'perplexity',  // Perplexity
+      'anyscale',    // Anyscale
+    ]
+
+    return proxyProviders.some(p => provider.includes(p))
+  }
+
+  /**
    * 调用带工具的 AI
    */
   private async callAIWithTools(
@@ -510,9 +630,17 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
     temperature: number,
     maxTokens: number
   ): Promise<ChatResponseWithTools> {
-    const provider = aiConfig.provider.toLowerCase()
+    const isClaudeProvider = this.isClaudeFormat(aiConfig.provider, model)
 
-    if (provider.includes('anthropic') || provider.includes('claude')) {
+    console.log('[callAIWithTools] API 选择:', {
+      provider: aiConfig.provider,
+      model,
+      isClaudeProvider,
+      willUseEndpoint: isClaudeProvider ? '/v1/messages' : '/v1/chat/completions',
+      toolCount: isClaudeProvider ? claudeTools.length : openaiTools.length,
+    })
+
+    if (isClaudeProvider) {
       // Claude 的 tool_choice 格式不同
       let claudeToolChoice: { type: 'auto' | 'any' | 'tool'; name?: string } | undefined
       if (toolChoice === 'required') {

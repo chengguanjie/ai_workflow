@@ -7,8 +7,24 @@ import { ApiResponse } from "@/lib/api/api-response";
 import { validateWorkflowActions } from "@/lib/workflow/generator";
 import { AIAssistantError } from "@/lib/errors/ai-assistant-errors";
 
-// 专门用于直接创建工作流的 System Prompt（更简洁、更直接）
-const CREATE_WORKFLOW_SYSTEM_PROMPT = `你是一个AI工作流生成专家。根据用户需求，直接生成完整的工作流配置。
+// 构建完整的系统提示词（包含动态的服务商和工具信息）
+function buildCreateWorkflowSystemPrompt(
+  availableProviders: Array<{
+    id: string;
+    name: string;
+    provider: string;
+    defaultModel: string | null;
+    models: string[];
+    displayName: string;
+  }>,
+  defaultProviderId: string | null
+): string {
+  // 构建可用服务商说明
+  const providerList = availableProviders.map(p =>
+    `  - ID: "${p.id}", 名称: "${p.displayName}", 默认模型: "${p.defaultModel || '无'}"${p.id === defaultProviderId ? ' [推荐]' : ''}`
+  ).join('\n');
+
+  return `你是一个AI工作流生成专家。根据用户需求，直接生成完整的工作流配置，包括节点的模型选择和工具配置。
 
 ## 可用节点类型（只有这2种）
 
@@ -28,6 +44,92 @@ const CREATE_WORKFLOW_SYSTEM_PROMPT = `你是一个AI工作流生成专家。根
   - systemPrompt: 系统提示词（详细定义AI的角色、任务、输出格式要求）
   - userPrompt: 用户提示词（使用 {{节点名.字段名}} 引用上游数据）
   - temperature: 0.1-1.0（严谨任务用0.3，创意任务用0.7）
+  - aiConfigId: AI服务商配置ID（从下面可用列表选择）
+  - model: 具体模型名称（可选，不填则使用服务商默认模型）
+  - enableToolCalling: 是否启用工具调用（布尔值）
+  - tools: 工具配置数组（如果需要使用工具）
+
+## 可用的AI服务商配置
+${providerList}
+
+## 可用的工具类型
+
+### http-request - HTTP请求工具
+用于调用外部API、获取网页内容等。配置示例：
+\`\`\`json
+{
+  "id": "tool_1",
+  "type": "http-request",
+  "name": "获取天气",
+  "enabled": true,
+  "config": {
+    "method": "GET",
+    "url": "https://api.example.com/weather",
+    "headers": [{"key": "Content-Type", "value": "application/json"}],
+    "timeout": 30000
+  }
+}
+\`\`\`
+
+### notification-feishu - 飞书通知
+发送消息到飞书群机器人。配置示例：
+\`\`\`json
+{
+  "id": "tool_2",
+  "type": "notification-feishu",
+  "name": "通知飞书群",
+  "enabled": true,
+  "config": {
+    "webhookUrl": "https://open.feishu.cn/open-apis/bot/v2/hook/xxx",
+    "messageType": "text"
+  }
+}
+\`\`\`
+
+### notification-dingtalk - 钉钉通知
+发送消息到钉钉群机器人。配置示例：
+\`\`\`json
+{
+  "id": "tool_3",
+  "type": "notification-dingtalk",
+  "name": "通知钉钉群",
+  "enabled": true,
+  "config": {
+    "webhookUrl": "https://oapi.dingtalk.com/robot/send?access_token=xxx",
+    "messageType": "text"
+  }
+}
+\`\`\`
+
+### notification-wecom - 企业微信通知
+发送消息到企业微信群机器人。配置示例：
+\`\`\`json
+{
+  "id": "tool_4",
+  "type": "notification-wecom",
+  "name": "通知企微群",
+  "enabled": true,
+  "config": {
+    "webhookUrl": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx",
+    "messageType": "text"
+  }
+}
+\`\`\`
+
+### feishu-bitable - 飞书多维表格
+读写飞书多维表格数据（需要用户自行配置appToken和tableId）。
+
+## 模型选择建议
+- **简单问答、客服回复**：使用默认配置即可
+- **复杂分析、推理任务**：优先选择高级模型
+- **代码生成、技术任务**：选择代码能力强的模型
+- **创意写作**：选择创意能力强的模型
+
+## 工具使用场景
+- **需要调用外部API**：添加 http-request 工具
+- **需要发送通知**：添加对应平台的 notification-xxx 工具
+- **需要读写数据**：添加 feishu-bitable 工具
+- **不需要外部交互**：不添加工具，enableToolCalling 设为 false
 
 ## 输出格式要求
 
@@ -61,7 +163,10 @@ const CREATE_WORKFLOW_SYSTEM_PROMPT = `你是一个AI工作流生成专家。根
       "config": {
         "systemPrompt": "你是一个专业的客服助手。请根据用户的问题提供准确、友好的回答。\\n\\n回答要求：\\n1. 语气友好专业\\n2. 内容准确有帮助\\n3. 必要时提供具体步骤",
         "userPrompt": "用户问题：{{用户输入.问题}}\\n\\n请回答上述问题。",
-        "temperature": 0.7
+        "temperature": 0.7,
+        "aiConfigId": "${defaultProviderId || '使用可用配置ID'}",
+        "enableToolCalling": false,
+        "tools": []
       }
     },
     {
@@ -78,10 +183,14 @@ const CREATE_WORKFLOW_SYSTEM_PROMPT = `你是一个AI工作流生成专家。根
 2. INPUT 节点的 fields 必须有完整配置（id、name、fieldType、required、placeholder、description）
 3. PROCESS 节点的 systemPrompt 必须详细（至少50字），说明AI的角色和任务
 4. PROCESS 节点的 userPrompt 必须正确引用上游节点的字段，格式：{{节点名.字段名}}
-5. 使用 "new_1", "new_2" 等引用新添加的节点进行连接
-6. 所有文本内容使用中文
+5. PROCESS 节点必须配置 aiConfigId（从可用服务商配置中选择合适的）
+6. 如果任务需要调用外部服务，必须配置相应的 tools 并设置 enableToolCalling: true
+7. 使用 "new_1", "new_2" 等引用新添加的节点进行连接
+8. 所有文本内容使用中文
+9. 工具的 webhookUrl 等敏感配置可以用占位符如 "{{请配置}}" 表示需要用户填写
 
 请直接输出 json:actions，不要有多余的解释。`;
+}
 
 function cleanAIResponse(content: string) {
   let cleanContent = content.trim();
@@ -102,6 +211,7 @@ function cleanAIResponse(content: string) {
       );
     } catch (e) {
       console.error("[CreateWorkflow] Failed to parse json:actions:", e);
+      console.error("[CreateWorkflow] json:actions content:", jsonActionsMatch[1]?.slice(0, 500));
     }
   }
 
@@ -118,14 +228,48 @@ function cleanAIResponse(content: string) {
             "[CreateWorkflow] Parsed json block successfully, nodeActions count:",
             nodeActions.length,
           );
+        } else if (Array.isArray(parsed)) {
+          // 直接是 nodeActions 数组
+          nodeActions = parsed;
+          cleanContent = cleanContent.replace(simpleJsonMatch[0], "").trim();
+          console.log(
+            "[CreateWorkflow] Parsed json block as array, nodeActions count:",
+            nodeActions.length,
+          );
         }
       } catch (e) {
         console.error("[CreateWorkflow] Failed to parse json block:", e);
+        console.error("[CreateWorkflow] json block content:", simpleJsonMatch[1]?.slice(0, 500));
       }
     }
   }
 
-  // 3. 尝试直接解析整个内容为 JSON
+  // 3. 尝试提取任何 ``` 代码块中的 JSON
+  if (nodeActions.length === 0) {
+    const anyCodeBlockMatch = cleanContent.match(/```(?:\w*)\s*([\s\S]*?)```/);
+    if (anyCodeBlockMatch) {
+      try {
+        const parsed = JSON.parse(anyCodeBlockMatch[1]);
+        if (parsed.nodeActions) {
+          nodeActions = parsed.nodeActions;
+          console.log(
+            "[CreateWorkflow] Parsed code block as JSON, nodeActions count:",
+            nodeActions.length,
+          );
+        } else if (Array.isArray(parsed)) {
+          nodeActions = parsed;
+          console.log(
+            "[CreateWorkflow] Parsed code block as array, nodeActions count:",
+            nodeActions.length,
+          );
+        }
+      } catch (e) {
+        // 不是 JSON，忽略
+      }
+    }
+  }
+
+  // 4. 尝试直接解析整个内容为 JSON
   if (nodeActions.length === 0) {
     try {
       const parsed = JSON.parse(cleanContent);
@@ -135,9 +279,16 @@ function cleanAIResponse(content: string) {
           "[CreateWorkflow] Parsed raw content as JSON, nodeActions count:",
           nodeActions.length,
         );
+      } else if (Array.isArray(parsed)) {
+        nodeActions = parsed;
+        console.log(
+          "[CreateWorkflow] Parsed raw content as array, nodeActions count:",
+          nodeActions.length,
+        );
       }
     } catch (e) {
       // 不是 JSON，忽略
+      console.log("[CreateWorkflow] Content is not valid JSON, tried all parsing methods");
     }
   }
 
@@ -149,6 +300,7 @@ function enrichNodeConfig(
   nodeType: string,
   config: any,
   nodeName: string,
+  defaultProviderId: string | null,
 ): any {
   const enrichedConfig = { ...config };
 
@@ -198,12 +350,72 @@ function enrichNodeConfig(
     if (enrichedConfig.maxTokens === undefined) {
       enrichedConfig.maxTokens = 2048;
     }
+
+    // 确保 AI 配置存在
+    if (!enrichedConfig.aiConfigId && defaultProviderId) {
+      enrichedConfig.aiConfigId = defaultProviderId;
+    }
+
+    // 确保工具配置存在
+    if (enrichedConfig.enableToolCalling === undefined) {
+      // 如果有工具配置且有启用的工具，则启用工具调用
+      const hasEnabledTools = Array.isArray(enrichedConfig.tools) &&
+        enrichedConfig.tools.some((t: any) => t.enabled);
+      enrichedConfig.enableToolCalling = hasEnabledTools;
+    }
+
+    // 确保 tools 数组存在
+    if (!Array.isArray(enrichedConfig.tools)) {
+      enrichedConfig.tools = [];
+    } else {
+      // 为每个工具确保有完整配置
+      enrichedConfig.tools = enrichedConfig.tools.map((tool: any, index: number) => {
+        const toolId = tool.id || `tool_${Date.now()}_${index}`;
+        return {
+          id: toolId,
+          type: tool.type || "custom",
+          name: tool.name || `工具${index + 1}`,
+          enabled: tool.enabled !== undefined ? tool.enabled : true,
+          config: enrichToolConfig(tool.type, tool.config || {}),
+        };
+      });
+    }
   }
 
   console.log(
     `[CreateWorkflow] Enriched config for ${nodeType} node "${nodeName}":`,
     JSON.stringify(enrichedConfig, null, 2),
   );
+
+  return enrichedConfig;
+}
+
+// 为工具配置添加默认值
+function enrichToolConfig(toolType: string, config: any): any {
+  const enrichedConfig = { ...config };
+
+  switch (toolType) {
+    case "http-request":
+      if (!enrichedConfig.method) enrichedConfig.method = "GET";
+      if (!enrichedConfig.url) enrichedConfig.url = "";
+      if (!enrichedConfig.headers) enrichedConfig.headers = [];
+      if (!enrichedConfig.timeout) enrichedConfig.timeout = 30000;
+      if (enrichedConfig.extractContent === undefined) enrichedConfig.extractContent = false;
+      break;
+
+    case "notification-feishu":
+    case "notification-dingtalk":
+    case "notification-wecom":
+      if (!enrichedConfig.webhookUrl) enrichedConfig.webhookUrl = "";
+      if (!enrichedConfig.messageType) enrichedConfig.messageType = "text";
+      if (!enrichedConfig.content) enrichedConfig.content = "";
+      break;
+
+    case "feishu-bitable":
+      if (!enrichedConfig.appToken) enrichedConfig.appToken = "";
+      if (!enrichedConfig.tableId) enrichedConfig.tableId = "";
+      break;
+  }
 
   return enrichedConfig;
 }
@@ -230,6 +442,7 @@ export async function POST(request: NextRequest) {
     let nodes: any[] = [];
     let edges: any[] = [];
     let workflowName = "AI 生成工作流";
+    let isDetailedSpec = false;
 
     if (templateId) {
       // --- Template Cloning Path ---
@@ -249,45 +462,106 @@ export async function POST(request: NextRequest) {
       console.log("[CreateWorkflow] Cloned from template:", template.name);
     } else {
       // --- AI Generation Path ---
-      // 1. 获取 AI 配置
-      const apiKey = await prisma.apiKey.findFirst({
+      // 1. 获取所有可用的 AI 服务商配置（用于传递给 AI 选择）
+      const allConfigs = await prisma.apiKey.findMany({
         where: {
           organizationId: session.user.organizationId,
-          isDefault: true,
           isActive: true,
         },
+        select: {
+          id: true,
+          name: true,
+          provider: true,
+          baseUrl: true,
+          defaultModel: true,
+          models: true,
+          isDefault: true,
+          keyEncrypted: true,
+        },
+        orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
       });
 
-      const safeKey =
-        apiKey ||
-        (await prisma.apiKey.findFirst({
-          where: {
-            organizationId: session.user.organizationId,
-            isActive: true,
-          },
-        }));
-
-      if (!safeKey) {
+      if (allConfigs.length === 0) {
         return ApiResponse.error("未配置AI服务，请先在设置中配置API密钥", 400);
       }
+
+      // 找到默认配置或第一个配置
+      const safeKey = allConfigs.find(c => c.isDefault) || allConfigs[0];
+      const defaultProviderId = safeKey.id;
+
+      // 构建可用服务商列表（供 AI 选择）
+      const getProviderDisplayName = (provider: string): string => {
+        const names: Record<string, string> = {
+          OPENROUTER: "OpenRouter",
+          SHENSUAN: "胜算云",
+          OPENAI: "OpenAI兼容",
+          ANTHROPIC: "Anthropic",
+        };
+        return names[provider] || provider;
+      };
+
+      const availableProviders = allConfigs.map(config => ({
+        id: config.id,
+        name: config.name,
+        provider: config.provider,
+        defaultModel: config.defaultModel,
+        models: (config.models as string[]) || [],
+        displayName: `${config.name} (${getProviderDisplayName(config.provider)})`,
+      }));
 
       console.log(
         "[CreateWorkflow] Using AI provider:",
         safeKey.provider,
         "model:",
         safeKey.defaultModel,
+        "Available providers:",
+        availableProviders.length,
       );
 
-      // 2. 调用 AI 生成工作流
-      const userMessage = `用户需求：${prompt}
+      // 2. 构建动态系统提示词（包含可用服务商信息）
+      const systemPrompt = buildCreateWorkflowSystemPrompt(
+        availableProviders,
+        defaultProviderId
+      );
+
+      // 3. 调用 AI 生成工作流
+      // 检测是否是详细规格说明（包含特定关键词）
+      isDetailedSpec = prompt.includes("**工作流名称**") ||
+                       prompt.includes("**目标**") ||
+                       prompt.includes("**输入字段**") ||
+                       prompt.includes("**处理步骤**");
+
+      const userMessage = isDetailedSpec
+        ? `以下是用户确认的工作流规格说明，请严格按照此规格生成工作流配置：
+
+${prompt}
+
+请根据上述规格说明生成工作流。要求：
+1. 严格按照"输入字段"部分创建 INPUT 节点的 fields 配置
+2. 严格按照"处理步骤"部分创建 PROCESS 节点，每个步骤对应一个 PROCESS 节点
+3. 每个 PROCESS 节点的 systemPrompt 要根据"AI指令要点"详细展开
+4. userPrompt 要正确引用上游节点的数据，格式：{{节点名.字段名}}
+5. 每个 PROCESS 节点必须配置 aiConfigId（选择合适的服务商配置）
+6. 如果任务需要调用外部API或发送通知，配置相应的 tools
+7. 直接输出 json:actions 格式，不要多余解释`
+        : `用户需求：${prompt}
 
 请根据上述需求生成工作流。要求：
 1. 必须包含完整的 INPUT 节点配置（fields 数组要有 id、name、fieldType、required、placeholder、description）
 2. PROCESS 节点必须有详细的 systemPrompt（描述AI角色和任务）和 userPrompt（引用上游变量）
-3. 直接输出 json:actions 格式，不要多余解释`;
+3. 每个 PROCESS 节点必须配置 aiConfigId（选择合适的服务商配置）
+4. 如果任务需要调用外部API或发送通知，配置相应的 tools 并设置 enableToolCalling: true
+5. 直接输出 json:actions 格式，不要多余解释`;
 
       const { withAIErrorHandling } = await import(
         "@/lib/errors/ai-assistant-errors"
+      );
+
+      console.log(
+        "[CreateWorkflow] isDetailedSpec:",
+        isDetailedSpec,
+        "prompt length:",
+        prompt.length
       );
 
       const response = await withAIErrorHandling(
@@ -297,11 +571,11 @@ export async function POST(request: NextRequest) {
             {
               model: safeKey.defaultModel || "deepseek/deepseek-chat",
               messages: [
-                { role: "system", content: CREATE_WORKFLOW_SYSTEM_PROMPT },
+                { role: "system", content: systemPrompt },
                 { role: "user", content: userMessage },
               ],
-              temperature: 0.5, // 降低温度以获得更稳定的输出
-              maxTokens: 4096,
+              temperature: 0.3, // 降低温度以获得更稳定的 JSON 输出
+              maxTokens: 8192, // 增加 token 限制以处理复杂工作流
             },
             safeDecryptApiKey(safeKey.keyEncrypted),
             safeKey.baseUrl || undefined,
@@ -357,6 +631,7 @@ export async function POST(request: NextRequest) {
             nodeType,
             action.config || {},
             nodeName,
+            defaultProviderId,
           );
 
           // 节点结构直接是 { id, type, name, position, config }
@@ -410,17 +685,38 @@ export async function POST(request: NextRequest) {
         }
       });
 
-      // 生成工作流名称
-      workflowName = prompt.length > 20 ? prompt.slice(0, 20) + "..." : prompt;
+      // 生成工作流名称 - 从详细规格中提取名称或使用简短版本
+      if (isDetailedSpec) {
+        // 尝试从详细规格中提取工作流名称
+        // 匹配 "**工作流名称**：xxx" 或 "**工作流名称**: xxx" 格式
+        const nameMatch = prompt.match(/\*\*工作流名称\*\*[：:]\s*([^\n*]+)/);
+        if (nameMatch) {
+          // 清理名称：去除多余空格，限制长度
+          workflowName = nameMatch[1].trim().slice(0, 50);
+        } else {
+          // 尝试提取目标作为备选名称
+          const targetMatch = prompt.match(/\*\*目标\*\*[：:]\s*([^\n]{10,50})/);
+          if (targetMatch) {
+            workflowName = targetMatch[1].trim().slice(0, 30) + "...";
+          } else {
+            workflowName = "AI 生成工作流";
+          }
+        }
+      } else {
+        workflowName = prompt.length > 20 ? prompt.slice(0, 20) + "..." : prompt;
+      }
     }
 
     // 5. 创建数据库记录
+    // 生成简短的描述
+    const shortDescription = templateId
+      ? "从模板创建"
+      : "由 AI 自动生成";
+
     const workflow = await prisma.workflow.create({
       data: {
         name: workflowName,
-        description: templateId
-          ? "从模板创建"
-          : `由 AI 根据需求自动生成: ${prompt}`,
+        description: shortDescription,
         organizationId: session.user.organizationId,
         creatorId: session.user.id,
         config: {

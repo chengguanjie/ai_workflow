@@ -50,10 +50,19 @@ import {
   Activity,
   Lightbulb,
   Eye,
+  Minus,
+  Maximize2,
+  GripHorizontal,
+  MessageCircle,
+  PlusCircle,
+  Stethoscope,
 } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
 import { WorkflowPreview } from "@/components/workflow/workflow-preview";
+import { CreateWorkflowSection } from "@/components/workflow/ai-assistant/create-workflow-section";
+import { DiagnoseSection } from "@/components/workflow/ai-assistant/diagnose-section";
+import { OptimizeSection } from "@/components/workflow/ai-assistant/optimize-section";
 import {
   useAIAssistantStore,
   type AIMessage,
@@ -61,6 +70,7 @@ import {
   type ConversationPhase,
   type TestResult,
   type AESReport,
+  type PanelMode,
 } from "@/stores/ai-assistant-store";
 import { useWorkflowStore } from "@/stores/workflow-store";
 import type { NodeConfig } from "@/types/workflow";
@@ -201,15 +211,12 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const [_position, setPosition] = useState<{ x: number; y: number } | null>(
-    null,
-  );
+  // 拖拽相关的本地状态
   const [isDragging, setIsDragging] = useState(false);
   const dragOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const panelRef = useRef<HTMLDivElement>(null);
 
   // 可调整宽度的状态
-  const [panelWidth, setPanelWidth] = useState(420);
   const [isResizing, setIsResizing] = useState(false);
   const resizeStartXRef = useRef(0);
   const resizeStartWidthRef = useRef(420);
@@ -246,9 +253,18 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
     setAutoMode,
     autoApply,
     setAutoApply,
+    // 新增的面板控制状态和方法
+    panelPosition,
+    panelSize,
+    isMinimized,
+    mode,
+    setPanelPosition,
+    setPanelSize,
+    toggleMinimize,
+    setMode,
   } = useAIAssistantStore();
 
-  const { nodes, edges, addNode, updateNode, onConnect } = useWorkflowStore();
+  const { nodes, edges, addNode, updateNode, deleteNode, onConnect } = useWorkflowStore();
 
   const fetchProviderConfigs = useCallback(
     async (retryCount = 0) => {
@@ -360,6 +376,25 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
     }
   }, [isOpen]);
 
+  // 拖拽开始
+  const handleDragStart = useCallback(
+    (e: React.MouseEvent) => {
+      // 只在标题栏区域才能拖拽
+      if ((e.target as HTMLElement).closest('[data-drag-handle]')) {
+        e.preventDefault();
+        const rect = panelRef.current?.getBoundingClientRect();
+        if (rect) {
+          dragOffsetRef.current = {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top,
+          };
+          setIsDragging(true);
+        }
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!isDragging) return;
 
@@ -367,10 +402,10 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
       const newX = e.clientX - dragOffsetRef.current.x;
       const newY = e.clientY - dragOffsetRef.current.y;
 
-      const maxX = window.innerWidth - panelWidth;
-      const maxY = window.innerHeight - 700;
+      const maxX = window.innerWidth - panelSize.width;
+      const maxY = window.innerHeight - 100; // 至少保留100px可见
 
-      setPosition({
+      setPanelPosition({
         x: Math.max(0, Math.min(newX, maxX)),
         y: Math.max(0, Math.min(newY, maxY)),
       });
@@ -387,7 +422,7 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [isDragging, panelWidth]);
+  }, [isDragging, panelSize.width, setPanelPosition]);
 
   // 处理宽度调整
   const handleResizeStart = useCallback(
@@ -395,10 +430,10 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
       e.preventDefault();
       e.stopPropagation();
       resizeStartXRef.current = e.clientX;
-      resizeStartWidthRef.current = panelWidth;
+      resizeStartWidthRef.current = panelSize.width;
       setIsResizing(true);
     },
-    [panelWidth],
+    [panelSize.width],
   );
 
   useEffect(() => {
@@ -410,7 +445,7 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
         360,
         Math.min(800, resizeStartWidthRef.current + deltaX),
       );
-      setPanelWidth(newWidth);
+      setPanelSize({ ...panelSize, width: newWidth });
     };
 
     const handleMouseUp = () => {
@@ -424,7 +459,40 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [isResizing]);
+  }, [isResizing, panelSize, setPanelSize]);
+
+  // 计算面板位置样式
+  const panelStyle = useMemo(() => {
+    if (panelPosition) {
+      return {
+        left: panelPosition.x,
+        top: panelPosition.y,
+        width: panelSize.width,
+      };
+    }
+    // 默认位置：左侧
+    return {
+      left: 0,
+      top: 0,
+      width: panelSize.width,
+    };
+  }, [panelPosition, panelSize.width]);
+
+  // 模式名称映射
+  const modeNames: Record<PanelMode, string> = {
+    chat: "对话",
+    create: "创建",
+    diagnose: "诊断",
+    optimize: "优化",
+  };
+
+  // 模式图标映射
+  const modeIcons: Record<PanelMode, React.ReactNode> = {
+    chat: <MessageCircle className="h-3.5 w-3.5" />,
+    create: <PlusCircle className="h-3.5 w-3.5" />,
+    diagnose: <Stethoscope className="h-3.5 w-3.5" />,
+    optimize: <Zap className="h-3.5 w-3.5" />,
+  };
 
   const workflowContext = generateWorkflowContext(nodes, edges);
 
@@ -517,14 +585,29 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
           } else {
             toast.error(`未找到节点: ${action.nodeId}`);
           }
+        } else if (action.action === "delete" && action.nodeId) {
+          // 删除节点操作
+          const targetNode = nodes.find((n) => n.id === action.nodeId);
+          if (targetNode) {
+            const nodeName =
+              action.nodeName ||
+              (targetNode.data as NodeConfig).name ||
+              action.nodeId;
+            deleteNode(action.nodeId);
+            toast.success(`已删除节点: ${nodeName}`);
+          } else {
+            toast.error(`未找到节点: ${action.nodeId}`);
+          }
         }
       });
 
-      if (addedNodes.length > 0 || actions.some((a) => a.action === "update")) {
+      const hasChanges = addedNodes.length > 0 ||
+        actions.some((a) => a.action === "update" || a.action === "delete");
+      if (hasChanges) {
         setPhase("testing");
       }
     },
-    [nodes, addNode, updateNode, onConnect, setPhase],
+    [nodes, addNode, updateNode, deleteNode, onConnect, setPhase],
   );
 
   const handleOptimize = useCallback(
@@ -1134,20 +1217,62 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
 
   if (!isOpen) return null;
 
+  // 最小化状态显示
+  if (isMinimized) {
+    return (
+      <div
+        ref={panelRef}
+        className="fixed z-50 flex items-center gap-2 rounded-lg border bg-white px-3 py-2 shadow-lg cursor-pointer hover:shadow-xl transition-shadow"
+        style={{
+          left: panelPosition?.x ?? 16,
+          top: panelPosition?.y ?? 16,
+        }}
+        onClick={toggleMinimize}
+      >
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-blue-600">
+          <Sparkles className="h-4 w-4 text-white" />
+        </div>
+        <span className="text-sm font-medium text-gray-700">AI 规划助手</span>
+        <Maximize2 className="h-4 w-4 text-gray-400" />
+      </div>
+    );
+  }
+
   return (
     <div
       ref={panelRef}
-      className="fixed left-0 top-0 z-50 flex h-full flex-col border-r bg-slate-50 shadow-xl"
-      style={{ width: panelWidth }}
+      className={cn(
+        "fixed z-50 flex flex-col rounded-lg border bg-slate-50 shadow-xl",
+        isDragging && "cursor-grabbing select-none",
+        !panelPosition && "h-full rounded-none" // 默认位置时占满高度
+      )}
+      style={{
+        ...panelStyle,
+        height: panelPosition ? "auto" : "100%",
+        maxHeight: panelPosition ? "calc(100vh - 32px)" : "100%",
+      }}
+      onMouseDown={handleDragStart}
     >
       {/* 右侧拖拽调整宽度的手柄 */}
       <div
         className="absolute right-0 top-0 h-full w-1 cursor-ew-resize bg-transparent hover:bg-blue-400/50 transition-colors z-50"
         onMouseDown={handleResizeStart}
       />
-      {/* 头部 - 与节点配置面板风格一致 */}
-      <div className="flex items-center justify-between border-b bg-white px-4 py-3">
+
+      {/* 头部 - 可拖拽区域 */}
+      <div
+        data-drag-handle
+        className={cn(
+          "flex items-center justify-between border-b bg-white px-4 py-3",
+          panelPosition && "rounded-t-lg cursor-grab",
+          isDragging && "cursor-grabbing"
+        )}
+      >
         <div className="flex items-center gap-3">
+          {/* 拖拽手柄图标 */}
+          {panelPosition && (
+            <GripHorizontal className="h-4 w-4 text-gray-300 mr-1" />
+          )}
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-blue-600">
             <Sparkles className="h-4 w-4 text-white" />
           </div>
@@ -1197,12 +1322,40 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
           <Button
             variant="ghost"
             size="icon"
+            onClick={toggleMinimize}
+            title="最小化"
+            className="h-8 w-8 text-gray-500 hover:text-gray-700 hover:bg-gray-100"
+          >
+            <Minus className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={closePanel}
             className="h-8 w-8 text-gray-500 hover:text-gray-700 hover:bg-gray-100"
           >
             <X className="h-4 w-4" />
           </Button>
         </div>
+      </div>
+
+      {/* 模式切换 Tab */}
+      <div className="flex border-b bg-white px-2 py-1.5 gap-1">
+        {(["chat", "create", "diagnose", "optimize"] as PanelMode[]).map((m) => (
+          <button
+            key={m}
+            onClick={() => setMode(m)}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+              mode === m
+                ? "bg-blue-50 text-blue-600"
+                : "text-gray-500 hover:text-gray-700 hover:bg-gray-100"
+            )}
+          >
+            {modeIcons[m]}
+            {modeNames[m]}
+          </button>
+        ))}
       </div>
 
       {/* 模型选择 - 带背景色 */}
@@ -1341,7 +1494,27 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
             )}
           </div>
         </div>
+      ) : mode === "create" ? (
+        // 创建工作流模式
+        <CreateWorkflowSection
+          workflowId={workflowId}
+          selectedModel={selectedModel}
+        />
+      ) : mode === "diagnose" ? (
+        // 诊断模式
+        <DiagnoseSection workflowId={workflowId} />
+      ) : mode === "optimize" ? (
+        // 优化模式
+        <OptimizeSection
+          workflowId={workflowId}
+          selectedModel={selectedModel}
+          onPreview={(actions) => {
+            setPreviewActions(actions);
+            setIsPreviewOpen(true);
+          }}
+        />
       ) : (
+        // 对话模式 (chat)
         <>
           <div className="border-b bg-white">
             <button
@@ -2064,6 +2237,9 @@ function MessageBubble({
                   {action.action === "update" && (
                     <RefreshCw className="h-3 w-3 text-blue-500" />
                   )}
+                  {action.action === "delete" && (
+                    <Trash2 className="h-3 w-3 text-red-500" />
+                  )}
                   {action.action === "connect" && (
                     <ArrowRight className="h-3 w-3 text-purple-500" />
                   )}
@@ -2071,6 +2247,7 @@ function MessageBubble({
                     {action.action === "add" &&
                       `添加 ${nodeTypeNames[action.nodeType || ""] || action.nodeType}: "${action.nodeName}"`}
                     {action.action === "update" && `更新 "${action.nodeName}"`}
+                    {action.action === "delete" && `删除 "${action.nodeName || action.nodeId}"`}
                     {action.action === "connect" &&
                       `连接 ${action.source} → ${action.target}`}
                   </span>

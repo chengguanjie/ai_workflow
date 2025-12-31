@@ -10,6 +10,7 @@ import type { KnowledgeItem, RAGConfig } from '@/types/workflow'
 import { PromptTabContent } from './shared/prompt-tab-content'
 import { OutputTabContent } from './shared/output-tab-content'
 import type { AIProviderConfig } from './shared/types'
+import type { ToolConfig } from './shared/tools-section'
 import { Slider } from '@/components/ui/slider'
 
 type ProcessTabType = 'ai' | 'knowledge' | 'prompt' | 'output'
@@ -50,6 +51,8 @@ export function ProcessNodeConfigPanel({
     userPrompt?: string
     temperature?: number
     maxTokens?: number
+    tools?: ToolConfig[] // 工具配置
+    enableToolCalling?: boolean // 是否启用工具调用
   } || {}
 
   const knowledgeItems = processConfig.knowledgeItems || []
@@ -157,6 +160,18 @@ export function ProcessNodeConfigPanel({
   const removeKnowledgeItem = (index: number) => {
     const newItems = knowledgeItems.filter((_, i) => i !== index)
     handleChange('knowledgeItems', newItems)
+  }
+
+  // 处理工具配置变更
+  const handleToolsChange = (tools: ToolConfig[]) => {
+    // 检查是否有启用的工具
+    const hasEnabledTools = tools.some(tool => tool.enabled)
+    // 更新工具配置，同时自动设置 enableToolCalling
+    onUpdate({
+      ...processConfig,
+      tools,
+      enableToolCalling: hasEnabledTools,
+    })
   }
 
   const selectedProvider = providers.find(p => p.id === processConfig.aiConfigId)
@@ -439,6 +454,7 @@ export function ProcessNodeConfigPanel({
           knowledgeItems={knowledgeItems}
           onSystemPromptChange={(value) => handleChange('systemPrompt', value)}
           onUserPromptChange={(value) => handleChange('userPrompt', value)}
+          onToolsChange={handleToolsChange}
         />
       )}
 

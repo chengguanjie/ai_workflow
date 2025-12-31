@@ -144,6 +144,42 @@ export interface Conversation {
   autoOptimization?: AutoOptimizationState
 }
 
+// 面板模式
+export type PanelMode = 'chat' | 'create' | 'diagnose' | 'optimize'
+
+// 诊断问题
+export interface DiagnosisIssue {
+  nodeId: string
+  nodeName: string
+  severity: 'error' | 'warning' | 'info'
+  category: 'connection' | 'config' | 'variable' | 'tool' | 'knowledge' | 'performance'
+  issue: string
+  suggestion: string
+  autoFixable: boolean
+  fixAction?: NodeAction
+}
+
+// 诊断结果
+export interface DiagnosisResult {
+  issues: DiagnosisIssue[]
+  summary: string
+  score: number
+}
+
+// 创建工作流草稿
+export interface CreateWorkflowDraft {
+  prompt: string
+  detailedPrompt: string
+  recommendations: Array<{
+    id: string
+    name: string
+    description: string
+    score: number
+    reason?: string
+  }>
+  step: 'input' | 'confirm'
+}
+
 interface AIAssistantState {
   isOpen: boolean
   showHistory: boolean
@@ -158,10 +194,40 @@ interface AIAssistantState {
   isAutoMode: boolean
   testInput: Record<string, unknown>
 
+  // 面板位置和大小
+  panelPosition: { x: number; y: number } | null
+  panelSize: { width: number; height: number }
+  isMinimized: boolean
+
+  // 模式切换
+  mode: PanelMode
+
+  // 创建工作流草稿
+  createWorkflowDraft: CreateWorkflowDraft
+
+  // 诊断结果
+  diagnosisResult: DiagnosisResult | null
+  isDiagnosing: boolean
+
   openPanel: () => void
   closePanel: () => void
   togglePanel: () => void
   toggleHistory: () => void
+
+  // 面板控制方法
+  setPanelPosition: (pos: { x: number; y: number } | null) => void
+  setPanelSize: (size: { width: number; height: number }) => void
+  toggleMinimize: () => void
+  setMode: (mode: PanelMode) => void
+
+  // 创建工作流方法
+  setCreateWorkflowDraft: (draft: Partial<CreateWorkflowDraft>) => void
+  resetCreateWorkflowDraft: () => void
+
+  // 诊断方法
+  setDiagnosisResult: (result: DiagnosisResult | null) => void
+  setIsDiagnosing: (loading: boolean) => void
+  clearDiagnosis: () => void
 
   createConversation: (workflowId: string) => string
   selectConversation: (conversationId: string) => void
@@ -197,6 +263,13 @@ function generateTitle(messages: AIMessage[]): string {
   return '新对话'
 }
 
+const defaultCreateWorkflowDraft: CreateWorkflowDraft = {
+  prompt: '',
+  detailedPrompt: '',
+  recommendations: [],
+  step: 'input',
+}
+
 export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
   isOpen: false,
   showHistory: false,
@@ -211,10 +284,42 @@ export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
   isAutoMode: false,
   testInput: {},
 
+  // 面板位置和大小初始值
+  panelPosition: null, // null表示使用默认位置
+  panelSize: { width: 420, height: 700 },
+  isMinimized: false,
+
+  // 模式初始值
+  mode: 'chat',
+
+  // 创建工作流草稿初始值
+  createWorkflowDraft: { ...defaultCreateWorkflowDraft },
+
+  // 诊断初始值
+  diagnosisResult: null,
+  isDiagnosing: false,
+
   openPanel: () => set({ isOpen: true }),
   closePanel: () => set({ isOpen: false }),
   togglePanel: () => set((state) => ({ isOpen: !state.isOpen })),
   toggleHistory: () => set((state) => ({ showHistory: !state.showHistory })),
+
+  // 面板控制方法
+  setPanelPosition: (pos) => set({ panelPosition: pos }),
+  setPanelSize: (size) => set({ panelSize: size }),
+  toggleMinimize: () => set((state) => ({ isMinimized: !state.isMinimized })),
+  setMode: (mode) => set({ mode }),
+
+  // 创建工作流方法
+  setCreateWorkflowDraft: (draft) => set((state) => ({
+    createWorkflowDraft: { ...state.createWorkflowDraft, ...draft },
+  })),
+  resetCreateWorkflowDraft: () => set({ createWorkflowDraft: { ...defaultCreateWorkflowDraft } }),
+
+  // 诊断方法
+  setDiagnosisResult: (result) => set({ diagnosisResult: result }),
+  setIsDiagnosing: (loading) => set({ isDiagnosing: loading }),
+  clearDiagnosis: () => set({ diagnosisResult: null, isDiagnosing: false }),
 
   createConversation: (workflowId: string) => {
     const id = `conv_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`

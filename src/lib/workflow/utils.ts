@@ -12,6 +12,12 @@ import type { NodeConfig, EdgeConfig } from '@/types/workflow'
 const VARIABLE_PATTERN = /\{\{([^.}]+)\.([^}]+)\}\}/g
 
 /**
+ * 简化变量引用正则表达式
+ * 匹配 {{节点名}} 格式（不含字段名）
+ */
+const SIMPLE_VARIABLE_PATTERN = /\{\{([^.{}]+)\}\}/g
+
+/**
  * 根据路径获取嵌套属性值
  */
 function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
@@ -53,14 +59,44 @@ export function parseVariableReferences(text: string): VariableReference[] {
 }
 
 /**
+ * 从节点输出中获取默认值
+ * 优先级：result > 结果 > 第一个字段 > 整个对象
+ */
+function getDefaultOutputValue(nodeOutput: { data: Record<string, unknown> }): unknown {
+  const { data } = nodeOutput
+
+  // 优先使用 result 字段
+  if ('result' in data) {
+    return data.result
+  }
+
+  // 其次使用"结果"字段
+  if ('结果' in data) {
+    return data['结果']
+  }
+
+  // 如果只有一个字段，直接返回该字段的值
+  const keys = Object.keys(data)
+  if (keys.length === 1) {
+    return data[keys[0]]
+  }
+
+  // 否则返回整个对象
+  return data
+}
+
+/**
  * 替换文本中的变量引用
- * 支持嵌套属性访问，如 {{节点名.字段.子字段}}
+ * 支持两种格式：
+ * 1. {{节点名.字段名}} 或 {{节点名.字段名.子字段}} - 访问特定字段
+ * 2. {{节点名}} - 访问默认字段（result > 结果 > 第一个字段 > 整个对象）
  */
 export function replaceVariables(
   text: string,
   context: ExecutionContext
 ): string {
-  return text.replace(VARIABLE_PATTERN, (match, nodeName, fieldPath) => {
+  // 先处理完整格式 {{节点名.字段名}}
+  let result = text.replace(VARIABLE_PATTERN, (match, nodeName, fieldPath) => {
     const nodeOutput = findNodeOutputByName(nodeName.trim(), context)
 
     if (!nodeOutput) {
@@ -88,6 +124,31 @@ export function replaceVariables(
 
     return String(value)
   })
+
+  // 再处理简化格式 {{节点名}}（不含点号）
+  result = result.replace(SIMPLE_VARIABLE_PATTERN, (match, nodeName) => {
+    const nodeOutput = findNodeOutputByName(nodeName.trim(), context)
+
+    if (!nodeOutput) {
+      console.warn(`Variable reference not found (simple format): ${match}`)
+      return match
+    }
+
+    const value = getDefaultOutputValue(nodeOutput)
+
+    if (value === undefined || value === null) {
+      console.warn(`No output found for node: ${match}`)
+      return ''
+    }
+
+    if (typeof value === 'object') {
+      return JSON.stringify(value, null, 2)
+    }
+
+    return String(value)
+  })
+
+  return result
 }
 
 /**
@@ -569,7 +630,16 @@ function mergeTextParts(parts: ContentPart[]): ContentPart[] {
 }
 
 /**
+ * 通用变量匹配正则 - 匹配所有 {{...}} 格式
+ * 用于一次性遍历所有变量引用
+ */
+const ALL_VARIABLE_PATTERN = /\{\{([^{}]+)\}\}/g
+
+/**
  * 解析文本并生成多模态内容部分 (ProcessNode使用)
+ * 支持两种格式：
+ * 1. {{节点名.字段名}} - 访问特定字段
+ * 2. {{节点名}} - 访问默认字段
  */
 export function createContentPartsFromText(
   text: string,
@@ -580,40 +650,55 @@ export function createContentPartsFromText(
   let match
 
   // 重置正则索引
-  VARIABLE_PATTERN.lastIndex = 0
+  ALL_VARIABLE_PATTERN.lastIndex = 0
 
-  while ((match = VARIABLE_PATTERN.exec(text)) !== null) {
+  while ((match = ALL_VARIABLE_PATTERN.exec(text)) !== null) {
     // 1. 添加前导文本
     if (match.index > lastIndex) {
       parts.push({ type: 'text', text: text.slice(lastIndex, match.index) })
     }
 
     // 2. 解析变量
-    const nodeName = match[1].trim()
-    const fieldPath = match[2].trim()
-    const nodeOutput = findNodeOutputByName(nodeName, context)
+    const varContent = match[1].trim()
     let value: unknown
 
-    if (nodeOutput) {
-      if (fieldPath.includes('.')) {
-        value = getNestedValue(nodeOutput.data, fieldPath)
+    // 检查是否包含点号（完整格式 vs 简化格式）
+    if (varContent.includes('.')) {
+      // 完整格式：{{节点名.字段名}}
+      const dotIndex = varContent.indexOf('.')
+      const nodeName = varContent.substring(0, dotIndex).trim()
+      const fieldPath = varContent.substring(dotIndex + 1).trim()
+      const nodeOutput = findNodeOutputByName(nodeName, context)
+
+      if (nodeOutput) {
+        if (fieldPath.includes('.')) {
+          value = getNestedValue(nodeOutput.data, fieldPath)
+        } else {
+          value = nodeOutput.data[fieldPath]
+        }
       } else {
-        value = nodeOutput.data[fieldPath]
+        console.warn(`Variable reference not found in createContentParts: ${match[0]}`)
+        value = match[0]
       }
     } else {
-      console.warn(`Variable reference not found in createContentParts: ${match[0]}`)
-      // 找不到变量时保留原始字符串
-      value = match[0]
+      // 简化格式：{{节点名}}
+      const nodeName = varContent
+      const nodeOutput = findNodeOutputByName(nodeName, context)
+
+      if (nodeOutput) {
+        value = getDefaultOutputValue(nodeOutput)
+      } else {
+        console.warn(`Variable reference not found (simple format) in createContentParts: ${match[0]}`)
+        value = match[0]
+      }
     }
 
-    // 如果值是 undefined/null，保留为 text
+    // 如果值是 undefined/null，保留为空字符串
     if (value === undefined || value === null) {
-      value = ''  // 或者 match[0] ?
+      value = ''
     }
 
-    // 如果变量未找到（上面的 else），value已经是 string match[0]
-    // 否则 value 是 node output
-
+    // 如果变量未找到，value 已经是原始字符串 match[0]
     if (value === match[0]) {
       parts.push({ type: 'text', text: String(value) })
     } else {
@@ -622,7 +707,7 @@ export function createContentPartsFromText(
       parts.push(...variableParts)
     }
 
-    lastIndex = VARIABLE_PATTERN.lastIndex
+    lastIndex = ALL_VARIABLE_PATTERN.lastIndex
   }
 
   // 4. 添加剩余文本

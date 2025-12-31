@@ -60,6 +60,7 @@ import type {
 } from "@/lib/workflow/debug-panel/types";
 import type { ModelModality } from "@/lib/ai/types";
 import { generateDownloadFileName } from "@/lib/workflow/debug-panel/utils";
+import { getModelModality } from "@/lib/ai/types";
 
 type TriggerType = "MANUAL" | "WEBHOOK" | "SCHEDULE";
 
@@ -284,22 +285,31 @@ export function NodeDebugPanel() {
       const defaultInputs: Record<string, Record<string, unknown>> = {};
       for (const predNode of predecessorNodes) {
         if (predNode) {
-          defaultInputs[predNode.data.name as string] = {
-            result: `[数据来自: ${predNode.data.name}]`,
-          };
+          const predNodeName = predNode.data.name as string;
+          // 检查上游节点是否有已保存的执行结果
+          const predNodeResult = nodeExecutionResults?.[predNode.id];
+          if (predNodeResult?.status === "success" && predNodeResult.output) {
+            // 使用已保存的执行结果
+            defaultInputs[predNodeName] = predNodeResult.output;
+          } else {
+            // 使用占位符
+            defaultInputs[predNodeName] = {
+              result: `[数据来自: ${predNodeName}]`,
+            };
+          }
         }
       }
       setMockInputs(defaultInputs);
     } else {
       setMockInputs({});
     }
-    // 清除之前的执行结果
-    if (debugNodeId) {
-      updateNodeExecutionResult(debugNodeId, null);
-    }
+    // 注意：不再清除执行结果，保持结果持久化
+    // 只重置 UI 状态
     setIsInputOpen(false);
     setIsProcessOpen(false);
-    setIsOutputOpen(false);
+    // 如果当前节点有执行结果，自动展开输出区域
+    const currentNodeResult = debugNodeId ? nodeExecutionResults?.[debugNodeId] : null;
+    setIsOutputOpen(!!currentNodeResult);
     // Reset new state variables
     setInputActiveTab("upstream-data");
     setImportedFiles([]);
@@ -307,7 +317,7 @@ export function NodeDebugPanel() {
     setSelectedOutputType("json");
     setIsPreviewOpen(false);
     setPreviewContent(null);
-  }, [debugNodeId, predecessorNodes, updateNodeExecutionResult]);
+  }, [debugNodeId, predecessorNodes, nodeExecutionResults]);
 
   const handleRunDebug = async () => {
     if (!workflowId || !debugNodeId) return;
@@ -322,6 +332,10 @@ export function NodeDebugPanel() {
       // Inputs are already an object, no need to parse
       const parsedInputs = mockInputs;
 
+      // 获取当前节点的最新配置（可能包含未保存的更改）
+      const currentNode = nodes.find((n) => n.id === debugNodeId);
+      const currentNodeConfig = currentNode?.data?.config as Record<string, unknown> | undefined;
+
       const response = await fetch(
         `/api/workflows/${workflowId}/nodes/${debugNodeId}/debug`,
         {
@@ -333,7 +347,9 @@ export function NodeDebugPanel() {
               name: f.name,
               content: typeof f.content === 'string' ? f.content : '[Binary Content]',
               type: f.type
-            }))
+            })),
+            // 传递当前节点配置，让后端使用最新的配置
+            nodeConfig: currentNodeConfig,
           }),
         },
       );
@@ -382,13 +398,30 @@ export function NodeDebugPanel() {
     }));
   };
 
-  // 当节点变化时，同步 modality 状态
+  // 当节点变化时，同步 modality 状态（优先从模型推断，其次使用配置值）
   useEffect(() => {
     if (debugNode) {
-      const nodeModality =
-        (debugNode.data?.config as { modality?: ModelModality })?.modality || DEFAULT_MODALITY;
-      if (nodeModality !== selectedModality) {
-        setSelectedModality(nodeModality);
+      const config = debugNode.data?.config as { modality?: ModelModality; model?: string } | undefined;
+      const configModel = config?.model;
+      const configModality = config?.modality;
+
+      // 优先根据已选模型推断 modality
+      let targetModality = DEFAULT_MODALITY;
+      if (configModel) {
+        const inferredModality = getModelModality(configModel);
+        if (inferredModality) {
+          targetModality = inferredModality;
+        }
+      } else if (configModality) {
+        targetModality = configModality;
+      }
+
+      if (targetModality !== selectedModality) {
+        setSelectedModality(targetModality);
+        // 如果推断出的 modality 与配置不一致，更新配置
+        if (configModality !== targetModality) {
+          handleConfigUpdate({ modality: targetModality });
+        }
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -691,6 +724,7 @@ export function NodeDebugPanel() {
                 predecessorNodes={predecessorNodes as WorkflowNode[]}
                 mockInputs={mockInputs}
                 onMockInputChange={updateMockInput}
+                nodeExecutionResults={nodeExecutionResults}
               />
             </div>
           </Section>
@@ -910,6 +944,21 @@ export function NodeDebugPanel() {
                       setSelectedModality(modality);
                       // 更新配置中的模型类别
                       handleConfigUpdate({ modality });
+
+                      // 根据 modality 自动设置适当的输出类型
+                      const modalityToOutputType: Record<ModelModality, OutputType> = {
+                        'text': 'json',
+                        'code': 'json',
+                        'image-gen': 'image',
+                        'video-gen': 'video',
+                        'audio-transcription': 'text',
+                        'audio-tts': 'audio',
+                        'embedding': 'json',
+                        'ocr': 'text',
+                      };
+                      const defaultOutputType = modalityToOutputType[modality] || 'json';
+                      setSelectedOutputType(defaultOutputType);
+
                       // 重新加载该类别的模型列表
                       setLoadingProviders(true);
                       fetch(`/api/ai/providers?modality=${modality}`)
@@ -952,9 +1001,18 @@ export function NodeDebugPanel() {
                         <select
                           className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs h-8"
                           value={(processConfig.model as string) || ""}
-                          onChange={(e) =>
-                            handleConfigUpdate({ model: e.target.value })
-                          }
+                          onChange={(e) => {
+                            const newModel = e.target.value;
+                            // 自动检测模型的 modality 并同步更新
+                            const inferredModality = newModel ? getModelModality(newModel) : null;
+                            if (inferredModality && inferredModality !== selectedModality) {
+                              // 如果检测到的 modality 与当前不同，同步更新
+                              setSelectedModality(inferredModality);
+                              handleConfigUpdate({ model: newModel, modality: inferredModality });
+                            } else {
+                              handleConfigUpdate({ model: newModel });
+                            }
+                          }}
                         >
                           <option value="">选择模型...</option>
                           {/* 显示当前模型类别下的所有可用模型 */}
@@ -993,6 +1051,16 @@ export function NodeDebugPanel() {
                                           ? "图文识别"
                                           : selectedModality}
                         </p>
+                        {/* 非文本类模型的警告提示 */}
+                        {(selectedModality === "image-gen" ||
+                          selectedModality === "video-gen" ||
+                          selectedModality === "audio-tts") && (
+                          <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded-md">
+                            <p className="text-[10px] text-amber-700">
+                              ⚠️ {selectedModality === "image-gen" ? "图片生成" : selectedModality === "video-gen" ? "视频生成" : "语音合成"}模型暂不支持标准处理流程，请确保您的提示词格式正确。
+                            </p>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1011,7 +1079,14 @@ export function NodeDebugPanel() {
                     onUserPromptChange={(v) =>
                       handleConfigUpdate({ userPrompt: v })
                     }
-                    onToolsChange={(tools) => handleConfigUpdate({ tools })}
+                    onToolsChange={(tools) => {
+                      // 检查是否有启用的工具
+                      const hasEnabledTools = tools.some((tool: { enabled?: boolean }) => tool.enabled)
+                      handleConfigUpdate({
+                        tools,
+                        enableToolCalling: hasEnabledTools
+                      })
+                    }}
                   />
                 </div>
               </Section>

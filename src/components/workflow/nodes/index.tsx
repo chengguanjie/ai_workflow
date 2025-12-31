@@ -17,6 +17,18 @@ import {
   ChevronDown,
   ChevronRight,
   Ungroup,
+  Globe,
+  Table2,
+  BookOpen,
+  Video,
+  Bell,
+  Sparkles,
+  Image,
+  Music,
+  FileText,
+  Wrench,
+  Code,
+  type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,7 +39,34 @@ import {
 } from "@/components/ui/tooltip";
 import { useWorkflowStore } from "@/stores/workflow-store";
 import { useNodeDebug } from "@/hooks/use-node-debug";
-import type { InputField, KnowledgeItem } from "@/types/workflow";
+import type { InputField, KnowledgeItem, UIToolConfig } from "@/types/workflow";
+import { getModelModality, type ModelModality } from "@/lib/ai/types";
+
+// 工具类型到图标和颜色的映射
+const TOOL_ICONS: Record<string, { icon: LucideIcon; color: string; label: string }> = {
+  "http-request": { icon: Globe, color: "text-blue-500", label: "HTTP请求" },
+  "feishu-bitable": { icon: Table2, color: "text-indigo-500", label: "飞书表格" },
+  "xiaohongshu": { icon: BookOpen, color: "text-red-500", label: "小红书" },
+  "douyin-video": { icon: Video, color: "text-pink-500", label: "抖音" },
+  "wechat-mp": { icon: MessageSquare, color: "text-green-500", label: "公众号" },
+  "claude-skill": { icon: Sparkles, color: "text-orange-500", label: "Skill" },
+  "notification-feishu": { icon: Bell, color: "text-blue-600", label: "飞书通知" },
+  "notification-dingtalk": { icon: Bell, color: "text-sky-500", label: "钉钉通知" },
+  "notification-wecom": { icon: Bell, color: "text-green-600", label: "企微通知" },
+  "custom": { icon: Wrench, color: "text-gray-500", label: "自定义" },
+};
+
+// 模型模态类型到图标和颜色的映射
+const MODEL_TYPE_ICONS: Record<ModelModality, { icon: LucideIcon; color: string; bgColor: string; label: string }> = {
+  "text": { icon: FileText, color: "text-sky-600", bgColor: "bg-sky-100", label: "文本" },
+  "code": { icon: Code, color: "text-emerald-600", bgColor: "bg-emerald-100", label: "代码" },
+  "image-gen": { icon: Image, color: "text-purple-600", bgColor: "bg-purple-100", label: "图片生成" },
+  "video-gen": { icon: Video, color: "text-pink-600", bgColor: "bg-pink-100", label: "视频生成" },
+  "audio-transcription": { icon: Music, color: "text-amber-600", bgColor: "bg-amber-100", label: "语音识别" },
+  "audio-tts": { icon: Music, color: "text-amber-600", bgColor: "bg-amber-100", label: "语音合成" },
+  "embedding": { icon: FileText, color: "text-cyan-600", bgColor: "bg-cyan-100", label: "向量" },
+  "ocr": { icon: Image, color: "text-teal-600", bgColor: "bg-teal-100", label: "图文识别" },
+};
 
 export const nodeStyles: Record<
   string,
@@ -72,6 +111,11 @@ interface NodeData {
     addOptimizationIteration?: (iteration: number) => void;
     isAutoMode?: boolean;
     setAutoMode?: (mode: boolean) => void;
+    // AI 配置
+    model?: string;
+    // 工具配置
+    tools?: UIToolConfig[];
+    enableToolCalling?: boolean;
   };
   previewStatus?: "added" | "modified" | "removed" | "unchanged";
   comment?: string;
@@ -79,7 +123,60 @@ interface NodeData {
 }
 
 function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
-  const style = nodeStyles[data.type.toLowerCase()] || nodeStyles.input;
+  const baseStyle = nodeStyles[data.type.toLowerCase()] || nodeStyles.input;
+
+  // 根据模型类型获取动态样式
+  const getDynamicStyle = () => {
+    if (data.type.toLowerCase() !== "process" || !data.config?.model) {
+      return baseStyle;
+    }
+
+    const modality = getModelModality(data.config.model);
+    if (!modality) return baseStyle;
+
+    switch (modality) {
+      case "code":
+        return {
+          icon: Code,
+          color: "text-emerald-700",
+          headerColor: "bg-emerald-100",
+          borderColor: "border-emerald-200",
+        };
+      case "image-gen":
+        return {
+          icon: Image,
+          color: "text-purple-700",
+          headerColor: "bg-purple-100",
+          borderColor: "border-purple-200",
+        };
+      case "video-gen":
+        return {
+          icon: Video,
+          color: "text-pink-700",
+          headerColor: "bg-pink-100",
+          borderColor: "border-pink-200",
+        };
+      case "audio-transcription":
+      case "audio-tts":
+        return {
+          icon: Music,
+          color: "text-amber-700",
+          headerColor: "bg-amber-100",
+          borderColor: "border-amber-200",
+        };
+      case "ocr":
+        return {
+          icon: Image,
+          color: "text-teal-700",
+          headerColor: "bg-teal-100",
+          borderColor: "border-teal-200",
+        };
+      default:
+        return baseStyle;
+    }
+  };
+
+  const style = getDynamicStyle();
   const Icon = style.icon;
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -282,13 +379,84 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
           )}
         </div>
 
-        <div className="p-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/60 bg-muted/50 px-2 py-0.5 rounded-full">
-              {getTypeLabel(data.type)}
-            </span>
+        <div className="p-4 space-y-2">
+          {/* 类型标签和模型类型 */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {data.type.toLowerCase() === "process" && data.config?.model ? (
+              // Process 节点：显示模型模态类型
+              (() => {
+                const modality = getModelModality(data.config.model);
+                if (modality && MODEL_TYPE_ICONS[modality]) {
+                  const { icon: ModalityIcon, color, bgColor, label } = MODEL_TYPE_ICONS[modality];
+                  return (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className={cn(
+                          "flex items-center gap-1 text-[10px] font-bold tracking-wider px-2 py-0.5 rounded-full",
+                          bgColor, color
+                        )}>
+                          <ModalityIcon className="h-3 w-3" />
+                          {label}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        <p className="text-xs">{data.config.model}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                }
+                // 默认文本模型
+                return (
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/60 bg-muted/50 px-2 py-0.5 rounded-full">
+                    {getTypeLabel(data.type)}
+                  </span>
+                );
+              })()
+            ) : (
+              // 其他节点：显示默认类型标签
+              <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/60 bg-muted/50 px-2 py-0.5 rounded-full">
+                {getTypeLabel(data.type)}
+              </span>
+            )}
           </div>
 
+          {/* 工具调用显示 */}
+          {data.type.toLowerCase() === "process" &&
+           data.config?.tools &&
+           data.config.tools.filter(t => t.enabled).length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[9px] text-muted-foreground/50 mr-0.5">工具:</span>
+              {data.config.tools
+                .filter(t => t.enabled)
+                .slice(0, 4)
+                .map((tool) => {
+                  const toolMeta = TOOL_ICONS[tool.type] || TOOL_ICONS["custom"];
+                  const ToolIcon = toolMeta.icon;
+                  return (
+                    <Tooltip key={tool.id}>
+                      <TooltipTrigger asChild>
+                        <div className={cn(
+                          "flex items-center justify-center h-5 w-5 rounded bg-slate-100 hover:bg-slate-200 transition-colors cursor-default",
+                          toolMeta.color
+                        )}>
+                          <ToolIcon className="h-3 w-3" />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        <p className="text-xs">{tool.name || toolMeta.label}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                })}
+              {data.config.tools.filter(t => t.enabled).length > 4 && (
+                <span className="text-[10px] text-muted-foreground/60 ml-0.5">
+                  +{data.config.tools.filter(t => t.enabled).length - 4}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* 摘要信息 */}
           {summary && (
             <div className="text-xs text-muted-foreground bg-slate-50 p-2 rounded-md border border-slate-100 leading-relaxed">
               {summary}

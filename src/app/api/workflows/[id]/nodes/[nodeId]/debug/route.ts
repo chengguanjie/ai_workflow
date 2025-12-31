@@ -15,9 +15,11 @@ import type { WorkflowConfig } from '@/types/workflow'
 interface DebugRequest {
   mockInputs?: Record<string, Record<string, unknown>>
   timeout?: number
+  /** 当前节点配置（前端传递，优先于数据库配置） */
+  nodeConfig?: Record<string, unknown>
 }
 
-const DEFAULT_DEBUG_TIMEOUT_MS = 30 * 1000
+const DEFAULT_DEBUG_TIMEOUT_MS = 200 * 1000  // 200 秒，支持多轮 AI 工具调用
 
 /**
  * POST /api/workflows/[id]/nodes/[nodeId]/debug
@@ -62,7 +64,7 @@ export const POST = withAuth<ApiSuccessResponse<DebugResult>>(
     }
 
     const body = (await request.json()) as DebugRequest
-    const { mockInputs = {}, timeout } = body
+    const { mockInputs = {}, timeout, nodeConfig } = body
 
     if (timeout !== undefined && (timeout < 1 || timeout > 60)) {
       throw new ValidationError('超时时间必须在1-60秒之间')
@@ -90,16 +92,33 @@ export const POST = withAuth<ApiSuccessResponse<DebugResult>>(
       throw new ValidationError('工作流配置无效')
     }
 
-    const targetNode = config.nodes.find((n) => n.id === nodeId)
+    const foundNode = config.nodes.find((n) => n.id === nodeId)
 
-    if (!targetNode) {
+    if (!foundNode) {
       throw new NotFoundError('节点不存在')
     }
 
+    // 如果前端传递了节点配置，使用前端的配置（可能包含未保存的更改）
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const targetNode: any = nodeConfig
+      ? { ...foundNode, config: nodeConfig }
+      : foundNode
+
     const timeoutMs = timeout ? timeout * 1000 : DEFAULT_DEBUG_TIMEOUT_MS
+
+    // 诊断日志
+    console.log('[DEBUG API] 开始调试节点:', {
+      nodeId,
+      nodeType: targetNode.type,
+      hasTools: Boolean(targetNode.config?.tools?.length),
+      enabledTools: targetNode.config?.tools?.filter((t: { enabled?: boolean }) => t.enabled)?.map((t: { type?: string }) => t.type),
+      enableToolCalling: targetNode.config?.enableToolCalling,
+      timeoutMs,
+    })
 
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => {
+        console.log('[DEBUG API] 超时触发，已等待', timeoutMs, 'ms')
         reject(new TimeoutError(`节点调试超时 (${timeoutMs / 1000}秒)`))
       }, timeoutMs)
     })
@@ -115,6 +134,8 @@ export const POST = withAuth<ApiSuccessResponse<DebugResult>>(
       }),
       timeoutPromise,
     ])
+
+    console.log('[DEBUG API] 调试完成:', { status: result.status, duration: result.duration })
 
     return ApiResponse.success(result)
   }

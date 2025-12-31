@@ -68,6 +68,8 @@ export async function POST(request: NextRequest) {
       targetCriteria,
       model,
       previousOptimizations = [],
+      optimizationDirection, // 'performance' | 'quality' | 'structure' | 'auto'
+      multipleSchemes = false, // 是否返回多个方案
     } = body
 
     if (!workflowId) {
@@ -156,6 +158,58 @@ ${JSON.stringify(testResult, null, 2)}
 
     if (targetCriteria) {
       userContent += `\n\n## 用户期望目标 Requirement Criteria \n${targetCriteria}\n\n重要：请仔细对比"测试结果"是否满足"用户期望目标"。如果完全满足，请在 return JSON 中将 "isGoalMet" 设为 true。如果不满足，请分析差距并提供优化 action。`
+    }
+
+    // 根据优化方向添加额外提示
+    if (optimizationDirection && optimizationDirection !== 'auto') {
+      const directionPrompts: Record<string, string> = {
+        performance: `
+## 优化方向：性能优化
+重点关注以下方面：
+- 减少不必要的API调用和token消耗
+- 合并可以并行执行的节点
+- 优化提示词长度，移除冗余内容
+- 减少数据在节点间的传递开销`,
+        quality: `
+## 优化方向：质量优化
+重点关注以下方面：
+- 改进提示词以获得更准确的输出
+- 添加必要的验证和错误处理节点
+- 完善输出格式和结构
+- 增强上下文传递以保证输出连贯性`,
+        structure: `
+## 优化方向：结构优化
+重点关注以下方面：
+- 简化工作流结构，移除不必要的节点
+- 合并功能相似的节点
+- 拆分过于复杂的节点
+- 优化节点连接逻辑，减少分支复杂度`,
+      }
+      userContent += directionPrompts[optimizationDirection] || ''
+    }
+
+    // 如果需要多方案，添加相应提示
+    if (multipleSchemes) {
+      userContent += `
+
+## 多方案要求
+请提供2-3个不同的优化方案，每个方案侧重不同的优化目标。返回格式应为：
+\`\`\`json
+{
+  "schemes": [
+    {
+      "name": "方案名称",
+      "description": "方案描述",
+      "focus": "优化侧重点",
+      "issues": [...],
+      "nodeActions": [...],
+      "expectedImprovement": "预期改进效果"
+    }
+  ],
+  "recommendation": 0, // 推荐方案索引
+  "summary": "方案对比总结"
+}
+\`\`\``
     }
 
     if (previousOptimizations.length > 0) {

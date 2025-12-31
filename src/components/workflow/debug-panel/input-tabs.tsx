@@ -10,6 +10,8 @@ import {
   Music,
   Video,
   Trash2,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -58,6 +60,19 @@ function getNodeOutputFields(
   return [{ id: "result", name: "result", type: "text" }];
 }
 
+interface NodeExecutionResult {
+  status: "success" | "error" | "skipped";
+  output: Record<string, unknown>;
+  error?: string;
+  duration: number;
+  tokenUsage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
+  logs?: string[];
+}
+
 interface InputTabsProps {
   activeTab: InputTabType;
   onTabChange: (tab: InputTabType) => void;
@@ -66,6 +81,8 @@ interface InputTabsProps {
   predecessorNodes: WorkflowNode[];
   mockInputs: Record<string, Record<string, unknown>>;
   onMockInputChange: (nodeName: string, field: string, value: string) => void;
+  /** 节点执行结果映射（用于显示哪些上游节点有已保存的结果） */
+  nodeExecutionResults?: Record<string, NodeExecutionResult | null>;
 }
 
 // ============================================
@@ -121,6 +138,7 @@ export function InputTabs({
   predecessorNodes,
   mockInputs,
   onMockInputChange,
+  nodeExecutionResults,
 }: InputTabsProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -250,12 +268,30 @@ export function InputTabs({
               {predecessorNodes.map((node) => {
                 const outputFields = getNodeOutputFields(node);
                 const nodeName = node.data.name || node.id;
+                const nodeResult = nodeExecutionResults?.[node.id];
+                const hasResult = nodeResult?.status === "success" && nodeResult.output;
 
                 return (
                   <div key={node.id} className="space-y-3">
-                    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                      <div className="h-1.5 w-1.5 rounded-full bg-primary/50" />
-                      来自: {nodeName}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                        <div className={cn(
+                          "h-1.5 w-1.5 rounded-full",
+                          hasResult ? "bg-green-500" : "bg-primary/50"
+                        )} />
+                        来自: {nodeName}
+                      </div>
+                      {hasResult ? (
+                        <Badge variant="outline" className="text-[10px] h-5 px-1.5 bg-green-50 text-green-600 border-green-200">
+                          <CheckCircle2 className="h-3 w-3 mr-1" />
+                          已调试
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] h-5 px-1.5 bg-amber-50 text-amber-600 border-amber-200">
+                          <AlertCircle className="h-3 w-3 mr-1" />
+                          待调试
+                        </Badge>
+                      )}
                     </div>
 
                     {outputFields.map((field) => {

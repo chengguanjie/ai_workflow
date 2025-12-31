@@ -100,49 +100,160 @@ const GENERATION_GUIDELINES = `
 - 节点垂直间距: 150px
 - 尽量保持从左到右的流向。
 
-### 响应格式: 生成工作流 (json:actions)
+## 节点操作指令
 
-当需要向画布添加节点时，使用以下格式：
+### 支持的操作类型
 
+1. **add**: 添加新节点
+2. **update**: 更新现有节点的配置
+3. **delete**: 删除节点
+4. **connect**: 连接两个节点
+
+### 操作示例
+
+#### 添加节点 (add)
 \`\`\`json:actions
 {
   "phase": "workflow_generation",
   "nodeActions": [
     {
       "action": "add",
-      "nodeType": "INPUT",
-      "nodeName": "用户输入",
-      "position": {"x": 100, "y": 200},
-      "config": {
-        "fields": [
-          {"id": "field1", "name": "问题", "fieldType": "text", "required": true}
-        ]
-      }
-    },
-    {
-      "action": "add",
       "nodeType": "PROCESS",
       "nodeName": "AI处理",
       "position": {"x": 400, "y": 200},
       "config": {
-        "systemPrompt": "你是一个专业的助手...",
-        "userPrompt": "请处理以下问题：{{用户输入.问题}}",
-        "temperature": 0.7
+        "systemPrompt": "你是专业助手...",
+        "userPrompt": "请处理：{{用户输入.问题}}"
       }
-    },
-    {
-      "action": "connect",
-      "source": "new_1",
-      "target": "new_2",
-      "sourceHandle": null
     }
   ]
+}
+\`\`\`
+
+#### 更新节点 (update)
+当用户要求修改现有节点的配置时使用：
+\`\`\`json:actions
+{
+  "phase": "workflow_generation",
+  "nodeActions": [
+    {
+      "action": "update",
+      "nodeId": "process_xxx",
+      "nodeName": "AI处理",
+      "config": {
+        "systemPrompt": "新的系统提示词...",
+        "temperature": 0.5
+      }
+    }
+  ]
+}
+\`\`\`
+
+#### 删除节点 (delete)
+当用户要求删除节点时使用：
+\`\`\`json:actions
+{
+  "phase": "workflow_generation",
+  "nodeActions": [
+    {
+      "action": "delete",
+      "nodeId": "process_xxx",
+      "nodeName": "要删除的节点名称"
+    }
+  ]
+}
+\`\`\`
+
+#### 连接节点 (connect)
+\`\`\`json:actions
+{
+  "phase": "workflow_generation",
+  "nodeActions": [
+    {
+      "action": "connect",
+      "source": "input_xxx",
+      "target": "process_xxx"
+    }
+  ]
+}
+\`\`\`
+
+## 工具配置详解
+
+PROCESS节点支持配置tools来调用外部服务或执行代码。
+
+### HTTP工具配置
+\`\`\`json
+{
+  "tools": [
+    {
+      "id": "http_1",
+      "name": "查询天气",
+      "type": "HTTP",
+      "enabled": true,
+      "config": {
+        "url": "https://api.example.com/weather",
+        "method": "GET",
+        "headers": {
+          "Authorization": "Bearer xxx"
+        },
+        "queryParams": [
+          {"key": "city", "value": "{{用户输入.城市}}"}
+        ],
+        "timeout": 30000
+      }
+    }
+  ]
+}
+\`\`\`
+
+### 代码执行工具配置
+\`\`\`json
+{
+  "tools": [
+    {
+      "id": "code_1",
+      "name": "数据处理",
+      "type": "CODE",
+      "enabled": true,
+      "config": {
+        "language": "javascript",
+        "code": "return input.data.map(item => item.name);"
+      }
+    }
+  ]
+}
+\`\`\`
+
+## 知识库配置
+
+PROCESS节点可以配置知识库用于RAG检索：
+
+\`\`\`json
+{
+  "config": {
+    "systemPrompt": "你是专业助手...",
+    "userPrompt": "请回答：{{用户输入.问题}}",
+    "knowledgeBaseId": "kb_xxx",
+    "ragConfig": {
+      "topK": 5,
+      "scoreThreshold": 0.7,
+      "includeMetadata": true
+    }
+  }
 }
 \`\`\`
 
 ## 引用规则
 - 使用 "new_1", "new_2" ... 引用本次 \`nodeActions\` 数组中第1个、第2个添加的节点。
 - 如果需要连接到画布上**已有**的节点（参考Working Context），请使用其真实ID。
+- 更新或删除操作必须使用画布上已有节点的真实ID。
+
+## 响应原则
+1. 用户说"添加"、"新增"时，使用 add 操作
+2. 用户说"修改"、"更新"、"改成"时，使用 update 操作
+3. 用户说"删除"、"移除"、"去掉"时，使用 delete 操作
+4. 多个操作可以在同一个 nodeActions 数组中组合使用
 `
 
 export const ENHANCED_SYSTEM_PROMPT = `

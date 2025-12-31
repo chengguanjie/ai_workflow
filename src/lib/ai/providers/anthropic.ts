@@ -61,6 +61,14 @@ export class AnthropicProvider implements AIProvider {
       }
     }
 
+    console.log('[Anthropic] 发送请求:', {
+      url: `${url}/v1/messages`,
+      model: request.model,
+      toolCount: request.tools?.length || 0,
+      messageCount: otherMessages.length,
+    })
+
+    const startTime = Date.now()
     const response = await fetchWithTimeout(`${url}/v1/messages`, {
       method: 'POST',
       headers: {
@@ -69,11 +77,14 @@ export class AnthropicProvider implements AIProvider {
         'anthropic-version': ANTHROPIC_VERSION,
       },
       body: JSON.stringify(requestBody),
-      timeoutMs: 90_000,
+      timeoutMs: 120_000,  // 增加到 120 秒
     })
+
+    console.log(`[Anthropic] 收到响应: ${response.status}, 耗时 ${Date.now() - startTime}ms`)
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}))
+      console.error('[Anthropic] API 错误:', { status: response.status, error })
       throw new Error(`Anthropic API error: ${response.status} - ${error.error?.message || response.statusText}`)
     }
 

@@ -705,6 +705,41 @@ function HttpRequestConfig({
         />
         <span className="text-xs text-muted-foreground">毫秒</span>
       </div>
+
+      {/* 提取网页内容选项 */}
+      <div className="space-y-2 pt-2 border-t">
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label className="text-xs font-medium">提取网页内容</Label>
+            <p className="text-[10px] text-muted-foreground">
+              自动清理HTML标签，提取标题和正文
+            </p>
+          </div>
+          <Switch
+            checked={(config.extractContent as boolean) || false}
+            onCheckedChange={(checked) =>
+              onConfigChange({ extractContent: checked })
+            }
+          />
+        </div>
+
+        {/* 最大内容长度（仅在启用提取时显示） */}
+        {Boolean(config.extractContent) && (
+          <div className="flex items-center gap-2 pl-2">
+            <Label className="text-xs text-muted-foreground">最大字符数</Label>
+            <Input
+              type="number"
+              value={(config.maxContentLength as number) || 8000}
+              onChange={(e) =>
+                onConfigChange({
+                  maxContentLength: parseInt(e.target.value) || 8000,
+                })
+              }
+              className="h-7 text-xs w-24"
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

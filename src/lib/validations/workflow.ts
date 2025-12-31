@@ -112,6 +112,15 @@ const knowledgeItemSchema = z.object({
   content: z.string(),
 });
 
+// UI Tool Config schema - for tool configurations from the frontend
+const uiToolConfigSchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  name: z.string(),
+  enabled: z.boolean(),
+  config: z.record(z.string(), z.unknown()),
+});
+
 const processNodeSchema = baseNodeSchema.extend({
   type: z.literal("PROCESS"),
   config: nodeAIConfigSchema.extend({
@@ -128,6 +137,7 @@ const processNodeSchema = baseNodeSchema.extend({
     userPrompt: z.string().optional(),
     enableToolCalling: z.boolean().optional(),
     enabledTools: z.array(z.string()).optional(),
+    tools: z.array(uiToolConfigSchema).optional(), // UI tool configurations
     toolChoice: z.enum(["auto", "none", "required"]).optional(),
     maxToolCallRounds: z.number().optional(),
   }),
