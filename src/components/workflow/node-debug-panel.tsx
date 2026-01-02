@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   X,
   Play,
@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   XCircle,
   ChevronDown,
+  ChevronRight,
   Terminal,
   FileJson,
   Workflow,
@@ -40,6 +41,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { useWorkflowStore } from "@/stores/workflow-store";
 import { PromptTabContent } from "./node-config-panel/shared/prompt-tab-content";
@@ -49,17 +51,23 @@ import {
   DEFAULT_MODALITY,
 } from "./debug-panel/modality-selector";
 import { InputNodeDebugPanel } from "./input-debug-panel";
-import { OutputTypeSelector } from "./debug-panel/output-type-selector";
 import { PreviewModal } from "./debug-panel/preview-modal";
+import { ModalityOutputPreview } from "./debug-panel/modality-output-preview";
+import { OutputTypeSelector } from "./debug-panel/output-type-selector";
 import type { KnowledgeItem, RAGConfig } from "@/types/workflow";
 import type { AIProviderConfig } from "./node-config-panel/shared/types";
-import type {
-  InputTabType,
-  ImportedFile,
-  OutputType,
+import {
+  MODALITY_TO_OUTPUT_TYPE,
+  type InputTabType,
+  type ImportedFile,
+  type OutputType,
 } from "@/lib/workflow/debug-panel/types";
 import type { ModelModality } from "@/lib/ai/types";
-import { generateDownloadFileName } from "@/lib/workflow/debug-panel/utils";
+import {
+  generateDownloadFileName,
+  inferOutputType,
+  guessOutputTypeFromPromptAndTools,
+} from "@/lib/workflow/debug-panel/utils";
 import { getModelModality } from "@/lib/ai/types";
 
 type TriggerType = "MANUAL" | "WEBHOOK" | "SCHEDULE";
@@ -111,6 +119,13 @@ export function NodeDebugPanel() {
     nodeExecutionStatus,
     updateNodeExecutionStatus,
   } = useWorkflowStore();
+
+  // 使用 ref 来存储最新的 nodes，避免在异步回调中出现 stale closure
+  const nodesRef = useRef(nodes);
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
+
   const [mockInputs, setMockInputs] = useState<
     Record<string, Record<string, unknown>>
   >({});
@@ -124,6 +139,7 @@ export function NodeDebugPanel() {
 
   // Config State (for Process Nodes)
   const [providers, setProviders] = useState<AIProviderConfig[]>([]);
+  const [providersModality, setProvidersModality] = useState<ModelModality | null>(null);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [loadingProviders, setLoadingProviders] = useState(true);
   const [loadingKBs, setLoadingKBs] = useState(true);
@@ -137,16 +153,17 @@ export function NodeDebugPanel() {
 
   // Input Tab state (新增)
   const [inputActiveTab, setInputActiveTab] =
-    useState<InputTabType>("upstream-data");
+    useState<InputTabType>("input");
   const [importedFiles, setImportedFiles] = useState<ImportedFile[]>([]);
 
-  // Model modality state (新增)
+  // PROCESS 调试面板中的 AI 提示词固定使用文本模型；
+  // 这里保留 selectedModality 仅用于输出类型等内部逻辑，默认视为文本。
   const [selectedModality, setSelectedModality] =
     useState<ModelModality>(DEFAULT_MODALITY);
 
   // Output type and preview state (新增)
   const [selectedOutputType, setSelectedOutputType] =
-    useState<OutputType>("json");
+    useState<OutputType>("text");
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [previewContent, setPreviewContent] = useState<string | Blob | null>(
     null,
@@ -211,7 +228,7 @@ export function NodeDebugPanel() {
     [panelPosition],
   );
 
-  // 处理拖动
+  // 处理拖动和调整大小
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isDragging) {
@@ -219,10 +236,14 @@ export function NodeDebugPanel() {
         const newY = e.clientY - dragStartRef.current.y;
         setPanelPosition({ x: newX, y: newY });
       }
-      if (isResizing) {
+      if (isResizing && panelRef.current) {
+        // 计算面板右边缘的位置
+        const panelRect = panelRef.current.getBoundingClientRect();
+        const rightEdge = panelRect.right;
+        // 新宽度 = 右边缘 - 鼠标位置
         const newWidth = Math.max(
           400,
-          Math.min(800, window.innerWidth - e.clientX - panelPosition.x),
+          Math.min(800, rightEdge - e.clientX),
         );
         setPanelWidth(newWidth);
       }
@@ -242,7 +263,7 @@ export function NodeDebugPanel() {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [isDragging, isResizing, panelPosition.x]);
+  }, [isDragging, isResizing]);
 
   // AI优化参考规则
   const handleOptimizeRule = useCallback(
@@ -285,8 +306,16 @@ export function NodeDebugPanel() {
     [edges, nodes, debugNodeId],
   );
 
+  // 用于跟踪上一个打开的节点 ID（非空值），避免在关闭/打开同一节点时重复初始化
+  const prevOpenedNodeIdRef = useRef<string | null>(null);
+  // 用于跟踪上一个 debugNodeId，只有在节点真正切换时才重置 UI 状态
+  const prevDebugNodeIdRef = useRef<string | null>(null);
+
   // Reset state when node changes
   useEffect(() => {
+    // 只有在节点真正切换时才重置 UI 状态，避免在同一节点执行时折叠面板
+    const isNodeChanged = prevDebugNodeIdRef.current !== debugNodeId;
+
     if (debugNodeId && predecessorNodes.length > 0) {
       const defaultInputs: Record<string, Record<string, unknown>> = {};
       for (const predNode of predecessorNodes) {
@@ -309,49 +338,39 @@ export function NodeDebugPanel() {
     } else {
       setMockInputs({});
     }
-    // 注意：不再清除执行结果，保持结果持久化
-    // 只重置 UI 状态
-    setIsInputOpen(false);
-    setIsProcessOpen(false);
-    // 如果当前节点有执行结果，自动展开输出区域
-    const currentNodeResult = debugNodeId ? nodeExecutionResults?.[debugNodeId] : null;
-    setIsOutputOpen(!!currentNodeResult);
-    // Reset new state variables
-    setInputActiveTab("upstream-data");
-    setImportedFiles([]);
 
-    // 从节点配置中读取 modality（优先从模型推断）
-    const currentNode = nodes.find((n) => n.id === debugNodeId);
-    const nodeConfig = currentNode?.data?.config as { modality?: ModelModality; model?: string } | undefined;
-    const configModel = nodeConfig?.model;
-    const configModality = nodeConfig?.modality;
+    // 只有在节点切换时才重置 UI 状态，不在同一节点执行时重置
+    if (isNodeChanged) {
+      // 注意：不再清除执行结果，保持结果持久化
+      // 只重置 UI 状态
+      setIsInputOpen(false);
+      setIsProcessOpen(false);
+      // 如果当前节点有执行结果，自动展开输出区域
+      const currentNodeResult = debugNodeId ? nodeExecutionResults?.[debugNodeId] : null;
+      setIsOutputOpen(!!currentNodeResult);
+      // Reset new state variables（默认展示「输入与资料」tab）
+      setInputActiveTab("input");
+      setImportedFiles([]);
 
-    let targetModality: ModelModality = DEFAULT_MODALITY;
-    if (configModel) {
-      const inferredModality = getModelModality(configModel);
-      if (inferredModality) {
-        targetModality = inferredModality;
-      }
-    } else if (configModality) {
-      targetModality = configModality;
+      // 更新 ref
+      prevDebugNodeIdRef.current = debugNodeId;
     }
-    setSelectedModality(targetModality);
 
-    // 根据 modality 设置默认输出类型
-    const modalityToOutputType: Record<ModelModality, OutputType> = {
-      'text': 'json',
-      'code': 'json',
-      'image-gen': 'image',
-      'video-gen': 'video',
-      'audio-transcription': 'text',
-      'audio-tts': 'audio',
-      'embedding': 'json',
-      'ocr': 'text',
-    };
-    setSelectedOutputType(modalityToOutputType[targetModality] || 'json');
+    // 每次 debugNodeId 改变时（包括从 null 到非空），将调试面板视为文本任务，
+    // 其他模态通过专用节点或工具实现。
+    if (debugNodeId) {
+      prevOpenedNodeIdRef.current = debugNodeId;
+      setSelectedModality(DEFAULT_MODALITY);
 
-    setIsPreviewOpen(false);
-    setPreviewContent(null);
+      // 根据文本模态设置默认输出类型
+      setSelectedOutputType(MODALITY_TO_OUTPUT_TYPE[DEFAULT_MODALITY] || "json");
+
+      // 只在节点切换时重置预览状态
+      if (isNodeChanged) {
+        setIsPreviewOpen(false);
+        setPreviewContent(null);
+      }
+    }
   }, [debugNodeId, predecessorNodes, nodeExecutionResults, nodes]);
 
   const handleRunDebug = async () => {
@@ -380,10 +399,13 @@ export function NodeDebugPanel() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             mockInputs: parsedInputs,
-            importedFiles: importedFiles.map(f => ({
+            importedFiles: importedFiles.map((f) => ({
               name: f.name,
-              content: typeof f.content === 'string' ? f.content : '[Binary Content]',
-              type: f.type
+              content:
+                typeof f.content === "string"
+                  ? f.content
+                  : "[Binary Content]",
+              type: f.type,
             })),
             // 传递当前节点配置，让后端使用最新的配置
             nodeConfig: currentNodeConfig,
@@ -394,8 +416,43 @@ export function NodeDebugPanel() {
       const data = await response.json();
 
       if (data.success) {
-        // 存储结果到 store
-        updateNodeExecutionResult(debugNodeId, data.data);
+        // 1) 根据提示词 + 工具配置推断“期望输出类型”（用于 UI 展示）
+        const guessedFromIntent = guessOutputTypeFromPromptAndTools({
+          userPrompt: processConfig.userPrompt as string | undefined,
+          tools: (processConfig.tools as any[]) || [],
+        });
+
+        // 2) 再根据实际输出内容做兜底推断
+        const output =
+          (data.data?.output ||
+            data.data?.output?.output ||
+            data.data?.output?.result ||
+            data.data) ?? {};
+        const contentForInfer =
+          typeof output === "string"
+            ? output
+            : JSON.stringify(output, null, 2);
+        const inferredFromContent = inferOutputType(contentForInfer);
+
+        const finalOutputType = guessedFromIntent || inferredFromContent;
+        setSelectedOutputType(finalOutputType);
+
+        // 将期望输出类型同步回节点配置，方便画布节点使用
+        if (currentNodeConfig && finalOutputType) {
+          updateNode(debugNodeId, {
+            config: {
+              ...currentNodeConfig,
+              expectedOutputType: finalOutputType,
+            },
+          });
+        }
+
+        // 存储结果到 store（增强结果结构，带上 outputType）
+        updateNodeExecutionResult(debugNodeId, {
+          ...(data.data as any),
+          output,
+          outputType: finalOutputType,
+        });
         updateNodeExecutionStatus(debugNodeId, "completed");
         setIsOutputOpen(true);
       } else {
@@ -438,42 +495,28 @@ export function NodeDebugPanel() {
     }));
   };
 
-  // 当节点变化时，同步 modality 状态（优先从模型推断，其次使用配置值）
-  useEffect(() => {
-    if (debugNode) {
-      const config = debugNode.data?.config as { modality?: ModelModality; model?: string } | undefined;
-      const configModel = config?.model;
-      const configModality = config?.modality;
-
-      // 优先根据已选模型推断 modality
-      let targetModality = DEFAULT_MODALITY;
-      if (configModel) {
-        const inferredModality = getModelModality(configModel);
-        if (inferredModality) {
-          targetModality = inferredModality;
-        }
-      } else if (configModality) {
-        targetModality = configModality;
-      }
-
-      if (targetModality !== selectedModality) {
-        setSelectedModality(targetModality);
-        // 如果推断出的 modality 与配置不一致，更新配置
-        if (configModality !== targetModality) {
-          handleConfigUpdate({ modality: targetModality });
-        }
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debugNode?.id]);
+  // 注意：modality 状态的初始化已经在上面的 useEffect 中处理了（通过 prevDebugNodeIdRef 控制）
+  // 这里不再需要额外的 useEffect 来同步 modality，避免多次重置导致用户选择丢失
 
   // Init Config Data
+  // 使用 ref 来追踪是否正在进行 modality 切换，避免重复请求
+  const isLoadingProvidersRef = useRef(false);
+
   useEffect(() => {
     if (isDebugPanelOpen && isProcessNode) {
-      // 使用当前选中的 modality 加载模型
-      const config = debugNode?.data?.config as { modality?: ModelModality; model?: string } | undefined;
-      const currentModality = config?.modality || selectedModality;
+      const config = debugNode?.data?.config as { modality?: ModelModality; model?: string; aiConfigId?: string } | undefined;
       const currentModel = config?.model;
+      // PROCESS 调试面板固定使用文本模型进行提示词与工具编排，
+      // 其他模态能力通过工具或专用节点实现，这里强制使用 text 模态加载模型。
+      const currentModality: ModelModality = "text";
+
+      // 避免重复请求
+      if (isLoadingProvidersRef.current) return;
+      isLoadingProvidersRef.current = true;
+
+      // 节点切换时立即重置 providersModality，防止旧值干扰渲染
+      setProvidersModality(null);
+      setLoadingProviders(true);
 
       // Load Providers
       fetch(`/api/ai/providers?modality=${currentModality}`)
@@ -482,27 +525,42 @@ export function NodeDebugPanel() {
           if (data?.success) {
             const newProviders = data.data.providers || [];
             setProviders(newProviders);
+            // providersModality 与当前使用的模态保持一致（固定为 text）
+            setProvidersModality(currentModality);
 
-            // 检查当前选中的模型是否属于该类别
-            // 如果不属于，自动切换到默认模型
-            if (currentModel) {
-              const allModelsInProviders = newProviders.flatMap((p: { models: string[] }) => p.models);
-              if (!allModelsInProviders.includes(currentModel)) {
-                // 当前模型不在该类别中，需要更新为默认模型
-                const defaultProvider = newProviders[0];
-                if (defaultProvider?.defaultModel) {
-                  handleConfigUpdate({
-                    model: defaultProvider.defaultModel,
-                    aiConfigId: defaultProvider.id,
-                  });
-                  console.log(`[NodeDebugPanel] 模型 "${currentModel}" 不属于类别 "${currentModality}"，已自动切换到 "${defaultProvider.defaultModel}"`);
-                }
-              }
+            // 计算一个合适的默认模型：优先沿用当前模型（如果在列表中），否则使用默认文本模型
+            const allModels = newProviders.flatMap((p: AIProviderConfig) => p.models);
+            const defaultProvider = data.data.defaultProvider || newProviders[0];
+            const defaultModel =
+              defaultProvider?.defaultModel || (allModels.length > 0 ? allModels[0] : "");
+
+            const nextModel =
+              currentModel && allModels.includes(currentModel)
+                ? currentModel
+                : defaultModel;
+
+            const updates: Record<string, unknown> = {};
+            // 强制将节点的 modality 统一为 text
+            if (config?.modality !== currentModality) {
+              updates.modality = currentModality;
+            }
+            if (nextModel && nextModel !== currentModel) {
+              updates.model = nextModel;
+            }
+            if (!config?.aiConfigId && defaultProvider?.id) {
+              updates.aiConfigId = defaultProvider.id;
+            }
+
+            if (Object.keys(updates).length > 0) {
+              handleConfigUpdate(updates);
             }
           }
         })
         .catch((err) => console.error(err))
-        .finally(() => setLoadingProviders(false));
+        .finally(() => {
+          setLoadingProviders(false);
+          isLoadingProvidersRef.current = false;
+        });
 
       // Load Knowledge Bases
       fetch("/api/knowledge-bases")
@@ -519,11 +577,15 @@ export function NodeDebugPanel() {
   }, [isDebugPanelOpen, isProcessNode, debugNode?.id, selectedModality]);
 
   // Helper Config Handlers
+  // 使用 nodesRef 而不是 nodes，确保在异步回调中能访问最新的节点数据
   const handleConfigUpdate = useCallback((updates: Record<string, unknown>) => {
-    if (!debugNode) return;
-    const currentConfig = debugNode.data.config || {};
-    updateNode(debugNode.id, { config: { ...currentConfig, ...updates } });
-  }, [debugNode, updateNode]);
+    if (!debugNodeId) return;
+    // 从 ref 中获取最新的节点数据，避免 stale closure 问题
+    const currentNode = nodesRef.current.find((n) => n.id === debugNodeId);
+    if (!currentNode) return;
+    const currentConfig = currentNode.data.config || {};
+    updateNode(debugNodeId, { config: { ...currentConfig, ...updates } });
+  }, [debugNodeId, updateNode]);
 
   const processConfig = (debugNode?.data.config as Record<string, unknown>) || {};
   const knowledgeItems = useMemo(
@@ -621,8 +683,14 @@ export function NodeDebugPanel() {
     URL.revokeObjectURL(url);
   }, [result, debugNode, selectedOutputType]);
 
+  // 面板关闭时渲染一个空的占位元素，用于 CSS transition
   if (!isDebugPanelOpen || !debugNode) {
-    return null;
+    return (
+      <div
+        className="w-0 h-full border-l-0 transition-all duration-300 ease-in-out overflow-hidden"
+        style={{ flexShrink: 0 }}
+      />
+    );
   }
 
   // 获取节点类型
@@ -661,16 +729,15 @@ export function NodeDebugPanel() {
     return (
       <div
         ref={panelRef}
-        className="fixed top-0 h-full border-l bg-background shadow-2xl z-50 flex flex-col overflow-hidden animate-in slide-in-from-right duration-300"
+        className="h-full border-l bg-background shadow-lg flex flex-col overflow-hidden transition-all duration-300 ease-in-out"
         style={{
           width: `${panelWidth}px`,
-          right: -panelPosition.x,
-          top: panelPosition.y,
+          flexShrink: 0,
         }}
       >
         {/* Resize Handle */}
         <div
-          className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-primary/20 transition-colors"
+          className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-primary/20 transition-colors z-10"
           onMouseDown={() => setIsResizing(true)}
         />
         <InputNodeDebugPanel
@@ -689,16 +756,15 @@ export function NodeDebugPanel() {
   return (
     <div
       ref={panelRef}
-      className="fixed top-0 h-full border-l bg-background shadow-2xl z-50 flex flex-col overflow-hidden animate-in slide-in-from-right duration-300"
+      className="relative h-full border-l bg-background shadow-lg flex flex-col overflow-hidden transition-all duration-300 ease-in-out"
       style={{
         width: `${panelWidth}px`,
-        right: -panelPosition.x,
-        top: panelPosition.y,
+        flexShrink: 0,
       }}
     >
       {/* Resize Handle */}
       <div
-        className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-primary/20 transition-colors"
+        className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-primary/20 transition-colors z-10"
         onMouseDown={() => setIsResizing(true)}
       />
 
@@ -748,8 +814,9 @@ export function NodeDebugPanel() {
           size="icon"
           onClick={closeDebugPanel}
           className="h-8 w-8 rounded-full hover:bg-muted"
+          title="收起面板"
         >
-          <X className="h-4 w-4" />
+          <ChevronRight className="h-4 w-4" />
         </Button>
       </div>
 
@@ -771,7 +838,7 @@ export function NodeDebugPanel() {
             description={
               importedFiles.length > 0
                 ? `已导入 ${importedFiles.length} 个文件`
-                : "点击导入文件"
+                : undefined
             }
           >
             <div className="pt-2">
@@ -784,353 +851,120 @@ export function NodeDebugPanel() {
                 mockInputs={mockInputs}
                 onMockInputChange={updateMockInput}
                 nodeExecutionResults={nodeExecutionResults}
+                processConfig={processConfig as any}
+                onProcessConfigChange={(partial) =>
+                  handleConfigUpdate(partial as Record<string, unknown>)
+                }
+                knowledgeBases={knowledgeBases}
+                loadingKnowledgeBases={loadingKBs}
+                ragConfig={ragConfig}
+                onRAGConfigChange={handleRAGConfigChange}
+                knowledgeItems={knowledgeItems}
+                onAddKnowledgeItem={addKnowledgeItem}
+                onUpdateKnowledgeItem={updateKnowledgeItem}
+                onRemoveKnowledgeItem={removeKnowledgeItem}
               />
             </div>
           </Section>
 
           {isProcessNode && (
             <>
-              {/* 2. Reference Materials (参照材料) */}
+              {/* 2. AI Prompt + Model (AI提示词) */}
               <Section
-                title="参照材料"
-                icon={BookOpen}
-                isOpen={isReferenceOpen}
-                onOpenChange={setIsReferenceOpen}
-                description={`${knowledgeItems.length + (processConfig.knowledgeBaseId ? 1 : 0)} 个引用源`}
-              >
-                <div className="space-y-6 pt-2">
-                  {/* RAG Knowledge Base */}
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <Database className="h-4 w-4 text-primary" />
-                      <Label className="text-sm font-medium">RAG 知识库</Label>
-                    </div>
-
-                    {loadingKBs ? (
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        加载知识库...
-                      </div>
-                    ) : (
-                      <>
-                        <select
-                          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                          value={(processConfig.knowledgeBaseId as string) || ""}
-                          onChange={(e) =>
-                            handleConfigUpdate({
-                              knowledgeBaseId: e.target.value || undefined,
-                            })
-                          }
-                        >
-                          <option value="">不使用知识库</option>
-                          {knowledgeBases
-                            .filter((kb) => kb.isActive)
-                            .map((kb) => (
-                              <option key={kb.id} value={kb.id}>
-                                {kb.name} ({kb.documentCount} 文档)
-                              </option>
-                            ))}
-                        </select>
-
-                        {/* Config Area for Selected KB */}
-                        {processConfig.knowledgeBaseId && (
-                          <div className="p-3 bg-muted/50 rounded-lg space-y-3">
-                            <div className="space-y-2">
-                              <div className="flex items-center justify-between">
-                                <Label className="text-xs">
-                                  检索数量 (Top K)
-                                </Label>
-                                <span className="text-xs text-muted-foreground">
-                                  {ragConfig.topK}
-                                </span>
-                              </div>
-                              <Slider
-                                value={[ragConfig.topK || 5]}
-                                onValueChange={([v]) =>
-                                  handleRAGConfigChange("topK", v)
-                                }
-                                min={1}
-                                max={20}
-                                step={1}
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <div className="flex items-center justify-between">
-                                <Label className="text-xs">相似度阈值</Label>
-                                <span className="text-xs text-muted-foreground">
-                                  {(ragConfig.threshold || 0.7).toFixed(2)}
-                                </span>
-                              </div>
-                              <Slider
-                                value={[ragConfig.threshold || 0.7]}
-                                onValueChange={([v]) =>
-                                  handleRAGConfigChange("threshold", v)
-                                }
-                                min={0}
-                                max={1}
-                                step={0.05}
-                              />
-                            </div>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-
-                  <div className="border-t pt-4" />
-
-                  {/* 参考规则 (原静态知识) */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <FileText className="h-4 w-4 text-primary" />
-                        <Label className="text-sm font-medium">参考规则</Label>
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={addKnowledgeItem}
-                        className="h-7 text-xs"
-                      >
-                        <Plus className="mr-1 h-3 w-3" />
-                        添加
-                      </Button>
-                    </div>
-
-                    {knowledgeItems.length === 0 ? (
-                      <div className="text-center py-4 text-muted-foreground border-2 border-dashed rounded-lg text-xs">
-                        暂无参考规则
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {knowledgeItems.map(
-                          (item: KnowledgeItem, index: number) => (
-                            <div
-                              key={item.id}
-                              className="border rounded-lg p-3 space-y-2 bg-white/50"
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <Input
-                                  value={item.name}
-                                  onChange={(e) =>
-                                    updateKnowledgeItem(index, {
-                                      name: e.target.value,
-                                    })
-                                  }
-                                  className="h-7 text-xs font-medium flex-1"
-                                  placeholder="规则名称"
-                                />
-                                <div className="flex items-center gap-1">
-                                  {/* AI优化按钮 */}
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7 text-primary hover:text-primary/80 hover:bg-primary/10"
-                                    onClick={() => {
-                                      setExpandedRuleIndex(index);
-                                      setIsRuleExpandOpen(true);
-                                      if (item.content) {
-                                        handleOptimizeRule(index, item.content);
-                                      }
-                                    }}
-                                    title="AI优化"
-                                  >
-                                    <Sparkles className="h-3.5 w-3.5" />
-                                  </Button>
-                                  {/* 展开按钮 */}
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7 text-muted-foreground hover:text-primary"
-                                    onClick={() => {
-                                      setExpandedRuleIndex(index);
-                                      setIsRuleExpandOpen(true);
-                                    }}
-                                    title="展开查看"
-                                  >
-                                    <Expand className="h-3.5 w-3.5" />
-                                  </Button>
-                                  {/* 删除按钮 */}
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7 text-muted-foreground hover:text-red-500"
-                                    onClick={() => removeKnowledgeItem(index)}
-                                  >
-                                    <X className="h-3.5 w-3.5" />
-                                  </Button>
-                                </div>
-                              </div>
-                              <div className="relative">
-                                <Textarea
-                                  className="text-xs overflow-y-auto resize-y"
-                                  placeholder="输入规则内容..."
-                                  value={item.content}
-                                  onChange={(e) =>
-                                    updateKnowledgeItem(index, {
-                                      content: e.target.value,
-                                    })
-                                  }
-                                  style={{
-                                    scrollbarWidth: "thin",
-                                    height: "120px",
-                                    minHeight: "80px",
-                                    maxHeight: "400px",
-                                  }}
-                                />
-                              </div>
-                            </div>
-                          ),
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </Section>
-
-              {/* 3. AI Prompt + Model (AI提示词) */}
-              <Section
-                title="AI 提示词"
+                title="AI 处理器"
                 icon={MessageSquare}
                 isOpen={isPromptOpen}
                 onOpenChange={setIsPromptOpen}
               >
                 <div className="space-y-4 pt-2">
-                  {/* Model Modality Selection (新增) */}
-                  <ModalitySelector
-                    selectedModality={selectedModality}
-                    onModalityChange={(modality) => {
-                      setSelectedModality(modality);
-                      // 更新配置中的模型类别
-                      handleConfigUpdate({ modality });
-
-                      // 根据 modality 自动设置适当的输出类型
-                      const modalityToOutputType: Record<ModelModality, OutputType> = {
-                        'text': 'json',
-                        'code': 'json',
-                        'image-gen': 'image',
-                        'video-gen': 'video',
-                        'audio-transcription': 'text',
-                        'audio-tts': 'audio',
-                        'embedding': 'json',
-                        'ocr': 'text',
-                      };
-                      const defaultOutputType = modalityToOutputType[modality] || 'json';
-                      setSelectedOutputType(defaultOutputType);
-
-                      // 重新加载该类别的模型列表
-                      setLoadingProviders(true);
-                      fetch(`/api/ai/providers?modality=${modality}`)
-                        .then((res) => (res.ok ? res.json() : null))
-                        .then((data) => {
-                          if (data?.success) {
-                            const newProviders = data.data.providers || [];
-                            setProviders(newProviders);
-                            // 自动选择该类别的默认模型
-                            if (newProviders.length > 0) {
-                              const defaultProvider = newProviders[0];
-                              if (defaultProvider.defaultModel) {
-                                handleConfigUpdate({
-                                  model: defaultProvider.defaultModel,
-                                  aiConfigId: defaultProvider.id,
-                                });
-                              }
-                            }
-                          }
-                        })
-                        .catch((err) => console.error(err))
-                        .finally(() => setLoadingProviders(false));
-                    }}
-                    className="mb-2"
-                  />
-
-                  {/* Model Selection (Hidden Provider) */}
-                  <div className="bg-muted/30 p-3 rounded-lg border space-y-3">
-                    <div className="flex items-center gap-2">
-                      <Settings className="h-3.5 w-3.5 text-primary" />
-                      <Label className="text-xs font-medium">模型配置</Label>
-                    </div>
-
-                    {loadingProviders ? (
-                      <div className="text-xs text-muted-foreground">
-                        加载模型...
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <select
-                          className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs h-8"
-                          value={(processConfig.model as string) || ""}
-                          onChange={(e) => {
-                            const newModel = e.target.value;
-                            // 自动检测模型的 modality 并同步更新
-                            const inferredModality = newModel ? getModelModality(newModel) : null;
-                            if (inferredModality && inferredModality !== selectedModality) {
-                              // 如果检测到的 modality 与当前不同，同步更新
-                              setSelectedModality(inferredModality);
-                              handleConfigUpdate({ model: newModel, modality: inferredModality });
-                            } else {
-                              handleConfigUpdate({ model: newModel });
-                            }
-                          }}
-                        >
-                          <option value="">选择模型...</option>
-                          {/* 显示当前模型类别下的所有可用模型 */}
-                          {providers.length > 0 ? (
-                            providers.flatMap((provider) =>
-                              provider.models.map((m) => (
-                                <option key={`${provider.id}-${m}`} value={m}>
-                                  {m}{" "}
-                                  {m === provider.defaultModel ? "(默认)" : ""}
-                                </option>
-                              )),
-                            )
-                          ) : (
-                            <option value="" disabled>
-                              当前类别暂无可用模型
-                            </option>
-                          )}
-                        </select>
-                        <p className="text-[10px] text-muted-foreground">
-                          * 当前类别:{" "}
-                          {selectedModality === "text"
-                            ? "文本类"
-                            : selectedModality === "code"
-                              ? "代码类"
-                              : selectedModality === "image-gen"
-                                ? "图片生成"
-                                : selectedModality === "video-gen"
-                                  ? "视频生成"
-                                  : selectedModality === "audio-transcription"
-                                    ? "音频转录"
-                                    : selectedModality === "audio-tts"
-                                      ? "文字转语音"
-                                      : selectedModality === "embedding"
-                                        ? "向量嵌入"
-                                        : selectedModality === "ocr"
-                                          ? "图文识别"
-                                          : selectedModality}
-                        </p>
-                        {/* 非文本类模型的警告提示 */}
-                        {(selectedModality === "image-gen" ||
-                          selectedModality === "video-gen" ||
-                          selectedModality === "audio-tts") && (
-                          <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded-md">
-                            <p className="text-[10px] text-amber-700">
-                              ⚠️ {selectedModality === "image-gen" ? "图片生成" : selectedModality === "video-gen" ? "视频生成" : "语音合成"}模型暂不支持标准处理流程，请确保您的提示词格式正确。
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
                   {/* Prompt Editor */}
                   <PromptTabContent
                     processConfig={{
                       systemPrompt: processConfig.systemPrompt as string | undefined,
                       userPrompt: processConfig.userPrompt as string | undefined,
                       tools: (processConfig.tools as any[]) || [],
+                      expectedOutputType: processConfig.expectedOutputType as OutputType | undefined,
                     }}
+                    modelSelection={
+                      <div className="bg-muted/30 p-3 rounded-lg border space-y-3">
+                        <div className="flex items-center gap-2">
+                          <Settings className="h-3.5 w-3.5 text-primary" />
+                          <Label className="text-xs font-medium">模型选择</Label>
+                        </div>
+
+                        {loadingProviders ? (
+                          <div className="text-xs text-muted-foreground">
+                            加载模型...
+                          </div>
+                        ) : providers.length === 0 ? (
+                          <div className="text-xs text-muted-foreground py-2">
+                            当前类别暂无可用模型
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {(() => {
+                              // 计算当前应该显示的模型值
+                              const currentModel = processConfig.model as string;
+                              const allModels = providers.flatMap(p => p.models);
+                              // 找到第一个可用的默认模型
+                              const defaultProvider = providers.find(p => p.defaultModel) || providers[0];
+                              const defaultProviderModel = defaultProvider?.defaultModel || allModels[0];
+
+                              // 计算当前节点应该使用的 modality
+                              const nodeConfigModality = processConfig.modality as ModelModality | undefined;
+                              const nodeModelModality = currentModel ? getModelModality(currentModel) : null;
+                              const expectedModality = nodeConfigModality || nodeModelModality || DEFAULT_MODALITY;
+
+                              // 关键检查：providers 是否与当前节点的 modality 匹配
+                              // 如果不匹配（正在加载或节点刚切换），不要执行自动模型更新
+                              const isModalityMatched = providersModality === expectedModality;
+
+                              // 如果当前模型在列表中，使用当前模型；否则使用默认模型
+                              const selectedValue = currentModel && allModels.includes(currentModel)
+                                ? currentModel
+                                : defaultProviderModel || allModels[0] || "";
+
+                              // 只有当 modality 匹配时才自动更新模型
+                              // 这防止了节点切换时用旧 providers 的默认模型覆盖当前模型
+                              if (isModalityMatched && selectedValue && selectedValue !== currentModel) {
+                                setTimeout(() => {
+                                  handleConfigUpdate({ model: selectedValue });
+                                }, 0);
+                              }
+
+                              return (
+                                <select
+                                  className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs h-8"
+                                  value={selectedValue}
+                                  onChange={(e) => {
+                                    const newModel = e.target.value;
+                                    // 自动检测模型的 modality 并同步更新
+                                    const inferredModality = newModel ? getModelModality(newModel) : null;
+                                    if (inferredModality && inferredModality !== selectedModality) {
+                                      // 如果检测到的 modality 与当前不同，同步更新
+                                      setSelectedModality(inferredModality);
+                                      handleConfigUpdate({ model: newModel, modality: inferredModality });
+                                    } else {
+                                      handleConfigUpdate({ model: newModel });
+                                    }
+                                  }}
+                                >
+                                  {/* 显示当前模型类别下的所有可用模型 */}
+                                  {providers.flatMap((provider) =>
+                                    provider.models.map((m) => (
+                                      <option key={`${provider.id}-${m}`} value={m}>
+                                        {m}{" "}
+                                        {m === provider.defaultModel ? "(默认)" : ""}
+                                      </option>
+                                    )),
+                                  )}
+                                </select>
+                              );
+                            })()}
+                          </div>
+                        )}
+                      </div>
+                    }
                     knowledgeItems={knowledgeItems}
                     onSystemPromptChange={(v) =>
                       handleConfigUpdate({ systemPrompt: v })
@@ -1146,79 +980,16 @@ export function NodeDebugPanel() {
                         enableToolCalling: hasEnabledTools
                       })
                     }}
+                    onExpectedOutputTypeChange={(type) => {
+                      handleConfigUpdate({ expectedOutputType: type })
+                    }}
                   />
                 </div>
               </Section>
             </>
           )}
 
-          {/* 4. Processing Section (Formerly 2) */}
-          <Section
-            title="处理过程"
-            icon={Terminal}
-            isOpen={isProcessOpen}
-            onOpenChange={setIsProcessOpen}
-            status={isNodeRunning ? "running" : result ? "completed" : "idle"}
-          >
-            <div className="space-y-4 pt-2">
-              <Button
-                onClick={handleRunDebug}
-                disabled={isNodeRunning}
-                className={cn(
-                  "w-full transition-all duration-300",
-                  isNodeRunning ? "bg-primary/80" : "hover:scale-[1.02]",
-                )}
-                size="lg"
-              >
-                {isNodeRunning ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    正在执行...
-                  </>
-                ) : (
-                  <>
-                    <Play className="h-4 w-4 mr-2" />
-                    开始调试
-                  </>
-                )}
-              </Button>
-
-              {/* Logs / Terminal View */}
-              <div className="rounded-lg border bg-zinc-950 p-4 font-mono text-xs text-zinc-300 min-h-[120px] max-h-[300px] overflow-y-auto shadow-inner scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent">
-                {result?.logs && result.logs.length > 0 ? (
-                  <div className="space-y-1.5">
-                    {result.logs.map((log, i) => (
-                      <div key={i} className="flex gap-2">
-                        <span className="text-zinc-600 select-none">{">"}</span>
-                        <span className="break-all whitespace-pre-wrap">
-                          {log}
-                        </span>
-                      </div>
-                    ))}
-                    {result?.status === "success" && (
-                      <div className="flex gap-2 text-green-400 mt-2">
-                        <span className="text-zinc-600 select-none">{">"}</span>
-                        <span>Execution completed successfully.</span>
-                      </div>
-                    )}
-                    {result?.status === "error" && (
-                      <div className="flex gap-2 text-red-400 mt-2">
-                        <span className="text-zinc-600 select-none">{">"}</span>
-                        <span>Execution failed.</span>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="h-full flex flex-col items-center justify-center text-zinc-600 italic gap-2 min-h-[80px]">
-                    <Terminal className="h-8 w-8 opacity-20" />
-                    <span>等待执行...</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </Section>
-
-          {/* 5. Output Section (Formerly 3) - 增强版 */}
+          {/* 4. Output Section （合并处理过程，作为第二个 Tab） */}
           <Section
             title="输出结果"
             icon={FileJson}
@@ -1233,183 +1004,247 @@ export function NodeDebugPanel() {
             }
           >
             <div className="space-y-4 pt-2">
-              {/* Output Type Selector - 始终显示 */}
-              <OutputTypeSelector
-                selectedType={selectedOutputType}
-                onTypeChange={(type) => {
-                  setSelectedOutputType(type);
-                  // 根据输出类型准备预览内容
-                  if (result?.output) {
-                    const outputStr = JSON.stringify(result.output, null, 2);
-                    setPreviewContent(outputStr);
-                  }
-                }}
-              />
+              <Tabs defaultValue="run" className="w-full">
+                <TabsList className="w-full grid grid-cols-2 mb-4">
+                  <TabsTrigger
+                    value="run"
+                    className="flex items-center justify-center gap-2 text-xs"
+                  >
+                    <Play className="h-4 w-4" />
+                    调试过程
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="result"
+                    className="flex items-center justify-center gap-2 text-xs"
+                  >
+                    <FileJson className="h-4 w-4" />
+                    输出结果
+                  </TabsTrigger>
+                </TabsList>
 
-              {result ? (
-                <>
-                  {/* Metrics */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-white rounded-lg border p-3 flex items-center gap-3 shadow-sm">
-                      <div className="h-8 w-8 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
-                        <Clock className="h-4 w-4" />
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
-                          耗时
-                        </p>
-                        <p className="text-sm font-semibold text-foreground">
-                          {result.duration}ms
-                        </p>
-                      </div>
-                    </div>
-                    <div className="bg-white rounded-lg border p-3 flex items-center gap-3 shadow-sm">
-                      <div className="h-8 w-8 rounded-full bg-purple-50 flex items-center justify-center text-purple-600">
-                        <Cpu className="h-4 w-4" />
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
-                          Tokens
-                        </p>
-                        <p className="text-sm font-semibold text-foreground">
-                          {result.tokenUsage?.totalTokens || 0}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
+                <TabsContent value="run" className="mt-0 space-y-3">
+                  <Button
+                    onClick={handleRunDebug}
+                    disabled={isNodeRunning}
+                    className={cn(
+                      "w-full transition-all duration-300",
+                      isNodeRunning ? "bg-primary/80" : "hover:scale-[1.02]",
+                    )}
+                    size="lg"
+                  >
+                    {isNodeRunning ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        正在执行...
+                      </>
+                    ) : (
+                      <>
+                        <Play className="h-4 w-4 mr-2" />
+                        开始调试
+                      </>
+                    )}
+                  </Button>
 
-                  {/* Error Message */}
-                  {result.error && (
-                    <div className="rounded-lg bg-red-50 border border-red-100 p-4 text-sm text-red-600 flex items-start gap-3">
-                      <XCircle className="h-5 w-5 shrink-0 mt-0.5" />
-                      <div className="space-y-1">
-                        <p className="font-semibold">执行出错</p>
-                        <p className="opacity-90">{result.error}</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Output Content Display */}
-                  <div className="relative">
-                    {/* 文字类输出展示 */}
-                    {["text", "json", "html", "csv"].includes(
-                      selectedOutputType,
-                    ) && (
-                        <>
-                          {selectedOutputType === "html" ? (
-                            <div className="space-y-2">
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <span>HTML 渲染预览</span>
-                              </div>
-                              <div
-                                className="rounded-lg border bg-white p-4 min-h-[100px] max-h-[300px] overflow-auto"
-                                dangerouslySetInnerHTML={{
-                                  __html:
-                                    typeof result.output === "string"
-                                      ? result.output
-                                      : JSON.stringify(result.output),
-                                }}
-                              />
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <span>HTML 源码</span>
-                              </div>
-                              <pre className="rounded-lg border bg-white p-4 text-xs overflow-auto max-h-[200px] shadow-sm font-mono leading-relaxed scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
-                                {typeof result.output === "string"
-                                  ? result.output
-                                  : JSON.stringify(result.output, null, 2)}
-                              </pre>
-                            </div>
-                          ) : selectedOutputType === "csv" ? (
-                            <div className="rounded-lg border bg-white overflow-auto max-h-[400px]">
-                              <table className="w-full text-xs">
-                                <tbody>
-                                  {(() => {
-                                    const csvContent =
-                                      typeof result.output === "string"
-                                        ? result.output
-                                        : JSON.stringify(result.output);
-                                    const rows = csvContent
-                                      .split("\n")
-                                      .filter((row) => row.trim());
-                                    return rows.map((row, i) => (
-                                      <tr
-                                        key={i}
-                                        className={
-                                          i === 0 ? "bg-muted/50 font-medium" : ""
-                                        }
-                                      >
-                                        {row.split(",").map((cell, j) => (
-                                          <td
-                                            key={j}
-                                            className="border px-2 py-1.5"
-                                          >
-                                            {cell.trim()}
-                                          </td>
-                                        ))}
-                                      </tr>
-                                    ));
-                                  })()}
-                                </tbody>
-                              </table>
-                            </div>
-                          ) : (
-                            <pre className="rounded-lg border bg-white p-4 text-xs overflow-auto max-h-[400px] shadow-sm font-mono leading-relaxed scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
-                              {selectedOutputType === "json"
-                                ? JSON.stringify(result.output, null, 2)
-                                : typeof result.output === "string"
-                                  ? result.output
-                                  : JSON.stringify(result.output, null, 2)}
-                            </pre>
-                          )}
-                          <div className="absolute top-3 right-3">
-                            <Badge
-                              variant="secondary"
-                              className="text-[10px] opacity-70"
-                            >
-                              {selectedOutputType.toUpperCase()}
-                            </Badge>
+                  <div className="rounded-lg border bg-zinc-950 p-4 font-mono text-xs text-zinc-300 min-h-[120px] max-h-[300px] overflow-y-auto shadow-inner scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent">
+                    {result?.logs && result.logs.length > 0 ? (
+                      <div className="space-y-1.5">
+                        {result.logs.map((log, i) => (
+                          <div key={i} className="flex gap-2">
+                            <span className="text-zinc-600 select-none">{">"}</span>
+                            <span className="break-all whitespace-pre-wrap">
+                              {log}
+                            </span>
                           </div>
-                        </>
+                        ))}
+                        {result?.status === "success" && (
+                          <div className="flex gap-2 text-green-400 mt-2">
+                            <span className="text-zinc-600 select-none">{">"}</span>
+                            <span>Execution completed successfully.</span>
+                          </div>
+                        )}
+                        {result?.status === "error" && (
+                          <div className="flex gap-2 text-red-400 mt-2">
+                            <span className="text-zinc-600 select-none">{">"}</span>
+                            <span>Execution failed.</span>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="h-full flex flex-col items-center justify-center text-zinc-600 italic gap-2 min-h-[80px]">
+                        <Terminal className="h-8 w-8 opacity-20" />
+                        <span>等待执行...</span>
+                      </div>
+                    )}
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="result" className="mt-0 space-y-4">
+                  {result ? (
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-white rounded-lg border p-3 flex items-center gap-3 shadow-sm">
+                          <div className="h-8 w-8 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
+                            <Clock className="h-4 w-4" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
+                              耗时
+                            </p>
+                            <p className="text-sm font-semibold text-foreground">
+                              {result.duration}ms
+                            </p>
+                          </div>
+                        </div>
+                        <div className="bg-white rounded-lg border p-3 flex items-center gap-3 shadow-sm">
+                          <div className="h-8 w-8 rounded-full bg-purple-50 flex items-center justify-center text-purple-600">
+                            <Cpu className="h-4 w-4" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
+                              Tokens
+                            </p>
+                            <p className="text-sm font-semibold text-foreground">
+                              {result.tokenUsage?.totalTokens || 0}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {result.error && (
+                        <div className="rounded-lg bg-red-50 border border-red-100 p-4 text-sm text-red-600 flex items-start gap-3">
+                          <XCircle className="h-5 w-5 shrink-0 mt-0.5" />
+                          <div className="space-y-1">
+                            <p className="font-semibold">执行出错</p>
+                            <p className="opacity-90">{result.error}</p>
+                          </div>
+                        </div>
                       )}
 
-                    {/* 非文字类输出展示 */}
-                    {[
-                      "image",
-                      "audio",
-                      "video",
-                      "word",
-                      "pdf",
-                      "excel",
-                      "ppt",
-                    ].includes(selectedOutputType) && (
-                        <div className="rounded-lg border bg-muted/20 p-6 flex flex-col items-center justify-center">
-                          {selectedOutputType === "image" && (
-                            <>
-                              <ImageIcon className="h-12 w-12 mb-3 text-muted-foreground/50" />
-                              <p className="text-sm text-muted-foreground mb-3">
-                                图片输出
-                              </p>
-                            </>
-                          )}
-                          {selectedOutputType === "audio" && (
-                            <>
-                              <Music className="h-12 w-12 mb-3 text-muted-foreground/50" />
-                              <p className="text-sm text-muted-foreground mb-3">
-                                音频输出
-                              </p>
-                            </>
-                          )}
-                          {selectedOutputType === "video" && (
-                            <>
-                              <Video className="h-12 w-12 mb-3 text-muted-foreground/50" />
-                              <p className="text-sm text-muted-foreground mb-3">
-                                视频输出
-                              </p>
-                            </>
-                          )}
-                          {["word", "pdf", "excel", "ppt"].includes(
-                            selectedOutputType,
-                          ) && (
+                      <div className="relative">
+                        <ModalityOutputPreview
+                          output={result.output}
+                          className="mb-4"
+                        />
+
+                        {["text", "json", "html", "csv"].includes(
+                          selectedOutputType,
+                        ) && (
+                          <>
+                            {selectedOutputType === "html" ? (
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                  <span>HTML 渲染预览</span>
+                                </div>
+                                <div
+                                  className="rounded-lg border bg-white p-4 min-h-[100px] max-h-[300px] overflow-auto"
+                                  dangerouslySetInnerHTML={{
+                                    __html:
+                                      typeof result.output === "string"
+                                        ? result.output
+                                        : JSON.stringify(result.output),
+                                  }}
+                                />
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                  <span>HTML 源码</span>
+                                </div>
+                                <pre className="rounded-lg border bg-white p-4 text-xs overflow-auto max-h-[200px] shadow-sm font-mono leading-relaxed scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
+                                  {typeof result.output === "string"
+                                    ? result.output
+                                    : JSON.stringify(result.output, null, 2)}
+                                </pre>
+                              </div>
+                            ) : selectedOutputType === "csv" ? (
+                              <div className="rounded-lg border bg-white overflow-auto max-h-[400px]">
+                                <table className="w-full text-xs">
+                                  <tbody>
+                                    {(() => {
+                                      const csvContent =
+                                        typeof result.output === "string"
+                                          ? result.output
+                                          : JSON.stringify(result.output);
+                                      const rows = csvContent
+                                        .split("\n")
+                                        .filter((row) => row.trim());
+                                      return rows.map((row, i) => (
+                                        <tr
+                                          key={i}
+                                          className={
+                                            i === 0
+                                              ? "bg-muted/50 font-medium"
+                                              : ""
+                                          }
+                                        >
+                                          {row.split(",").map((cell, j) => (
+                                            <td
+                                              key={j}
+                                              className="border px-2 py-1.5"
+                                            >
+                                              {cell.trim()}
+                                            </td>
+                                          ))}
+                                        </tr>
+                                      ));
+                                    })()}
+                                  </tbody>
+                                </table>
+                              </div>
+                            ) : (
+                              <pre className="rounded-lg border bg-white p-4 text-xs overflow-auto max-h-[400px] shadow-sm font-mono leading-relaxed scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
+                                {selectedOutputType === "json"
+                                  ? JSON.stringify(result.output, null, 2)
+                                  : typeof result.output === "string"
+                                    ? result.output
+                                    : JSON.stringify(result.output, null, 2)}
+                              </pre>
+                            )}
+                            <div className="absolute top-3 right-3">
+                              <Badge
+                                variant="secondary"
+                                className="text-[10px] opacity-70"
+                              >
+                                {selectedOutputType.toUpperCase()}
+                              </Badge>
+                            </div>
+                          </>
+                        )}
+
+                        {[
+                          "image",
+                          "audio",
+                          "video",
+                          "word",
+                          "pdf",
+                          "excel",
+                          "ppt",
+                        ].includes(selectedOutputType) && (
+                          <div className="rounded-lg border bg-muted/20 p-6 flex flex-col items-center justify-center">
+                            {selectedOutputType === "image" && (
+                              <>
+                                <ImageIcon className="h-12 w-12 mb-3 text-muted-foreground/50" />
+                                <p className="text-sm text-muted-foreground mb-3">
+                                  图片输出
+                                </p>
+                              </>
+                            )}
+                            {selectedOutputType === "audio" && (
+                              <>
+                                <Music className="h-12 w-12 mb-3 text-muted-foreground/50" />
+                                <p className="text-sm text-muted-foreground mb-3">
+                                  音频输出
+                                </p>
+                              </>
+                            )}
+                            {selectedOutputType === "video" && (
+                              <>
+                                <Video className="h-12 w-12 mb-3 text-muted-foreground/50" />
+                                <p className="text-sm text-muted-foreground mb-3">
+                                  视频输出
+                                </p>
+                              </>
+                            )}
+                            {["word", "pdf", "excel", "ppt"].includes(
+                              selectedOutputType,
+                            ) && (
                               <>
                                 <FileJson className="h-12 w-12 mb-3 text-muted-foreground/50" />
                                 <p className="text-sm text-muted-foreground mb-3">
@@ -1420,57 +1255,58 @@ export function NodeDebugPanel() {
                                 </p>
                               </>
                             )}
-                          <div className="flex items-center gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setPreviewContent(
-                                  JSON.stringify(result.output, null, 2),
-                                );
-                                setIsPreviewOpen(true);
-                              }}
-                              className="gap-1.5"
-                            >
-                              <Eye className="h-4 w-4" />
-                              预览
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleDownload()}
-                              className="gap-1.5"
-                            >
-                              <Download className="h-4 w-4" />
-                              下载
-                            </Button>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setPreviewContent(
+                                    JSON.stringify(result.output, null, 2),
+                                  );
+                                  setIsPreviewOpen(true);
+                                }}
+                                className="gap-1.5"
+                              >
+                                <Eye className="h-4 w-4" />
+                                预览
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleDownload()}
+                                className="gap-1.5"
+                              >
+                                <Download className="h-4 w-4" />
+                                下载
+                              </Button>
+                            </div>
                           </div>
+                        )}
+                      </div>
+
+                      {["text", "json", "html", "csv"].includes(
+                        selectedOutputType,
+                      ) && (
+                        <div className="flex justify-end">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleDownload()}
+                            className="gap-1.5"
+                          >
+                            <Download className="h-4 w-4" />
+                            下载
+                          </Button>
                         </div>
                       )}
-                  </div>
-
-                  {/* Download Button for text types */}
-                  {["text", "json", "html", "csv"].includes(
-                    selectedOutputType,
-                  ) && (
-                      <div className="flex justify-end">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleDownload()}
-                          className="gap-1.5"
-                        >
-                          <Download className="h-4 w-4" />
-                          下载
-                        </Button>
-                      </div>
-                    )}
-                </>
-              ) : (
-                <div className="py-8 text-center text-sm text-muted-foreground bg-white/50 rounded-lg border border-dashed border-slate-200">
-                  暂无输出结果
-                </div>
-              )}
+                    </>
+                  ) : (
+                    <div className="py-8 text-center text-sm text-muted-foreground bg-white/50 rounded-lg border border-dashed border-slate-200">
+                      暂无输出结果
+                    </div>
+                  )}
+                </TabsContent>
+              </Tabs>
             </div>
           </Section>
 
