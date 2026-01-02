@@ -5,14 +5,24 @@
  */
 
 import type { NodeConfig, ProcessNodeConfig } from '@/types/workflow'
+import type { OutputType } from '@/lib/workflow/debug-panel/types'
 import type { NodeProcessor, NodeOutput, ExecutionContext, AIConfigCache } from '../types'
-import type { ChatResponseWithTools, OpenAITool, ToolCall, ToolCallResult, ClaudeTool } from '@/lib/ai/function-calling/types'
+import type {
+  ChatResponseWithTools,
+  OpenAITool,
+  ToolCall,
+  ToolCallResult,
+  ClaudeTool,
+  ToolExecutionContext,
+} from '@/lib/ai/function-calling/types'
 import { replaceVariables, createContentPartsFromText } from '../utils'
 import { prisma } from '@/lib/db'
 import { safeDecryptApiKey } from '@/lib/crypto'
 import { getRelevantContext } from '@/lib/knowledge/search'
 import { OpenAIProvider } from '@/lib/ai/providers/openai'
 import { AnthropicProvider } from '@/lib/ai/providers/anthropic'
+import { ensureImportedFilesFromContext } from '../imported-files'
+import { buildRagQuery } from '../rag'
 import {
   functionCallingService,
   toolRegistry,
@@ -94,6 +104,8 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
       let systemPrompt = processNode.config?.systemPrompt || ''
       context.addLog?.('step', '正在构建系统提示词...', 'PROMPT')
 
+      await ensureImportedFilesFromContext(context)
+
       // 添加静态知识库内容
       const knowledgeItems = processNode.config?.knowledgeItems || []
       if (knowledgeItems.length > 0) {
@@ -138,25 +150,31 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
       // 4. 从知识库检索相关内容 (RAG)
       const knowledgeBaseId = processNode.config?.knowledgeBaseId
       if (knowledgeBaseId) {
-        context.addLog?.('step', `正在检索知识库 (ID: ${knowledgeBaseId})...`, 'RAG', {
-          query: userPromptText
-        })
-        try {
-          const ragContext = await this.retrieveKnowledgeContext(
-            knowledgeBaseId,
-            userPromptText,
-            processNode.config?.ragConfig,
-            { apiKey: aiConfig.apiKey, baseUrl: aiConfig.baseUrl }
-          )
-          if (ragContext) {
-            // ...
-            systemPrompt = `${systemPrompt}\n\n## 知识库检索结果\n${ragContext}`
-            // ...
-          } else {
-            context.addLog?.('warning', '知识库检索未找到相关内容', 'RAG')
+        const ragQuery = buildRagQuery({ userPromptText, importedFiles: context.importedFiles, maxChars: 2000 })
+        if (!ragQuery.trim()) {
+          context.addLog?.('warning', '知识库检索已跳过：缺少可用于检索的文本（提示词/导入文件为空）', 'RAG')
+        } else {
+          context.addLog?.('step', `正在检索知识库 (ID: ${knowledgeBaseId})...`, 'RAG', {
+            query: ragQuery,
+            config: processNode.config?.ragConfig
+          })
+          try {
+            const ragContext = await this.retrieveKnowledgeContext(
+              knowledgeBaseId,
+              ragQuery,
+              processNode.config?.ragConfig,
+              { apiKey: aiConfig.apiKey, baseUrl: aiConfig.baseUrl, provider: aiConfig.provider }
+            )
+            if (ragContext) {
+              // ...
+              systemPrompt = `${systemPrompt}\n\n## 知识库检索结果\n${ragContext}`
+              // ...
+            } else {
+              context.addLog?.('warning', '知识库检索未找到相关内容', 'RAG')
+            }
+          } catch (err) {
+            context.addLog?.('error', `知识库检索失败: ${err}`, 'RAG')
           }
-        } catch (err) {
-          context.addLog?.('error', `知识库检索失败: ${err}`, 'RAG')
         }
       }
 
@@ -251,17 +269,55 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
         toolCallsCount: result.toolCallHistory.length
       })
 
+      // 基础输出数据：始终保留文本结果与工具调用历史
+      const data: Record<string, unknown> = {
+        结果: result.content,
+        model: result.model,
+        toolCalls: result.toolCallHistory,
+        toolCallRounds: result.rounds,
+      }
+
+      let outputType: OutputType | undefined
+
+      // 尝试从最近一次成功的工具调用中提取结构化结果（如图片/视频/音频）
+      if (result.toolCallHistory.length > 0) {
+        const lastSuccessful = [...result.toolCallHistory]
+          .reverse()
+          .find(item => item.result?.success && item.result.result && typeof item.result.result === 'object')
+
+        if (lastSuccessful && lastSuccessful.result.result && typeof lastSuccessful.result.result === 'object') {
+          const toolResult = lastSuccessful.result.result as Record<string, unknown>
+          const type = toolResult._type as string | undefined
+
+          if (type === 'image-gen' && Array.isArray(toolResult.images)) {
+            // 直接将图片数组展开到顶层，便于前端预览与下游节点引用
+            data.images = toolResult.images
+            outputType = 'image'
+          } else if (type === 'video-gen' && Array.isArray(toolResult.videos)) {
+            data.videos = toolResult.videos
+            if (toolResult.taskId) {
+              data.taskId = toolResult.taskId
+            }
+            outputType = 'video'
+          } else if (type === 'audio-tts' && toolResult.audio) {
+            data.audio = toolResult.audio
+            if (toolResult.text) {
+              data.text = toolResult.text
+            }
+            outputType = 'audio'
+          }
+        }
+      }
+
       return {
         nodeId: node.id,
         nodeName: node.name,
         nodeType: node.type,
         status: 'success',
-        data: {
-          结果: result.content,
-          model: result.model,
-          toolCalls: result.toolCallHistory,
-          toolCallRounds: result.rounds,
-        },
+        data,
+        outputType,
+        aiProvider: aiConfig.provider,
+        aiModel: result.model,
         startedAt,
         completedAt: new Date(),
         duration: Date.now() - startedAt.getTime(),
@@ -325,6 +381,21 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
         }
 
         instructions.push(`\n### 工具 "${tool.name}" (${executorName}) 的预设参数：\n请使用以下参数调用此工具：\n${params.join('\n')}`)
+      }
+
+      // 飞书多维表格工具的预配置参数（不包含鉴权 token）
+      if (tool.type === 'feishu-bitable') {
+        const params: string[] = []
+        if (tool.config.appToken) params.push(`app_token: "${tool.config.appToken}"`)
+        if (tool.config.tableId) params.push(`table_id: "${tool.config.tableId}"`)
+        if (tool.config.operation) params.push(`operation: "${tool.config.operation}"`)
+        if (params.length > 0) {
+          instructions.push(
+            `\n### 工具 "${tool.name}" (${executorName}) 的预设参数：\n` +
+            `请优先复用以下参数调用此工具：\n${params.join('\n')}\n` +
+            `注意：飞书鉴权 token 不在此处提供，运行环境需配置 FEISHU_TENANT_ACCESS_TOKEN。`
+          )
+        }
       }
 
       // 可以为其他工具类型添加类似的逻辑
@@ -458,12 +529,18 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
     let rounds = 0
     let lastResponse: ChatResponseWithTools | null = null
 
-    const toolContext = {
+    const toolContext: ToolExecutionContext = {
       executionId: context.executionId,
       workflowId: context.workflowId,
       organizationId: context.organizationId,
       userId: context.userId,
       variables: context.globalVariables,
+      aiConfig: {
+        provider: aiConfig.provider,
+        apiKey: aiConfig.apiKey,
+        baseUrl: aiConfig.baseUrl,
+        defaultModel: aiConfig.defaultModel,
+      },
     }
 
     while (rounds < maxRounds) {
@@ -686,7 +763,7 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
     knowledgeBaseId: string,
     query: string,
     ragConfig?: { topK?: number; threshold?: number; maxContextTokens?: number },
-    apiConfig?: { apiKey?: string; baseUrl?: string }
+    apiConfig?: { apiKey?: string; baseUrl?: string; provider?: AIConfigCache['provider'] }
   ): Promise<string | null> {
     try {
       const knowledgeBase = await prisma.knowledgeBase.findUnique({
@@ -698,6 +775,25 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
         return null
       }
 
+      let apiKey = apiConfig?.apiKey
+      let baseUrl = apiConfig?.baseUrl
+
+      if (!apiKey || apiConfig?.provider !== knowledgeBase.embeddingProvider) {
+        const embeddingApiKey = await prisma.apiKey.findFirst({
+          where: {
+            organizationId: knowledgeBase.organizationId,
+            provider: knowledgeBase.embeddingProvider,
+            isActive: true,
+          },
+          orderBy: [{ isDefault: 'desc' }, { updatedAt: 'desc' }],
+        })
+
+        if (embeddingApiKey) {
+          apiKey = safeDecryptApiKey(embeddingApiKey.keyEncrypted) || apiKey
+          baseUrl = embeddingApiKey.baseUrl || baseUrl
+        }
+      }
+
       const context = await getRelevantContext({
         knowledgeBaseId,
         query,
@@ -706,8 +802,8 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
         embeddingModel: knowledgeBase.embeddingModel,
         embeddingProvider: knowledgeBase.embeddingProvider,
         maxTokens: ragConfig?.maxContextTokens ?? 4000,
-        apiKey: apiConfig?.apiKey,
-        baseUrl: apiConfig?.baseUrl,
+        apiKey,
+        baseUrl,
       })
 
       return context || null

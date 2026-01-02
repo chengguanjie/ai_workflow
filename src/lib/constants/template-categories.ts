@@ -22,7 +22,17 @@ import {
   MessageCircle,
   MoreHorizontal,
   Briefcase,
-  Code
+  Code,
+  Factory,
+  ClipboardList,
+  Share2,
+  ShoppingCart,
+  Headphones,
+  Settings,
+  Truck,
+  Wrench,
+  HeartPulse,
+  GraduationCap
 } from 'lucide-react'
 
 // 分类类型
@@ -116,11 +126,25 @@ export const DEPARTMENT_CATEGORIES: Category[] = [
     description: '销售团队相关工作流'
   },
   {
+    id: 'sales-support',
+    name: '销售内勤',
+    icon: Headphones,
+    type: 'department',
+    description: '销售内勤支持相关工作流'
+  },
+  {
     id: 'marketing',
     name: '市场',
     icon: Megaphone,
     type: 'department',
     description: '市场营销相关工作流'
+  },
+  {
+    id: 'new-media',
+    name: '新媒体',
+    icon: Share2,
+    type: 'department',
+    description: '新媒体运营相关工作流'
   },
   {
     id: 'hr',
@@ -151,6 +175,55 @@ export const DEPARTMENT_CATEGORIES: Category[] = [
     description: '产品管理相关工作流'
   },
   {
+    id: 'production',
+    name: '生产',
+    icon: Factory,
+    type: 'department',
+    description: '生产制造相关工作流'
+  },
+  {
+    id: 'project',
+    name: '项目管理',
+    icon: ClipboardList,
+    type: 'department',
+    description: '项目管理相关工作流'
+  },
+  {
+    id: 'procurement',
+    name: '采购',
+    icon: ShoppingCart,
+    type: 'department',
+    description: '采购管理相关工作流'
+  },
+  {
+    id: 'logistics',
+    name: '物流仓储',
+    icon: Truck,
+    type: 'department',
+    description: '物流仓储相关工作流'
+  },
+  {
+    id: 'tech',
+    name: '技术研发',
+    icon: Wrench,
+    type: 'department',
+    description: '技术研发相关工作流'
+  },
+  {
+    id: 'quality',
+    name: '质量管理',
+    icon: Settings,
+    type: 'department',
+    description: '质量管理相关工作流'
+  },
+  {
+    id: 'customer-service',
+    name: '客服',
+    icon: MessageCircle,
+    type: 'department',
+    description: '客户服务相关工作流'
+  },
+  {
     id: 'admin',
     name: '行政',
     icon: Building,
@@ -163,6 +236,13 @@ export const DEPARTMENT_CATEGORIES: Category[] = [
     icon: Scale,
     type: 'department',
     description: '法务合规相关工作流'
+  },
+  {
+    id: 'training',
+    name: '培训',
+    icon: GraduationCap,
+    type: 'department',
+    description: '培训发展相关工作流'
   },
   {
     id: 'other',

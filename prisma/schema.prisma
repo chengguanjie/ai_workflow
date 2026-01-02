@@ -42,6 +42,7 @@ model Organization {
   departments       Department[]
   platformFeedbacks PlatformFeedback[]
   executions        Execution[]
+  integrationCredentials IntegrationCredential[]
 
   @@map("organizations")
 }
@@ -68,11 +69,35 @@ model User {
   executions          Execution[]
   platformFeedbacks   PlatformFeedback[]
   analyticsDataPoints AnalyticsDataPoint[]
+  integrationCredentials IntegrationCredential[]
 
   @@index([organizationId])
   @@index([departmentId])
   @@index([email])
   @@map("users")
+}
+
+model IntegrationCredential {
+  id                  String   @id @default(cuid())
+  provider            String
+  accessTokenEncrypted String   @db.Text
+  refreshTokenEncrypted String? @db.Text
+  expiresAt           DateTime?
+  scope               String?  @db.Text
+  externalAccountId   String?
+  metadata            Json?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  organizationId      String
+  userId              String
+  organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user                User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, provider])
+  @@index([provider])
+  @@index([userId])
+  @@map("integration_credentials")
 }
 
 model Department {

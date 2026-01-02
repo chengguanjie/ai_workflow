@@ -113,8 +113,10 @@ export function getModelModality(modelId: string): ModelModality | null {
 export type ContentPart =
   | { type: 'text'; text: string }
   | { type: 'image_url'; image_url: { url: string; detail?: 'low' | 'high' | 'auto' } }
-  | { type: 'input_audio'; input_audio: { data: string; format: 'wav' | 'mp3' } }
+  | { type: 'input_audio'; input_audio: { data: string; format: 'wav' | 'mp3' | 'ogg' | 'm4a' | 'flac' | 'webm' } }
   | { type: 'video_url'; video_url: { url: string } }
+  /** Internal-only: will be resolved to input_audio before sending to provider. */
+  | { type: 'audio_url'; audio_url: { url: string } }
 
 /**
  * 聊天消息 - 支持纯文本或多模态内容
@@ -175,6 +177,13 @@ export interface AIProvider {
   listModels?(apiKey: string, baseUrl?: string): Promise<Model[]>
   transcribeAudio?(audioData: ArrayBuffer, options: TranscriptionOptions, apiKey: string, baseUrl?: string): Promise<TranscriptionResponse>
   transcribeAudioFromUrl?(audioUrl: string, options: TranscriptionOptions, apiKey: string, baseUrl?: string): Promise<TranscriptionResponse>
+  // 多模态生成方法
+  generateImage?(request: ImageGenerationRequest, apiKey: string, baseUrl?: string): Promise<ImageGenerationResponse>
+  generateVideo?(request: VideoGenerationRequest, apiKey: string, baseUrl?: string): Promise<VideoGenerationResponse>
+  textToSpeech?(request: TTSRequest, apiKey: string, baseUrl?: string): Promise<TTSResponse>
+  createEmbedding?(request: EmbeddingRequest, apiKey: string, baseUrl?: string): Promise<EmbeddingResponse>
+  // 视频生成状态查询（异步任务）
+  getVideoTaskStatus?(taskId: string, apiKey: string, baseUrl?: string): Promise<VideoGenerationResponse>
 }
 
 /**
@@ -259,3 +268,209 @@ export function createVideoContent(videoUrl: string): ContentPart {
     video_url: { url: videoUrl }
   }
 }
+
+// ========================================
+// 多模态生成 API 类型定义
+// ========================================
+
+/**
+ * 图片生成请求
+ */
+export interface ImageGenerationRequest {
+  model: string
+  prompt: string
+  negativePrompt?: string       // 负面提示词
+  n?: number                    // 生成数量，默认 1
+  size?: string                 // 如 "1024x1024"
+  quality?: 'standard' | 'hd'
+  style?: 'vivid' | 'natural'
+  responseFormat?: 'url' | 'b64_json'
+  referenceImages?: string[]    // 参考图片 URL 数组（用于图生图）
+}
+
+/**
+ * 图片生成响应
+ */
+export interface ImageGenerationResponse {
+  images: Array<{
+    url?: string
+    b64_json?: string
+    revisedPrompt?: string
+  }>
+  model: string
+  usage?: {
+    totalTokens?: number
+  }
+}
+
+/**
+ * 视频生成请求
+ */
+export interface VideoGenerationRequest {
+  model: string
+  prompt: string
+  image?: string                // 可选的参考图片 URL（图生视频）
+  duration?: number             // 秒数
+  aspectRatio?: '16:9' | '9:16' | '1:1'
+  resolution?: '720p' | '1080p' | '4k'
+}
+
+/**
+ * 视频生成响应
+ */
+export interface VideoGenerationResponse {
+  taskId: string                // 异步任务 ID
+  status: 'pending' | 'processing' | 'completed' | 'failed'
+  videos?: Array<{
+    url: string
+    duration: number
+    format?: string
+  }>
+  error?: string
+}
+
+/**
+ * TTS 文本转语音请求
+ */
+export interface TTSRequest {
+  model: string
+  input: string
+  voice?: string                // 音色 ID
+  speed?: number                // 0.25 - 4.0
+  responseFormat?: 'mp3' | 'wav' | 'opus' | 'aac'
+}
+
+/**
+ * TTS 响应
+ */
+export interface TTSResponse {
+  audio: {
+    url?: string
+    b64_json?: string
+    format: string
+    duration?: number
+  }
+}
+
+/**
+ * 向量嵌入请求
+ */
+export interface EmbeddingRequest {
+  model: string
+  input: string | string[]
+  dimensions?: number
+}
+
+/**
+ * 向量嵌入响应
+ */
+export interface EmbeddingResponse {
+  embeddings: Array<{
+    index: number
+    embedding: number[]
+  }>
+  model: string
+  usage: {
+    promptTokens: number
+    totalTokens: number
+  }
+}
+
+// ========================================
+// 多模态输出标准格式
+// ========================================
+
+/**
+ * 图片生成输出
+ */
+export interface ImageGenOutput {
+  _type: 'image-gen'
+  images: Array<{
+    url: string
+    b64?: string
+    revisedPrompt?: string
+    width?: number
+    height?: number
+  }>
+  model: string
+  prompt: string
+}
+
+/**
+ * 视频生成输出
+ */
+export interface VideoGenOutput {
+  _type: 'video-gen'
+  videos: Array<{
+    url: string
+    duration: number
+    format?: string
+  }>
+  taskId: string
+  model: string
+  prompt: string
+}
+
+/**
+ * TTS 输出
+ */
+export interface TTSOutput {
+  _type: 'audio-tts'
+  audio: {
+    url: string
+    format: string
+    duration?: number
+  }
+  model: string
+  text: string
+}
+
+/**
+ * 音频转录输出
+ */
+export interface TranscriptionOutput {
+  _type: 'audio-transcription'
+  text: string
+  segments?: Array<{
+    start: number
+    end: number
+    text: string
+  }>
+  language?: string
+  model: string
+}
+
+/**
+ * 向量嵌入输出
+ */
+export interface EmbeddingOutput {
+  _type: 'embedding'
+  embeddings: number[][]
+  model: string
+  dimensions: number
+}
+
+/**
+ * 文本输出
+ */
+export interface TextOutput {
+  _type: 'text'
+  content: string
+  model: string
+  usage?: {
+    promptTokens: number
+    completionTokens: number
+    totalTokens: number
+  }
+}
+
+/**
+ * 联合模态输出类型
+ */
+export type ModalityOutput =
+  | ImageGenOutput
+  | VideoGenOutput
+  | TTSOutput
+  | TranscriptionOutput
+  | EmbeddingOutput
+  | TextOutput

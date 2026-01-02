@@ -145,7 +145,7 @@ export interface Conversation {
 }
 
 // 面板模式
-export type PanelMode = 'chat' | 'create' | 'diagnose' | 'optimize'
+export type PanelMode = 'chat' | 'create' | 'diagnose' | 'optimize' | 'refine' | 'test'
 
 // 诊断问题
 export interface DiagnosisIssue {
@@ -180,6 +180,12 @@ export interface CreateWorkflowDraft {
   step: 'input' | 'confirm'
 }
 
+// 测试结果类型（增强版，包含输入数据）
+export interface SharedTestResult extends TestResult {
+  testInput?: Record<string, unknown>
+  timestamp?: number
+}
+
 interface AIAssistantState {
   isOpen: boolean
   showHistory: boolean
@@ -209,6 +215,10 @@ interface AIAssistantState {
   diagnosisResult: DiagnosisResult | null
   isDiagnosing: boolean
 
+  // 共享的测试结果和AES报告（跨页面共享）
+  sharedTestResult: SharedTestResult | null
+  sharedAESReport: AESReport | null
+
   openPanel: () => void
   closePanel: () => void
   togglePanel: () => void
@@ -228,6 +238,11 @@ interface AIAssistantState {
   setDiagnosisResult: (result: DiagnosisResult | null) => void
   setIsDiagnosing: (loading: boolean) => void
   clearDiagnosis: () => void
+
+  // 共享测试结果和AES报告方法
+  setSharedTestResult: (result: SharedTestResult | null) => void
+  setSharedAESReport: (report: AESReport | null) => void
+  clearSharedResults: () => void
 
   createConversation: (workflowId: string) => string
   selectConversation: (conversationId: string) => void
@@ -299,6 +314,10 @@ export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
   diagnosisResult: null,
   isDiagnosing: false,
 
+  // 共享测试结果初始值
+  sharedTestResult: null,
+  sharedAESReport: null,
+
   openPanel: () => set({ isOpen: true }),
   closePanel: () => set({ isOpen: false }),
   togglePanel: () => set((state) => ({ isOpen: !state.isOpen })),
@@ -320,6 +339,11 @@ export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
   setDiagnosisResult: (result) => set({ diagnosisResult: result }),
   setIsDiagnosing: (loading) => set({ isDiagnosing: loading }),
   clearDiagnosis: () => set({ diagnosisResult: null, isDiagnosing: false }),
+
+  // 共享测试结果方法
+  setSharedTestResult: (result) => set({ sharedTestResult: result }),
+  setSharedAESReport: (report) => set({ sharedAESReport: report }),
+  clearSharedResults: () => set({ sharedTestResult: null, sharedAESReport: null }),
 
   createConversation: (workflowId: string) => {
     const id = `conv_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`

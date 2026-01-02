@@ -29,7 +29,6 @@ interface CreateWorkflowSectionProps {
   selectedModel: string;
 }
 
-// 快速示例
 const EXAMPLES = [
   {
     label: "客服问答系统",
@@ -46,6 +45,11 @@ const EXAMPLES = [
   {
     label: "内容审核",
     prompt: "创建一个AI内容审核工作流，检测文本是否合规",
+  },
+  {
+    label: "多模态内容生产",
+    prompt:
+      "帮我设计一个多模态内容生产工作流，要求：1）用图片生成工具生成公众号/小红书配图；2）用视频生成工具生成 15 秒竖版短视频脚本对应的视频；3）用音频生成（TTS）工具把最终文案转成播客口播音频。",
   },
 ];
 

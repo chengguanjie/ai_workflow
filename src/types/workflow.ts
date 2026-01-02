@@ -7,11 +7,14 @@
  * Simplified version: Only INPUT and PROCESS node types are supported.
  */
 
+import type { ModelModality } from '@/lib/ai/types'
+import type { OutputType } from '@/lib/workflow/debug-panel/types'
+
 // ============================================
 // Basic Types
 // ============================================
 
-export type NodeType = 'INPUT' | 'PROCESS'
+export type NodeType = 'INPUT' | 'PROCESS' | 'CODE' | 'OUTPUT' | 'LOGIC'
 
 export type AIProviderType = 'SHENSUAN' | 'OPENROUTER' | 'OPENAI' | 'ANTHROPIC' | 'BAIDU_WENXIN' | 'ALIYUN_TONGYI' | 'XUNFEI_SPARK' | 'STABILITYAI'
 
@@ -163,6 +166,8 @@ export interface NodeAIConfig {
   aiConfigId?: string
   /** AI model identifier */
   model?: string
+  /** Selected modality (explicitly saved from UI) */
+  modality?: ModelModality
   /** Temperature for AI generation (0-2) */
   temperature?: number
   /** Maximum tokens for AI response */
@@ -259,11 +264,163 @@ export interface ProcessNodeConfigData extends NodeAIConfig {
   toolChoice?: 'auto' | 'none' | 'required'
   /** Maximum tool call rounds */
   maxToolCallRounds?: number
+
+  // ===== 多模态生成配置 =====
+
+  /** 图片生成配置 */
+  imageSize?: '1024x1024' | '1792x1024' | '1024x1792' | string
+  imageCount?: number
+  imageQuality?: 'standard' | 'hd'
+  imageStyle?: 'vivid' | 'natural'
+  negativePrompt?: string
+
+  /** 视频生成配置 */
+  videoDuration?: number
+  videoAspectRatio?: '16:9' | '9:16' | '1:1'
+  videoResolution?: '720p' | '1080p' | '4k'
+  referenceImage?: string
+
+  /** TTS 配置 */
+  ttsVoice?: string
+  ttsSpeed?: number
+  ttsFormat?: 'mp3' | 'wav' | 'opus'
+
+  /** 音频转录配置 */
+  transcriptionLanguage?: string
+  transcriptionFormat?: 'json' | 'text' | 'srt' | 'vtt'
+
+  /** 向量嵌入配置 */
+  embeddingDimensions?: number
+
+  /** 期望输出类型（用于画布展示与下载预设） */
+  expectedOutputType?: OutputType
 }
 
 export interface ProcessNodeConfig extends BaseNodeConfig {
   type: 'PROCESS'
   config: ProcessNodeConfigData
+}
+
+// ============================================
+// CODE Node Configuration
+// ============================================
+
+export interface CodeNodeConfigData extends NodeAIConfig {
+  prompt?: string
+  language?: 'javascript' | 'typescript' | 'python' | 'sql' | 'other'
+  code?: string
+  /** Timeout in milliseconds */
+  timeout?: number
+  /** Max output size in characters */
+  maxOutputSize?: number
+}
+
+export interface CodeNodeConfig extends BaseNodeConfig {
+  type: 'CODE'
+  config: CodeNodeConfigData
+}
+
+// ============================================
+// OUTPUT Node Configuration
+// ============================================
+
+export interface OutputNodeConfigData extends NodeAIConfig {
+  /** Content template; variables like {{Node.field}} supported */
+  prompt?: string
+  /** Output format */
+  format?: OutputFormat
+  /** File name override */
+  fileName?: string
+}
+
+export interface OutputNodeConfig extends BaseNodeConfig {
+  type: 'OUTPUT'
+  config: OutputNodeConfigData
+}
+
+// ============================================
+// LOGIC Node Configuration
+// ============================================
+
+/**
+ * 逻辑节点模式：
+ * - condition: 条件判断，按表达式匹配后续分支
+ * - split: 并行拆分，激活所有后续分支
+ * - merge: 结果合并，聚合多个上游结果
+ * - switch: 按变量取值做分支选择
+ */
+export type LogicNodeMode = 'condition' | 'split' | 'merge' | 'switch'
+
+/**
+ * 通用逻辑分支描述
+ */
+export interface LogicBranch {
+  /** 分支 ID（用于内部识别） */
+  id: string
+  /** 分支显示名称 */
+  label: string
+  /** 目标节点 ID（可选，部分模式仅作为文档提示，实际路由由边决定） */
+  targetNodeId?: string
+}
+
+/**
+ * 条件判断配置
+ */
+export interface LogicCondition {
+  /** 条件 ID */
+  id: string
+  /** 条件描述（短标签） */
+  label?: string
+  /**
+   * 条件表达式（字符串形式）
+   * 例如：`{{上游节点.字段}} > 5 && {{变量.xxx}} === "wechat"`
+   */
+  expression: string
+  /**
+   * 命中该条件时建议前往的目标节点（可选，主要用于配置 UI 提示）
+   * 仅用于可视化和 AI 建议，不直接参与执行路由（路由仍由边决定）
+   */
+  targetNodeId?: string
+  /**
+   * 目标节点名称提示（当还没有确定具体 nodeId 时由 AI 先给出名称，后续再解析为 nodeId）
+   */
+  targetNodeNameHint?: string
+  /** 条件的自然语言说明，便于展示和调试 */
+  description?: string
+}
+
+/**
+ * LOGIC 节点配置
+ *
+ * 注意：路由的真正生效仍由边决定，这里的 targetNodeId 主要用于 UI 与分析提示。
+ */
+export interface LogicNodeConfigData {
+  /** 逻辑模式 */
+  mode: LogicNodeMode
+
+  /** 条件模式配置 */
+  conditions?: LogicCondition[]
+  /** 未命中任何条件时建议的兜底目标节点（可选） */
+  fallbackTargetNodeId?: string
+
+  /** 拆分 / 合并 / Switch 模式下可复用的分支定义 */
+  branches?: LogicBranch[]
+
+  /** Merge 模式：显式声明需要聚合的上游节点 ID；默认聚合所有上游 */
+  mergeFromNodeIds?: string[]
+  /** Merge 策略：all-聚合所有、first-取第一个成功的结果、custom-预留扩展 */
+  mergeStrategy?: 'all' | 'first' | 'custom'
+
+  /**
+   * Switch 模式：输入变量路径（如 \"节点名.字段\"）
+   * 实际值由引擎在执行时根据 nodeOutputs/globalVariables 解析
+   */
+  switchInput?: string
+}
+
+export interface LogicNodeConfig extends BaseNodeConfig {
+  type: 'LOGIC'
+  config: LogicNodeConfigData
 }
 
 // ============================================
@@ -273,12 +430,22 @@ export interface ProcessNodeConfig extends BaseNodeConfig {
 /**
  * Union type of all node configurations
  */
-export type NodeConfig = InputNodeConfig | ProcessNodeConfig
+export type NodeConfig =
+  | InputNodeConfig
+  | ProcessNodeConfig
+  | CodeNodeConfig
+  | OutputNodeConfig
+  | LogicNodeConfig
 
 /**
  * Union type of all node config data types
  */
-export type NodeConfigData = InputNodeConfigData | ProcessNodeConfigData
+export type NodeConfigData =
+  | InputNodeConfigData
+  | ProcessNodeConfigData
+  | CodeNodeConfigData
+  | OutputNodeConfigData
+  | LogicNodeConfigData
 
 // ============================================
 // Edge Configuration

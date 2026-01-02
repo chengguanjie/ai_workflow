@@ -4,6 +4,7 @@
 
 import type { ExecutionContext, VariableReference } from './types'
 import type { NodeConfig, EdgeConfig } from '@/types/workflow'
+import type { ContentPart } from '@/lib/ai/types'
 
 /**
  * 变量引用正则表达式
@@ -97,7 +98,7 @@ export function replaceVariables(
 ): string {
   // 先处理完整格式 {{节点名.字段名}}
   let result = text.replace(VARIABLE_PATTERN, (match, nodeName, fieldPath) => {
-    const nodeOutput = findNodeOutputByName(nodeName.trim(), context)
+    const nodeOutput = findNodeOutputByNameOrId(nodeName.trim(), context)
 
     if (!nodeOutput) {
       console.warn(`Variable reference not found: ${match}`)
@@ -127,7 +128,7 @@ export function replaceVariables(
 
   // 再处理简化格式 {{节点名}}（不含点号）
   result = result.replace(SIMPLE_VARIABLE_PATTERN, (match, nodeName) => {
-    const nodeOutput = findNodeOutputByName(nodeName.trim(), context)
+    const nodeOutput = findNodeOutputByNameOrId(nodeName.trim(), context)
 
     if (!nodeOutput) {
       console.warn(`Variable reference not found (simple format): ${match}`)
@@ -160,6 +161,26 @@ export function findNodeOutputByName(
 ): { data: Record<string, unknown> } | undefined {
   for (const [, output] of context.nodeOutputs) {
     if (output.nodeName === nodeName) {
+      return output
+    }
+  }
+  return undefined
+}
+
+/**
+ * 根据节点名称或 nodeId 查找节点输出
+ * - 兼容旧的按名称引用
+ * - 允许按 nodeId 引用以降低改名脆弱性
+ */
+export function findNodeOutputByNameOrId(
+  nodeNameOrId: string,
+  context: ExecutionContext
+): { data: Record<string, unknown> } | undefined {
+  const byName = findNodeOutputByName(nodeNameOrId, context)
+  if (byName) return byName
+
+  for (const [, output] of context.nodeOutputs) {
+    if (output.nodeId === nodeNameOrId) {
       return output
     }
   }
@@ -521,8 +542,6 @@ export function isForkNode(
 // Multimodal Content Utilities
 // ============================================
 
-import type { ContentPart } from '@/lib/ai/types'
-
 /**
  * 将变量值转换为多模态内容部分
  */
@@ -534,11 +553,69 @@ function convertValueToContentParts(value: unknown): ContentPart[] {
     return value.flatMap(convertValueToContentParts)
   }
 
-  // 2. 处理对象
+  // 2. 处理字符串（可能是纯 URL）
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    
+    // 检查是否是 data URI
+    if (trimmed.startsWith('data:image/')) {
+      return [{
+        type: 'image_url',
+        image_url: { url: trimmed, detail: 'auto' }
+      }]
+    }
+    if (trimmed.startsWith('data:audio/')) {
+      return [{
+        type: 'audio_url',
+        audio_url: { url: trimmed }
+      }]
+    }
+    if (trimmed.startsWith('data:video/')) {
+      return [{
+        type: 'video_url',
+        video_url: { url: trimmed }
+      }]
+    }
+    
+    // 检查是否是 HTTP/HTTPS URL
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('/api/files/')) {
+      const mimeType = detectMimeType(trimmed)
+      const format = detectFormat(trimmed)
+      
+      // 图片 URL
+      if (mimeType?.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(format)) {
+        return [{
+          type: 'image_url',
+          image_url: { url: trimmed, detail: 'auto' }
+        }]
+      }
+      
+      // 音频 URL
+      if (mimeType?.startsWith('audio/') || ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'webm', 'aac'].includes(format)) {
+        return [{
+          type: 'audio_url',
+          audio_url: { url: trimmed }
+        }]
+      }
+      
+      // 视频 URL
+      if (mimeType?.startsWith('video/') || ['mp4', 'webm', 'mov', 'avi', 'mkv'].includes(format)) {
+        return [{
+          type: 'video_url',
+          video_url: { url: trimmed }
+        }]
+      }
+    }
+    
+    // 普通文本
+    return [{ type: 'text', text: value }]
+  }
+
+  // 3. 处理对象
   if (typeof value === 'object') {
     const val = value as Record<string, any>
 
-    // 2.1 检查是否是 ImageInfo / AudioInfo / VideoInfo (来自 Image/Audio/Video 节点)
+    // 3.1 检查是否是 ImageInfo / AudioInfo / VideoInfo (来自 Image/Audio/Video 节点)
     if (val.url) {
       // 尝试推断类型
       const mimeType = val.type || val.mimeType || detectMimeType(val.url) || ''
@@ -553,12 +630,12 @@ function convertValueToContentParts(value: unknown): ContentPart[] {
       }
 
       // 音频 
-      // 注意: 音频通常需要 base64 数据 (input_audio)，但部分模型可能支持 URL (暂不支持)
-      // 如果对象中有 content/base64 ? 目前 ImageNode/AudioNode 没有返回 base64。
-      // 对于 AudioNode，它返回了 url。
-      // 这里的处理比较棘手，标准的 ContentPart for audio 需要 base64。
-      // 暂时如果遇到 audio 只能忽略或当作文本，除非模型支持 video_url 泛化。
-      // 为简单起见，如果检测到 visual 模型支持的 URL (图片/视频)，则转换。
+      if (mimeType.startsWith('audio/') || ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'webm'].includes(format)) {
+        return [{
+          type: 'audio_url',
+          audio_url: { url: val.url }
+        }]
+      }
 
       // 视频
       if (mimeType.startsWith('video/') || ['mp4', 'webm', 'mov', 'avi'].includes(format)) {
@@ -569,14 +646,24 @@ function convertValueToContentParts(value: unknown): ContentPart[] {
       }
     }
 
-    // 2.2 特殊处理 InputNode 的 file 结构
+    // 3.2 特殊处理 InputNode 的 file 结构
     // { value, file: { url, mimeType }, url }
     if (val.file && val.file.url) {
       return convertValueToContentParts(val.file)
     }
+    
+    // 3.3 检查 images 数组（来自图片生成节点）
+    if (val.images && Array.isArray(val.images)) {
+      return val.images.flatMap((img: { url?: string }) => {
+        if (img.url) {
+          return [{ type: 'image_url', image_url: { url: img.url, detail: 'auto' } }]
+        }
+        return []
+      })
+    }
   }
 
-  // 3. 默认转换为文本
+  // 4. 默认转换为文本
   let textVal = ''
   if (typeof value === 'object') {
     textVal = JSON.stringify(value, null, 2)
@@ -591,7 +678,7 @@ function convertValueToContentParts(value: unknown): ContentPart[] {
  * 简单的 MIME 检测
  */
 function detectMimeType(url: string): string | null {
-  const ext = url.split('.').pop()?.toLowerCase()
+  const ext = extractExtensionFromUrl(url)
   if (!ext) return null
   if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext)) return `image/${ext === 'jpg' ? 'jpeg' : ext}`
   if (['mp4', 'webm'].includes(ext)) return `video/${ext}`
@@ -600,7 +687,30 @@ function detectMimeType(url: string): string | null {
 }
 
 function detectFormat(url: string): string {
-  return url.split('.').pop()?.toLowerCase() || ''
+  return extractExtensionFromUrl(url) || ''
+}
+
+function extractExtensionFromUrl(url: string): string | null {
+  const raw = url.split('?')[0] || url
+
+  // Prefer extracting from /api/files/{encodedFileKey}/download (fileKey contains the original filename+ext)
+  try {
+    const parsed = new URL(raw, 'http://localhost')
+    const match = parsed.pathname.match(/^\/api\/files\/([^/]+)\/download$/)
+    if (match?.[1]) {
+      const fileKey = decodeURIComponent(match[1])
+      const name = fileKey.split('/').pop() || ''
+      const ext = name.includes('.') ? name.split('.').pop() : null
+      if (ext) return ext.toLowerCase()
+    }
+  } catch {
+    // ignore
+  }
+
+  // Fallback: last "." segment (may fail for URLs ending with "/download")
+  const last = raw.split('.').pop()?.toLowerCase() || ''
+  if (!last || last.includes('/') || last.includes('%2f')) return null
+  return last
 }
 
 /**
@@ -668,7 +778,7 @@ export function createContentPartsFromText(
       const dotIndex = varContent.indexOf('.')
       const nodeName = varContent.substring(0, dotIndex).trim()
       const fieldPath = varContent.substring(dotIndex + 1).trim()
-      const nodeOutput = findNodeOutputByName(nodeName, context)
+      const nodeOutput = findNodeOutputByNameOrId(nodeName, context)
 
       if (nodeOutput) {
         if (fieldPath.includes('.')) {
@@ -683,7 +793,7 @@ export function createContentPartsFromText(
     } else {
       // 简化格式：{{节点名}}
       const nodeName = varContent
-      const nodeOutput = findNodeOutputByName(nodeName, context)
+      const nodeOutput = findNodeOutputByNameOrId(nodeName, context)
 
       if (nodeOutput) {
         value = getDefaultOutputValue(nodeOutput)

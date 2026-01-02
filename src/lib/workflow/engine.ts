@@ -12,6 +12,7 @@ import type {
   NodeOutput,
 } from './types'
 import { getExecutionOrder, getParallelExecutionLayers, getPredecessorIds } from './utils'
+import { shouldExecuteNode, type LogicRoutingContext } from './engine/logic-routing'
 import { executionEvents } from './execution-events'
 import {
   type CheckpointData,
@@ -27,6 +28,7 @@ import {
   applyInitialInput as moduleApplyInput,
 } from './engine/executor'
 import { WorkflowErrorHandler } from './error-handler'
+import { calculateTokenCostUSD } from '@/lib/ai/cost'
 
 /**
  * 工作流执行引擎
@@ -45,6 +47,35 @@ export class WorkflowEngine {
   private workflowHash: string
   private lastFailedNodeId: string | null = null
   private analyticsCollector: AnalyticsCollector | null = null
+
+  private computeExecutionTotals(context: ExecutionContext): {
+    totalTokens: number
+    promptTokens: number
+    completionTokens: number
+    estimatedCost: number
+  } {
+    let totalTokens = 0
+    let promptTokens = 0
+    let completionTokens = 0
+    let estimatedCost = 0
+
+    for (const [, output] of context.nodeOutputs) {
+      if (!output.tokenUsage) continue
+      totalTokens += output.tokenUsage.totalTokens
+      promptTokens += output.tokenUsage.promptTokens
+      completionTokens += output.tokenUsage.completionTokens
+
+      if (output.aiModel) {
+        estimatedCost += calculateTokenCostUSD(
+          output.aiModel,
+          output.tokenUsage.promptTokens,
+          output.tokenUsage.completionTokens
+        )
+      }
+    }
+
+    return { totalTokens, promptTokens, completionTokens, estimatedCost }
+  }
 
   constructor(
     workflowId: string,
@@ -202,30 +233,39 @@ export class WorkflowEngine {
       }
 
       if (result.paused) {
+        const duration = Date.now() - startTime
+        const totals = this.computeExecutionTotals(context)
+
         await prisma.execution.update({
           where: { id: execution.id },
           data: {
             status: 'PAUSED',
             output: result.lastOutput as Prisma.InputJsonValue,
+            duration,
+            totalTokens: totals.totalTokens,
+            promptTokens: totals.promptTokens,
+            completionTokens: totals.completionTokens,
+            estimatedCost: new Prisma.Decimal(totals.estimatedCost),
           },
         })
 
         return {
           status: 'PAUSED' as const,
           output: result.lastOutput,
-          totalTokens: result.totalTokens,
-          promptTokens: result.promptTokens,
-          completionTokens: result.completionTokens,
-          duration: Date.now() - startTime,
+          totalTokens: totals.totalTokens,
+          promptTokens: totals.promptTokens,
+          completionTokens: totals.completionTokens,
+          duration,
           executionId: execution.id,
         }
       }
 
       const duration = Date.now() - startTime
+      const totals = this.computeExecutionTotals(context)
 
       await this.analyticsCollector?.collectExecutionMeta(
         duration,
-        result.totalTokens,
+        totals.totalTokens,
         'COMPLETED'
       )
 
@@ -235,6 +275,11 @@ export class WorkflowEngine {
           status: 'COMPLETED',
           completedAt: new Date(),
           output: result.lastOutput as Prisma.InputJsonValue,
+          duration,
+          totalTokens: totals.totalTokens,
+          promptTokens: totals.promptTokens,
+          completionTokens: totals.completionTokens,
+          estimatedCost: new Prisma.Decimal(totals.estimatedCost),
         },
       })
 
@@ -245,21 +290,22 @@ export class WorkflowEngine {
       return {
         status: 'COMPLETED' as const,
         output: result.lastOutput,
-        totalTokens: result.totalTokens,
-        promptTokens: result.promptTokens,
-        completionTokens: result.completionTokens,
+        totalTokens: totals.totalTokens,
+        promptTokens: totals.promptTokens,
+        completionTokens: totals.completionTokens,
         duration,
         executionId: execution.id,
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误'
       const duration = Date.now() - startTime
+      const totals = this.computeExecutionTotals(context)
 
       await this.saveExecutionCheckpoint(execution.id, context)
 
       await this.analyticsCollector?.collectExecutionMeta(
         duration,
-        0,
+        totals.totalTokens,
         'FAILED'
       )
 
@@ -269,6 +315,11 @@ export class WorkflowEngine {
           status: 'FAILED',
           completedAt: new Date(),
           error: errorMessage,
+          duration,
+          totalTokens: totals.totalTokens,
+          promptTokens: totals.promptTokens,
+          completionTokens: totals.completionTokens,
+          estimatedCost: new Prisma.Decimal(totals.estimatedCost),
         },
       })
 
@@ -279,9 +330,9 @@ export class WorkflowEngine {
         error: errorMessage,
         duration,
         executionId: execution.id,
-        totalTokens: 0,
-        promptTokens: 0,
-        completionTokens: 0,
+        totalTokens: totals.totalTokens,
+        promptTokens: totals.promptTokens,
+        completionTokens: totals.completionTokens,
       }
     }
   }
@@ -335,6 +386,16 @@ export class WorkflowEngine {
       }
 
       if (this.isNodeRestoredFromCheckpoint(node.id)) {
+        continue
+      }
+
+      const routingCtx: LogicRoutingContext = {
+        nodes: this.config.nodes,
+        edges: this.config.edges,
+        nodeOutputs: context.nodeOutputs,
+      }
+      if (!shouldExecuteNode(node.id, routingCtx)) {
+        this.skippedNodes.add(node.id)
         continue
       }
 

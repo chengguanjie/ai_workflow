@@ -5,11 +5,168 @@
  */
 
 import type { ToolExecutor, ToolDefinition, ToolCallResult, ToolExecutionContext } from '../types'
+import { lookup } from 'node:dns/promises'
+import { isIP } from 'node:net'
 
 /**
  * 默认浏览器 User-Agent，用于模拟真实浏览器请求
  */
 const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+
+const SENSITIVE_QUERY_KEYS = new Set([
+  'token',
+  'access_token',
+  'api_key',
+  'apikey',
+  'key',
+  'signature',
+  'sig',
+  'secret',
+  'auth',
+  'authorization',
+  'password',
+])
+
+function redactUrlForLogs(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl)
+    for (const [k] of parsed.searchParams) {
+      if (SENSITIVE_QUERY_KEYS.has(k.toLowerCase())) {
+        parsed.searchParams.set(k, '***')
+      }
+    }
+    return parsed.toString()
+  } catch {
+    return rawUrl
+  }
+}
+
+function isPrivateIPv4(ip: string): boolean {
+  const parts = ip.split('.').map(Number)
+  if (parts.length !== 4 || parts.some(n => Number.isNaN(n))) return false
+  const [a, b] = parts
+
+  if (a === 10) return true
+  if (a === 127) return true
+  if (a === 0) return true
+  if (a === 169 && b === 254) return true
+  if (a === 192 && b === 168) return true
+  if (a === 172 && b >= 16 && b <= 31) return true
+  if (a === 100 && b >= 64 && b <= 127) return true
+
+  return false
+}
+
+function isPrivateIPv6(ip: string): boolean {
+  const normalized = ip.toLowerCase()
+  if (normalized === '::1') return true
+  if (normalized.startsWith('fe80:')) return true // link-local
+  if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true // unique local
+  return false
+}
+
+function isPrivateIp(ip: string): boolean {
+  const ipVersion = isIP(ip)
+  if (ipVersion === 4) return isPrivateIPv4(ip)
+  if (ipVersion === 6) return isPrivateIPv6(ip)
+  return false
+}
+
+async function assertSafeHttpUrl(rawUrl: string): Promise<void> {
+  const allowPrivate = process.env.HTTP_TOOL_ALLOW_PRIVATE_NETWORK === 'true'
+  const allowedHosts = (process.env.HTTP_TOOL_ALLOWED_HOSTS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
+
+  const parsed = new URL(rawUrl)
+
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error(`不支持的协议: ${parsed.protocol}（仅支持 http/https）`)
+  }
+
+  if (parsed.username || parsed.password) {
+    throw new Error('URL 不允许包含用户名/密码')
+  }
+
+  const hostname = parsed.hostname
+  if (!hostname) throw new Error('URL 缺少 hostname')
+
+  if (allowedHosts.length > 0) {
+    const matched = allowedHosts.some(allowed =>
+      hostname === allowed || hostname.endsWith(`.${allowed}`)
+    )
+    if (!matched) {
+      throw new Error(`目标主机未在允许列表中: ${hostname}`)
+    }
+  }
+
+  if (hostname === 'localhost' || hostname.endsWith('.localhost')) {
+    throw new Error('禁止访问 localhost')
+  }
+
+  if (allowPrivate) return
+
+  // Fast path: direct IP
+  if (isIP(hostname)) {
+    if (isPrivateIp(hostname)) {
+      throw new Error(`禁止访问内网/本机地址: ${hostname}`)
+    }
+    return
+  }
+
+  // Resolve DNS and block private targets
+  const records = await lookup(hostname, { all: true, verbatim: true })
+  if (!records || records.length === 0) {
+    throw new Error(`DNS 解析失败: ${hostname}`)
+  }
+
+  for (const record of records) {
+    if (isPrivateIp(record.address)) {
+      throw new Error(`禁止访问内网/本机地址: ${hostname} -> ${record.address}`)
+    }
+    if (record.address === '169.254.169.254') {
+      throw new Error('禁止访问云元数据地址')
+    }
+  }
+}
+
+async function fetchWithSafeRedirects(
+  initialUrl: string,
+  init: RequestInit,
+  maxRedirects: number
+): Promise<Response> {
+  let url = initialUrl
+  let requestInit = { ...init, redirect: 'manual' as const }
+
+  for (let i = 0; i <= maxRedirects; i++) {
+    await assertSafeHttpUrl(url)
+    const response = await fetch(url, requestInit)
+
+    const status = response.status
+    const isRedirect = status === 301 || status === 302 || status === 303 || status === 307 || status === 308
+    if (!isRedirect) return response
+
+    const location = response.headers.get('location')
+    if (!location) return response
+
+    if (i === maxRedirects) {
+      throw new Error(`重定向次数过多（>${maxRedirects}）`)
+    }
+
+    const nextUrl = new URL(location, url).toString()
+
+    // Per RFC, 303 should switch to GET
+    if (status === 303) {
+      requestInit = { ...requestInit, method: 'GET' }
+      delete (requestInit as any).body
+    }
+
+    url = nextUrl
+  }
+
+  return fetch(url, requestInit)
+}
 
 /**
  * 清理 HTML 内容，移除无用标签和脚本
@@ -231,7 +388,8 @@ export class HttpToolExecutor implements ToolExecutor {
     const headers = args.headers as Record<string, string> | undefined
     const body = args.body as Record<string, unknown> | undefined
     const queryParams = args.query_params as Record<string, string> | undefined
-    const timeout = (args.timeout as number) || 15000
+    const requestedTimeout = (args.timeout as number) || 15000
+    const timeout = Math.max(1000, Math.min(60000, requestedTimeout))
     const extractContent = (args.extract_content as boolean) || false
     const maxContentLength = (args.max_content_length as number) || 8000
 
@@ -263,6 +421,17 @@ export class HttpToolExecutor implements ToolExecutor {
     if (queryParams && Object.keys(queryParams).length > 0) {
       const searchParams = new URLSearchParams(queryParams)
       url += (url.includes('?') ? '&' : '?') + searchParams.toString()
+    }
+
+    try {
+      await assertSafeHttpUrl(url)
+    } catch (error) {
+      return {
+        toolCallId: '',
+        toolName: this.name,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      }
     }
 
     // 测试模式
@@ -308,8 +477,6 @@ export class HttpToolExecutor implements ToolExecutor {
         method,
         headers: requestHeaders,
         signal: controller.signal,
-        // 允许重定向
-        redirect: 'follow',
         // 禁用 Next.js 缓存
         cache: 'no-store',
       }
@@ -319,14 +486,14 @@ export class HttpToolExecutor implements ToolExecutor {
       }
 
       console.log('[HTTP Tool] 发起请求:', {
-        url,
+        url: redactUrlForLogs(url),
         method,
         timeout,
         headersKeys: Object.keys(requestHeaders),
       })
 
       // 使用 Promise.race 实现更可靠的超时（AbortController 在某些情况下可能失效）
-      const fetchPromise = fetch(url, fetchOptions)
+      const fetchPromise = fetchWithSafeRedirects(url, fetchOptions, 5)
       const timeoutPromise = new Promise<Response>((_, reject) => {
         setTimeout(() => {
           controller.abort()
@@ -395,7 +562,7 @@ export class HttpToolExecutor implements ToolExecutor {
     } catch (error) {
       // 详细记录错误信息用于调试
       console.error('[HTTP Tool] 请求失败:', {
-        url,
+        url: redactUrlForLogs(url),
         method,
         error: error instanceof Error ? {
           name: error.name,

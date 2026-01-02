@@ -310,7 +310,7 @@ function WorkflowEditor() {
 
       addNode({
         id: nodeId,
-        type: type.toUpperCase() as "INPUT" | "PROCESS" | "CODE" | "OUTPUT",
+        type: type.toUpperCase() as "INPUT" | "PROCESS" | "CODE" | "OUTPUT" | "LOGIC",
         name: getNodeName(type),
         position,
         config: getDefaultConfig(type),
@@ -321,19 +321,21 @@ function WorkflowEditor() {
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: { id: string; data?: { type?: string } }) => {
-      // 首先选中节点，触发高亮效果（连接的节点和边也会高亮）
+      // 选中节点，触发高亮效果和右侧配置/调试面板逻辑
       selectNode(node.id);
 
       const nodeType = node.data?.type?.toLowerCase();
-      // 对于 input 和 process 节点，额外打开调试面板
+      // 对于 input 和 process 节点，额外打开调试面板（配置面板保持隐藏）
       if (nodeType === "input" || nodeType === "process") {
         openDebugPanel(node.id);
       }
+      // 其他类型（code / output 等）：仅依赖 selectedNodeId 来控制 NodeConfigPanel 展开
     },
     [selectNode, openDebugPanel],
   );
 
   const onPaneClick = useCallback(() => {
+    // 点击画布空白：清空选中节点，配置面板自动收起
     selectNode(null);
     setSelectionContextMenu(null);
     setEdgeContextMenu(null);
@@ -900,10 +902,10 @@ function WorkflowEditor() {
 
         {/* 中间区域：画布和右侧配置面板 */}
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          {/* 中间画布 */}
+          {/* 中间画布 - 当调试面板打开时自动缩小 */}
           <div
             ref={reactFlowWrapper}
-            className="flex-1 transition-all duration-300"
+            className="flex-1 min-w-0 transition-all duration-300"
           >
             <ReactFlow
               nodes={visibleNodes}
@@ -970,24 +972,27 @@ function WorkflowEditor() {
             </ReactFlow>
           </div>
 
-          {/* 右侧配置面板 - Zen Mode hidden, 对于 input 和 process 节点不显示配置面板 */}
-          {!isZenMode &&
-            selectedNodeId &&
-            (() => {
-              const selectedNode = nodes.find((n) => n.id === selectedNodeId);
-              const nodeType = (
-                selectedNode?.data as { type?: string }
-              )?.type?.toLowerCase();
-              // input 和 process 节点不显示配置面板，只用调试面板
-              if (nodeType === "input" || nodeType === "process") {
-                return null;
-              }
-              return (
-                <div className="relative">
-                  <NodeConfigPanel />
-                </div>
-              );
-            })()}
+          {/* 右侧配置面板/调试面板 - Zen Mode hidden */}
+          {!isZenMode && selectedNodeId && (
+            <div className="relative flex">
+              {/* 配置面板与调试面板互斥：非 input/process 节点显示配置面板，否则显示调试面板 */}
+              {(() => {
+                const selectedNode = nodes.find((n) => n.id === selectedNodeId);
+                const nodeType = (
+                  selectedNode?.data as { type?: string }
+                )?.type?.toLowerCase();
+                // input 和 process 节点使用调试面板，其他节点（如 logic）使用配置面板
+                if (nodeType === "input" || nodeType === "process") {
+                  return <NodeDebugPanel />;
+                }
+                return (
+                  <div className="relative">
+                    <NodeConfigPanel />
+                  </div>
+                );
+              })()}
+            </div>
+          )}
         </div>
 
         {/* 底部节点面板 - Zen Mode hidden */}
@@ -1063,9 +1068,6 @@ function WorkflowEditor() {
         onClose={() => setShowImportExportDialog(false)}
         workflowName={name}
       />
-
-      {/* 节点调试面板 */}
-      <NodeDebugPanel />
 
       {/* AI助手面板 - 通过底部栏的AI规划按钮触发 */}
       <AIAssistantPanel workflowId={workflowId} />
@@ -1184,6 +1186,7 @@ function getNodeName(type: string): string {
     image: "图片",
     video: "视频",
     audio: "音频",
+    logic: "逻辑判断",
   };
   return names[type] || "节点";
 }
@@ -1255,6 +1258,11 @@ function getDefaultConfig(type: string): Record<string, unknown> {
       };
 
     // === 逻辑节点 ===
+    case "logic":
+      return {
+        mode: "condition",
+        conditions: [],
+      };
     case "condition":
       return {
         conditions: [],

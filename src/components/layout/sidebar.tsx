@@ -20,6 +20,7 @@ import {
   MessageSquarePlus,
   CreditCard,
   ClipboardCheck,
+  Link2,
 } from 'lucide-react'
 import { useSidebarStore } from '@/stores/sidebar-store'
 import { Button } from '@/components/ui/button'
@@ -42,6 +43,7 @@ const navigation = [
 // 管理员专属设置菜单项（仅 OWNER 和 ADMIN 可见）
 const adminSettingsNavigation = [
   { name: 'AI 配置', href: '/settings/ai-config', icon: Bot },
+  { name: '渠道授权', href: '/settings/integrations', icon: Link2 },
   { name: 'API 调用', href: '/settings/api', icon: Plug },
   { name: '成员管理', href: '/settings/members', icon: Users },
   { name: '部门管理', href: '/settings/departments', icon: Building2 },

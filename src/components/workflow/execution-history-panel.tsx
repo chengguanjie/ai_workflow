@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * 工作流执行历史面板
+ * 工作流执行历史面板 - 侧边栏样式
  */
 
 import { useState, useEffect, useCallback } from 'react'
@@ -14,16 +14,22 @@ import {
   Clock,
   RefreshCw,
   ExternalLink,
+  ChevronRight,
+  History,
+  Zap,
+  Timer,
+  Coins,
 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import Link from 'next/link'
+import { cn } from '@/lib/utils'
 
 interface Execution {
   id: string
   status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED'
   duration: number | null
-  totalTokens: number
+  totalTokens: number | null
   error: string | null
   createdAt: string
   completedAt: string | null
@@ -43,6 +49,7 @@ export function ExecutionHistoryPanel({
   const [executions, setExecutions] = useState<Execution[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [selectedExecution, setSelectedExecution] = useState<string | null>(null)
 
   const fetchExecutions = useCallback(async () => {
     setIsLoading(true)
@@ -67,6 +74,16 @@ export function ExecutionHistoryPanel({
     }
   }, [isOpen, fetchExecutions])
 
+  // 自动刷新运行中的执行
+  useEffect(() => {
+    if (!isOpen) return
+    const hasRunning = executions.some(e => e.status === 'RUNNING' || e.status === 'PENDING')
+    if (!hasRunning) return
+
+    const interval = setInterval(fetchExecutions, 3000)
+    return () => clearInterval(interval)
+  }, [isOpen, executions, fetchExecutions])
+
   const formatDuration = (ms: number | null): string => {
     if (ms === null) return '-'
     if (ms < 1000) return `${ms}ms`
@@ -83,7 +100,7 @@ export function ExecutionHistoryPanel({
       case 'RUNNING':
         return <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
       case 'PENDING':
-        return <Clock className="h-4 w-4 text-yellow-500" />
+        return <Clock className="h-4 w-4 text-amber-500" />
       default:
         return null
     }
@@ -104,101 +121,186 @@ export function ExecutionHistoryPanel({
     }
   }
 
+  const getStatusColor = (status: Execution['status']) => {
+    switch (status) {
+      case 'COMPLETED':
+        return 'bg-green-50 border-green-200 hover:bg-green-100'
+      case 'FAILED':
+        return 'bg-red-50 border-red-200 hover:bg-red-100'
+      case 'RUNNING':
+        return 'bg-blue-50 border-blue-200 hover:bg-blue-100'
+      case 'PENDING':
+        return 'bg-amber-50 border-amber-200 hover:bg-amber-100'
+      default:
+        return 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+    }
+  }
+
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-lg bg-background shadow-xl">
-        {/* 头部 */}
-        <div className="flex items-center justify-between border-b px-6 py-4">
-          <div className="flex items-center gap-2">
-            <Clock className="h-5 w-5 text-primary" />
-            <h2 className="text-lg font-semibold">执行历史</h2>
+    <div className="fixed right-0 top-0 z-40 flex h-full w-[380px] flex-col bg-background shadow-2xl border-l animate-in slide-in-from-right duration-300">
+      {/* 头部 */}
+      <div className="flex items-center justify-between border-b px-4 py-3 bg-gradient-to-r from-primary/5 to-transparent">
+        <div className="flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+            <History className="h-4 w-4 text-primary" />
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={fetchExecutions}
-              disabled={isLoading}
-              title="刷新"
-            >
-              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-            </Button>
-            <Button variant="ghost" size="icon" onClick={onClose}>
-              <X className="h-4 w-4" />
-            </Button>
+          <div>
+            <h2 className="text-sm font-semibold">执行历史</h2>
+            <p className="text-xs text-muted-foreground">
+              共 {executions.length} 条记录
+            </p>
           </div>
         </div>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={fetchExecutions}
+            disabled={isLoading}
+            title="刷新"
+          >
+            <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
 
-        {/* 内容 */}
-        <div className="flex-1 overflow-y-auto p-6">
-          {isLoading && executions.length === 0 ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      {/* 内容 */}
+      <div className="flex-1 overflow-y-auto p-3">
+        {isLoading && executions.length === 0 ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <Loader2 className="mx-auto h-8 w-8 animate-spin text-muted-foreground" />
+              <p className="mt-2 text-sm text-muted-foreground">加载中...</p>
             </div>
-          ) : error ? (
-            <div className="rounded-lg bg-red-50 p-4 text-center text-red-600">
-              {error}
+          </div>
+        ) : error ? (
+          <div className="rounded-lg bg-red-50 p-4 text-center">
+            <XCircle className="mx-auto h-8 w-8 text-red-400" />
+            <p className="mt-2 text-sm text-red-600">{error}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-3"
+              onClick={fetchExecutions}
+            >
+              重试
+            </Button>
+          </div>
+        ) : executions.length === 0 ? (
+          <div className="py-12 text-center">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+              <Zap className="h-6 w-6 text-muted-foreground" />
             </div>
-          ) : executions.length === 0 ? (
-            <div className="py-12 text-center text-muted-foreground">
+            <p className="mt-3 text-sm font-medium text-muted-foreground">
               暂无执行记录
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {executions.map((execution) => (
-                <div
-                  key={execution.id}
-                  className="flex items-center justify-between rounded-lg border p-4 transition-colors hover:bg-muted/50"
-                >
-                  <div className="flex items-center gap-4">
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              执行工作流后，记录将显示在这里
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {executions.map((execution, index) => (
+              <div
+                key={execution.id}
+                className={cn(
+                  "rounded-lg border p-3 transition-all cursor-pointer",
+                  getStatusColor(execution.status),
+                  selectedExecution === execution.id && "ring-2 ring-primary",
+                  execution.status === 'RUNNING' && "animate-pulse"
+                )}
+                onClick={() => setSelectedExecution(
+                  selectedExecution === execution.id ? null : execution.id
+                )}
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-2">
                     {getStatusIcon(execution.status)}
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-medium">
+                        <span className="text-sm font-medium">
                           {getStatusText(execution.status)}
                         </span>
-                        <span className="text-xs text-muted-foreground">
-                          {formatDistanceToNow(new Date(execution.createdAt), {
-                            addSuffix: true,
-                            locale: zhCN,
-                          })}
-                        </span>
+                        {index === 0 && execution.status === 'RUNNING' && (
+                          <span className="text-[10px] bg-blue-500 text-white px-1.5 py-0.5 rounded-full">
+                            当前
+                          </span>
+                        )}
                       </div>
-                      <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
-                        <span>耗时: {formatDuration(execution.duration)}</span>
-                        <span>Tokens: {execution.totalTokens}</span>
-                      </div>
-                      {execution.error && (
-                        <div className="mt-1 text-xs text-red-500 line-clamp-1">
-                          {execution.error}
-                        </div>
-                      )}
+                      <span className="text-xs text-muted-foreground">
+                        {formatDistanceToNow(new Date(execution.createdAt), {
+                          addSuffix: true,
+                          locale: zhCN,
+                        })}
+                      </span>
                     </div>
                   </div>
-                  <Link href={`/executions/${execution.id}`}>
-                    <Button variant="ghost" size="sm" title="查看详情">
-                      <ExternalLink className="h-4 w-4" />
-                    </Button>
-                  </Link>
+                  <div className="flex items-center gap-1">
+                    <Link href={`/executions/${execution.id}`}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        title="查看详情"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </Button>
+                    </Link>
+                    <ChevronRight className={cn(
+                      "h-4 w-4 text-muted-foreground transition-transform",
+                      selectedExecution === execution.id && "rotate-90"
+                    )} />
+                  </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
 
-        {/* 底部 */}
-        <div className="flex justify-between border-t px-6 py-4">
-          <Link href={`/executions?workflowId=${workflowId}`}>
-            <Button variant="outline" size="sm">
-              查看全部历史
-            </Button>
-          </Link>
-          <Button variant="outline" onClick={onClose}>
-            关闭
+                {/* 展开的详情 */}
+                {selectedExecution === execution.id && (
+                  <div className="mt-3 pt-3 border-t space-y-2 animate-in slide-in-from-top-2 duration-200">
+                    <div className="flex items-center gap-4 text-xs">
+                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                        <Timer className="h-3.5 w-3.5" />
+                        <span>耗时: {formatDuration(execution.duration)}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                        <Coins className="h-3.5 w-3.5" />
+                        <span>Tokens: {(execution.totalTokens ?? 0).toLocaleString()}</span>
+                      </div>
+                    </div>
+                    {execution.error && (
+                      <div className="rounded bg-red-100 p-2 text-xs text-red-700">
+                        <p className="font-medium">错误信息:</p>
+                        <p className="mt-1 line-clamp-3">{execution.error}</p>
+                      </div>
+                    )}
+                    <Link href={`/executions/${execution.id}`} className="block">
+                      <Button variant="outline" size="sm" className="w-full mt-2">
+                        <ExternalLink className="mr-2 h-3.5 w-3.5" />
+                        查看完整详情
+                      </Button>
+                    </Link>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 底部 */}
+      <div className="border-t px-4 py-3 bg-muted/30">
+        <Link href={`/executions?workflowId=${workflowId}`} className="block">
+          <Button variant="outline" className="w-full" size="sm">
+            <History className="mr-2 h-4 w-4" />
+            查看全部历史
           </Button>
-        </div>
+        </Link>
       </div>
     </div>
   )

@@ -42,7 +42,7 @@ function buildCreateWorkflowSystemPrompt(
 - 作用：使用AI模型处理数据
 - 必须配置：
   - systemPrompt: 系统提示词（详细定义AI的角色、任务、输出格式要求）
-  - userPrompt: 用户提示词（使用 {{节点名.字段名}} 引用上游数据）
+  - userPrompt: 用户提示词（推荐使用 {{nodeId.字段名}} 引用上游数据；兼容 {{节点名.字段名}}）
   - temperature: 0.1-1.0（严谨任务用0.3，创意任务用0.7）
   - aiConfigId: AI服务商配置ID（从下面可用列表选择）
   - model: 具体模型名称（可选，不填则使用服务商默认模型）
@@ -182,7 +182,7 @@ ${providerList}
 1. 每个工作流必须以 INPUT 节点开始
 2. INPUT 节点的 fields 必须有完整配置（id、name、fieldType、required、placeholder、description）
 3. PROCESS 节点的 systemPrompt 必须详细（至少50字），说明AI的角色和任务
-4. PROCESS 节点的 userPrompt 必须正确引用上游节点的字段，格式：{{节点名.字段名}}
+4. PROCESS 节点的 userPrompt 必须正确引用上游节点的字段，推荐格式：{{nodeId.字段名}}（兼容 {{节点名.字段名}}）
 5. PROCESS 节点必须配置 aiConfigId（从可用服务商配置中选择合适的）
 6. 如果任务需要调用外部服务，必须配置相应的 tools 并设置 enableToolCalling: true
 7. 使用 "new_1", "new_2" 等引用新添加的节点进行连接
@@ -190,6 +190,162 @@ ${providerList}
 9. 工具的 webhookUrl 等敏感配置可以用占位符如 "{{请配置}}" 表示需要用户填写
 
 请直接输出 json:actions，不要有多余的解释。`;
+}
+
+/**
+ * 修复常见的 AI 生成 JSON 格式错误
+ * 处理：多余逗号、单引号、注释、未转义字符、未闭合括号等
+ */
+function repairJSON(jsonStr: string): string {
+  let result = jsonStr.trim();
+  
+  // 1. 移除 JSON 前后的非 JSON 文本（如 AI 的解释文字）
+  const jsonStart = result.search(/[\[{]/);
+  if (jsonStart > 0) {
+    result = result.slice(jsonStart);
+  }
+  // 找到最后一个有效的 ] 或 }
+  const lastBracket = Math.max(result.lastIndexOf(']'), result.lastIndexOf('}'));
+  if (lastBracket > 0 && lastBracket < result.length - 1) {
+    result = result.slice(0, lastBracket + 1);
+  }
+  
+  // 2. 移除 JavaScript 风格的注释
+  // 单行注释
+  result = result.replace(/\/\/[^\n\r]*/g, '');
+  // 多行注释
+  result = result.replace(/\/\*[\s\S]*?\*\//g, '');
+  
+  // 3. 将单引号替换为双引号（仅在键值位置）
+  // 先保护已存在的转义单引号
+  result = result.replace(/\\'/g, '<<<ESCAPED_SINGLE_QUOTE>>>');
+  // 替换未转义的单引号为双引号
+  result = result.replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, '"$1"');
+  // 恢复转义的单引号
+  result = result.replace(/<<<ESCAPED_SINGLE_QUOTE>>>/g, "\\'");
+  
+  // 4. 为没有引号的键名添加引号
+  // 匹配：{ key: 或 , key: 形式的未加引号的键
+  result = result.replace(/([{,]\s*)([a-zA-Z_$][a-zA-Z0-9_$]*)(\s*:)/g, '$1"$2"$3');
+  
+  // 5. 修复多余的逗号
+  // 移除对象或数组结尾的逗号 },] 或 ],]
+  result = result.replace(/,(\s*[}\]])/g, '$1');
+  // 移除连续的逗号
+  result = result.replace(/,(\s*),/g, ',');
+  
+  // 6. 修复字符串内的未转义换行符
+  // 在 JSON 字符串中，实际的换行符应该被转义为 \n
+  result = result.replace(/"([^"]*?)[\r\n]+([^"]*?)"/g, (match, p1, p2) => {
+    return `"${p1}\\n${p2}"`;
+  });
+  
+  // 7. 修复未转义的制表符
+  result = result.replace(/"([^"]*?)\t([^"]*?)"/g, (match, p1, p2) => {
+    return `"${p1}\\t${p2}"`;
+  });
+  
+  // 8. 修复布尔值和 null 的大小写问题
+  result = result.replace(/:\s*True\b/g, ': true');
+  result = result.replace(/:\s*False\b/g, ': false');
+  result = result.replace(/:\s*None\b/g, ': null');
+  result = result.replace(/:\s*NULL\b/g, ': null');
+  
+  // 9. 移除 BOM 和其他不可见字符
+  result = result.replace(/^\uFEFF/, '');
+  result = result.replace(/[\x00-\x1F\x7F]/g, (char) => {
+    // 保留换行和空格相关字符（它们应该已经被处理了）
+    if (char === '\n' || char === '\r' || char === '\t') {
+      return char;
+    }
+    return '';
+  });
+  
+  return result.trim();
+}
+
+/**
+ * 尝试修复未闭合的括号
+ */
+function repairBrackets(jsonStr: string): string {
+  let result = jsonStr;
+  let openBraces = 0;
+  let openBrackets = 0;
+  let inString = false;
+  let escape = false;
+  
+  for (let i = 0; i < result.length; i++) {
+    const char = result[i];
+    
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    
+    if (char === '\\') {
+      escape = true;
+      continue;
+    }
+    
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    
+    if (inString) continue;
+    
+    if (char === '{') openBraces++;
+    else if (char === '}') openBraces--;
+    else if (char === '[') openBrackets++;
+    else if (char === ']') openBrackets--;
+  }
+  
+  // 添加缺少的闭合括号
+  while (openBraces > 0) {
+    result += '}';
+    openBraces--;
+  }
+  while (openBrackets > 0) {
+    result += ']';
+    openBrackets--;
+  }
+  
+  return result;
+}
+
+/**
+ * 安全的 JSON 解析，带有自动修复功能
+ */
+function safeJSONParse(jsonStr: string): { success: boolean; data: unknown; error?: string } {
+  // 第一次尝试：直接解析
+  try {
+    const data = JSON.parse(jsonStr);
+    return { success: true, data };
+  } catch (_e1) {
+    console.log("[CreateWorkflow] Initial JSON parse failed, attempting repair...");
+  }
+  
+  // 第二次尝试：修复后解析
+  try {
+    const repaired = repairJSON(jsonStr);
+    const data = JSON.parse(repaired);
+    console.log("[CreateWorkflow] JSON repair successful (basic)");
+    return { success: true, data };
+  } catch (_e2) {
+    console.log("[CreateWorkflow] Basic repair failed, trying bracket repair...");
+  }
+  
+  // 第三次尝试：修复括号后解析
+  try {
+    const repaired = repairBrackets(repairJSON(jsonStr));
+    const data = JSON.parse(repaired);
+    console.log("[CreateWorkflow] JSON repair successful (with bracket fix)");
+    return { success: true, data };
+  } catch (e3) {
+    const error = e3 instanceof Error ? e3.message : String(e3);
+    console.error("[CreateWorkflow] All JSON repair attempts failed:", error);
+    return { success: false, data: null, error };
+  }
 }
 
 function cleanAIResponse(content: string) {
@@ -201,16 +357,17 @@ function cleanAIResponse(content: string) {
     /```json:actions\s*([\s\S]*?)```/,
   );
   if (jsonActionsMatch) {
-    try {
-      const parsed = JSON.parse(jsonActionsMatch[1]);
-      nodeActions = parsed.nodeActions || parsed;
+    const parseResult = safeJSONParse(jsonActionsMatch[1]);
+    if (parseResult.success) {
+      const parsed = parseResult.data as Record<string, unknown>;
+      nodeActions = (parsed.nodeActions as any[]) || (Array.isArray(parsed) ? (parsed as any[]) : []);
       cleanContent = cleanContent.replace(jsonActionsMatch[0], "").trim();
       console.log(
         "[CreateWorkflow] Parsed json:actions successfully, nodeActions count:",
         nodeActions.length,
       );
-    } catch (e) {
-      console.error("[CreateWorkflow] Failed to parse json:actions:", e);
+    } else {
+      console.error("[CreateWorkflow] Failed to parse json:actions:", parseResult.error);
       console.error("[CreateWorkflow] json:actions content:", jsonActionsMatch[1]?.slice(0, 500));
     }
   }
@@ -219,26 +376,26 @@ function cleanAIResponse(content: string) {
   if (nodeActions.length === 0) {
     const simpleJsonMatch = cleanContent.match(/```json\s*([\s\S]*?)```/);
     if (simpleJsonMatch) {
-      try {
-        const parsed = JSON.parse(simpleJsonMatch[1]);
+      const parseResult = safeJSONParse(simpleJsonMatch[1]);
+      if (parseResult.success) {
+        const parsed = parseResult.data as Record<string, unknown>;
         if (parsed.nodeActions) {
-          nodeActions = parsed.nodeActions;
+          nodeActions = parsed.nodeActions as any[];
           cleanContent = cleanContent.replace(simpleJsonMatch[0], "").trim();
           console.log(
             "[CreateWorkflow] Parsed json block successfully, nodeActions count:",
             nodeActions.length,
           );
         } else if (Array.isArray(parsed)) {
-          // 直接是 nodeActions 数组
-          nodeActions = parsed;
+          nodeActions = parsed as any[];
           cleanContent = cleanContent.replace(simpleJsonMatch[0], "").trim();
           console.log(
             "[CreateWorkflow] Parsed json block as array, nodeActions count:",
             nodeActions.length,
           );
         }
-      } catch (e) {
-        console.error("[CreateWorkflow] Failed to parse json block:", e);
+      } else {
+        console.error("[CreateWorkflow] Failed to parse json block:", parseResult.error);
         console.error("[CreateWorkflow] json block content:", simpleJsonMatch[1]?.slice(0, 500));
       }
     }
@@ -248,33 +405,33 @@ function cleanAIResponse(content: string) {
   if (nodeActions.length === 0) {
     const anyCodeBlockMatch = cleanContent.match(/```(?:\w*)\s*([\s\S]*?)```/);
     if (anyCodeBlockMatch) {
-      try {
-        const parsed = JSON.parse(anyCodeBlockMatch[1]);
+      const parseResult = safeJSONParse(anyCodeBlockMatch[1]);
+      if (parseResult.success) {
+        const parsed = parseResult.data as Record<string, unknown>;
         if (parsed.nodeActions) {
-          nodeActions = parsed.nodeActions;
+          nodeActions = parsed.nodeActions as any[];
           console.log(
             "[CreateWorkflow] Parsed code block as JSON, nodeActions count:",
             nodeActions.length,
           );
         } else if (Array.isArray(parsed)) {
-          nodeActions = parsed;
+          nodeActions = parsed as any[];
           console.log(
             "[CreateWorkflow] Parsed code block as array, nodeActions count:",
             nodeActions.length,
           );
         }
-      } catch (e) {
-        // 不是 JSON，忽略
       }
     }
   }
 
   // 4. 尝试直接解析整个内容为 JSON
   if (nodeActions.length === 0) {
-    try {
-      const parsed = JSON.parse(cleanContent);
+    const parseResult = safeJSONParse(cleanContent);
+    if (parseResult.success) {
+      const parsed = parseResult.data as Record<string, unknown>;
       if (parsed.nodeActions) {
-        nodeActions = parsed.nodeActions;
+        nodeActions = parsed.nodeActions as unknown[];
         console.log(
           "[CreateWorkflow] Parsed raw content as JSON, nodeActions count:",
           nodeActions.length,
@@ -286,9 +443,8 @@ function cleanAIResponse(content: string) {
           nodeActions.length,
         );
       }
-    } catch (e) {
-      // 不是 JSON，忽略
-      console.log("[CreateWorkflow] Content is not valid JSON, tried all parsing methods");
+    } else {
+      console.log("[CreateWorkflow] Content is not valid JSON after all repair attempts");
     }
   }
 
@@ -390,7 +546,25 @@ function enrichNodeConfig(
   return enrichedConfig;
 }
 
-// 为工具配置添加默认值
+// 检测字符串是否包含占位符
+function containsPlaceholder(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  // 匹配 {{xxx}} 格式的占位符，如 {{请配置}}、{{待填写}} 等
+  return /\{\{[^}]+\}\}/.test(value);
+}
+
+// 检测配置中是否有需要用户配置的占位符
+function hasUnfilledPlaceholder(config: Record<string, unknown>): string[] {
+  const unfilledFields: string[] = [];
+  for (const [key, value] of Object.entries(config)) {
+    if (containsPlaceholder(value)) {
+      unfilledFields.push(key);
+    }
+  }
+  return unfilledFields;
+}
+
+// 为工具配置添加默认值并标记占位符
 function enrichToolConfig(toolType: string, config: any): any {
   const enrichedConfig = { ...config };
 
@@ -415,6 +589,13 @@ function enrichToolConfig(toolType: string, config: any): any {
       if (!enrichedConfig.appToken) enrichedConfig.appToken = "";
       if (!enrichedConfig.tableId) enrichedConfig.tableId = "";
       break;
+  }
+
+  // 检测并标记包含占位符的字段
+  const unfilledFields = hasUnfilledPlaceholder(enrichedConfig);
+  if (unfilledFields.length > 0) {
+    enrichedConfig._hasPlaceholders = true;
+    enrichedConfig._placeholderFields = unfilledFields;
   }
 
   return enrichedConfig;
@@ -540,7 +721,7 @@ ${prompt}
 1. 严格按照"输入字段"部分创建 INPUT 节点的 fields 配置
 2. 严格按照"处理步骤"部分创建 PROCESS 节点，每个步骤对应一个 PROCESS 节点
 3. 每个 PROCESS 节点的 systemPrompt 要根据"AI指令要点"详细展开
-4. userPrompt 要正确引用上游节点的数据，格式：{{节点名.字段名}}
+4. userPrompt 要正确引用上游节点的数据，推荐格式：{{nodeId.字段名}}（兼容 {{节点名.字段名}}）
 5. 每个 PROCESS 节点必须配置 aiConfigId（选择合适的服务商配置）
 6. 如果任务需要调用外部API或发送通知，配置相应的 tools
 7. 直接输出 json:actions 格式，不要多余解释`

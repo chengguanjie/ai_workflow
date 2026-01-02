@@ -1,6 +1,22 @@
 // AI 服务管理器
 
-import type { AIProvider, AIProviderType, ChatRequest, ChatResponse, Model, TranscriptionOptions, TranscriptionResponse } from './types'
+import type {
+  AIProvider,
+  AIProviderType,
+  ChatRequest,
+  ChatResponse,
+  Model,
+  TranscriptionOptions,
+  TranscriptionResponse,
+  ImageGenerationRequest,
+  ImageGenerationResponse,
+  VideoGenerationRequest,
+  VideoGenerationResponse,
+  TTSRequest,
+  TTSResponse,
+  EmbeddingRequest,
+  EmbeddingResponse
+} from './types'
 import { shensuanProvider } from './providers/shensuan'
 import { openRouterProvider } from './providers/openrouter'
 import { openAIProvider } from './providers/openai'
@@ -144,6 +160,156 @@ class AIService {
     return Array.from(this.providers.entries())
       .filter(([, provider]) => !!provider.transcribeAudio)
       .map(([type]) => type)
+  }
+
+  // ========================================
+  // 多模态生成方法
+  // ========================================
+
+  /**
+   * 图片生成
+   */
+  async generateImage(
+    providerType: AIProviderType,
+    request: ImageGenerationRequest,
+    apiKey: string,
+    baseUrl?: string
+  ): Promise<ImageGenerationResponse> {
+    const provider = this.getProvider(providerType)
+    if (!provider.generateImage) {
+      throw new Error(`Provider ${providerType} does not support image generation`)
+    }
+    console.log(`[AI Service] Image generation: model=${request.model}, prompt=${request.prompt.substring(0, 50)}...`)
+    return provider.generateImage(request, apiKey, baseUrl)
+  }
+
+  /**
+   * 视频生成（提交任务）
+   */
+  async generateVideo(
+    providerType: AIProviderType,
+    request: VideoGenerationRequest,
+    apiKey: string,
+    baseUrl?: string
+  ): Promise<VideoGenerationResponse> {
+    const provider = this.getProvider(providerType)
+    if (!provider.generateVideo) {
+      throw new Error(`Provider ${providerType} does not support video generation`)
+    }
+    console.log(`[AI Service] Video generation: model=${request.model}, prompt=${request.prompt.substring(0, 50)}...`)
+    return provider.generateVideo(request, apiKey, baseUrl)
+  }
+
+  /**
+   * 查询视频生成任务状态
+   */
+  async getVideoTaskStatus(
+    providerType: AIProviderType,
+    taskId: string,
+    apiKey: string,
+    baseUrl?: string
+  ): Promise<VideoGenerationResponse> {
+    const provider = this.getProvider(providerType)
+    if (!provider.getVideoTaskStatus) {
+      throw new Error(`Provider ${providerType} does not support video task status query`)
+    }
+    return provider.getVideoTaskStatus(taskId, apiKey, baseUrl)
+  }
+
+  /**
+   * 等待视频生成完成
+   */
+  async waitForVideoCompletion(
+    providerType: AIProviderType,
+    taskId: string,
+    apiKey: string,
+    baseUrl?: string,
+    options?: {
+      maxWaitTime?: number  // 最大等待时间（毫秒），默认 5 分钟
+      pollInterval?: number  // 轮询间隔（毫秒），默认 3 秒
+    }
+  ): Promise<VideoGenerationResponse> {
+    const maxWaitTime = options?.maxWaitTime || 5 * 60 * 1000
+    const pollInterval = options?.pollInterval || 3000
+    const startTime = Date.now()
+
+    while (Date.now() - startTime < maxWaitTime) {
+      const status = await this.getVideoTaskStatus(providerType, taskId, apiKey, baseUrl)
+
+      if (status.status === 'completed') {
+        return status
+      }
+
+      if (status.status === 'failed') {
+        throw new Error(`视频生成失败: ${status.error || '未知错误'}`)
+      }
+
+      // 等待后继续轮询
+      await new Promise(resolve => setTimeout(resolve, pollInterval))
+    }
+
+    throw new Error(`视频生成超时：已等待 ${maxWaitTime / 1000} 秒`)
+  }
+
+  /**
+   * 文本转语音
+   */
+  async textToSpeech(
+    providerType: AIProviderType,
+    request: TTSRequest,
+    apiKey: string,
+    baseUrl?: string
+  ): Promise<TTSResponse> {
+    const provider = this.getProvider(providerType)
+    if (!provider.textToSpeech) {
+      throw new Error(`Provider ${providerType} does not support text-to-speech`)
+    }
+    console.log(`[AI Service] TTS: model=${request.model}, text=${request.input.substring(0, 50)}...`)
+    return provider.textToSpeech(request, apiKey, baseUrl)
+  }
+
+  /**
+   * 向量嵌入
+   */
+  async createEmbedding(
+    providerType: AIProviderType,
+    request: EmbeddingRequest,
+    apiKey: string,
+    baseUrl?: string
+  ): Promise<EmbeddingResponse> {
+    const provider = this.getProvider(providerType)
+    if (!provider.createEmbedding) {
+      throw new Error(`Provider ${providerType} does not support embeddings`)
+    }
+    const inputPreview = Array.isArray(request.input)
+      ? `${request.input.length} texts`
+      : request.input.substring(0, 50)
+    console.log(`[AI Service] Embedding: model=${request.model}, input=${inputPreview}...`)
+    return provider.createEmbedding(request, apiKey, baseUrl)
+  }
+
+  // ========================================
+  // 能力检测方法
+  // ========================================
+
+  supportsImageGeneration(providerType: AIProviderType): boolean {
+    const provider = this.providers.get(providerType)
+    return !!provider?.generateImage
+  }
+
+  supportsVideoGeneration(providerType: AIProviderType): boolean {
+    const provider = this.providers.get(providerType)
+    return !!provider?.generateVideo
+  }
+
+  supportsTTS(providerType: AIProviderType): boolean {
+    const provider = this.providers.get(providerType)
+    return !!provider?.textToSpeech
+  }
+
+  supportsEmbedding(providerType: AIProviderType): boolean {
+    const provider = this.providers.get(providerType)
+    return !!provider?.createEmbedding
   }
 }
 

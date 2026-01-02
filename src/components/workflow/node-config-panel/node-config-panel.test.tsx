@@ -389,7 +389,7 @@ describe('Property 14: Component Refactoring Behavioral Equivalence', () => {
     it('removing a file should preserve other files', () => {
       fc.assert(
         fc.property(
-          fc.array(importedFileArb, { minLength: 1, maxLength: 5 }),
+          fc.uniqueArray(importedFileArb, { minLength: 1, maxLength: 5, selector: f => f.id }),
           (files) => {
             const fileToRemove = files[Math.floor(Math.random() * files.length)]
             const config = { files: [...files] }

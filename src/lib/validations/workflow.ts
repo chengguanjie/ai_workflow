@@ -25,6 +25,19 @@ const baseNodeSchema = z.object({
 const nodeAIConfigSchema = z.object({
   aiConfigId: z.string().optional(),
   model: z.string().optional(),
+  // 显式保存模态（前端配置面板会写入该字段），避免仅依赖 model 推断导致的路由错误
+  modality: z
+    .enum([
+      "text",
+      "code",
+      "image-gen",
+      "video-gen",
+      "audio-transcription",
+      "audio-tts",
+      "embedding",
+      "ocr",
+    ])
+    .optional(),
   temperature: z.number().min(0).max(2).optional(),
   maxTokens: z.number().optional(),
 });
@@ -50,7 +63,7 @@ const triggerNodeSchema = baseNodeSchema.extend({
 
 // INPUT
 // 有效的 fieldType 值
-const validFieldTypes = [
+const _validFieldTypes = [
   "text",
   "image",
   "pdf",
@@ -63,7 +76,7 @@ const validFieldTypes = [
 ] as const;
 
 // fieldType 映射表：将无效值转换为有效值
-const fieldTypeMapping: Record<string, (typeof validFieldTypes)[number]> = {
+const fieldTypeMapping: Record<string, (typeof _validFieldTypes)[number]> = {
   textarea: "text", // textarea -> text
   file: "pdf", // file -> pdf (通用文件)
   document: "pdf", // document -> pdf
@@ -140,6 +153,27 @@ const processNodeSchema = baseNodeSchema.extend({
     tools: z.array(uiToolConfigSchema).optional(), // UI tool configurations
     toolChoice: z.enum(["auto", "none", "required"]).optional(),
     maxToolCallRounds: z.number().optional(),
+
+    // ===== 多模态生成配置（PROCESS 节点复用）=====
+    imageSize: z.string().optional(),
+    imageCount: z.number().optional(),
+    imageQuality: z.enum(["standard", "hd"]).optional(),
+    imageStyle: z.enum(["vivid", "natural"]).optional(),
+    negativePrompt: z.string().optional(),
+
+    videoDuration: z.number().optional(),
+    videoAspectRatio: z.enum(["16:9", "9:16", "1:1"]).optional(),
+    videoResolution: z.enum(["720p", "1080p", "4k"]).optional(),
+    referenceImage: z.string().optional(),
+
+    ttsVoice: z.string().optional(),
+    ttsSpeed: z.number().optional(),
+    ttsFormat: z.enum(["mp3", "wav", "opus"]).optional(),
+
+    transcriptionLanguage: z.string().optional(),
+    transcriptionFormat: z.enum(["json", "text", "srt", "vtt"]).optional(),
+
+    embeddingDimensions: z.number().optional(),
   }),
 });
 
@@ -246,6 +280,33 @@ const audioNodeSchema = baseNodeSchema.extend({
         language: z.string().optional(),
       })
       .optional(),
+  }),
+});
+
+// LOGIC
+const logicBranchSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  targetNodeId: z.string().optional(),
+});
+
+const logicConditionSchema = z.object({
+  id: z.string(),
+  label: z.string().optional(),
+  expression: z.string(),
+  targetNodeId: z.string().optional(),
+});
+
+const logicNodeSchema = baseNodeSchema.extend({
+  type: z.literal("LOGIC"),
+  config: z.object({
+    mode: z.enum(["condition", "split", "merge", "switch"]),
+    conditions: z.array(logicConditionSchema).optional(),
+    fallbackTargetNodeId: z.string().optional(),
+    branches: z.array(logicBranchSchema).optional(),
+    mergeFromNodeIds: z.array(z.string()).optional(),
+    mergeStrategy: z.enum(["all", "first", "custom"]).optional(),
+    switchInput: z.string().optional(),
   }),
 });
 
@@ -452,6 +513,7 @@ const nodeSchema = z.discriminatedUnion("type", [
   imageNodeSchema,
   videoNodeSchema,
   audioNodeSchema,
+  logicNodeSchema,
   conditionNodeSchema,
   loopNodeSchema,
   switchNodeSchema,

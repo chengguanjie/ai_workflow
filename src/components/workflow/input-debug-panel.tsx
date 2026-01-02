@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useMemo, useEffect } from "react";
+import React, { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import {
   X,
   Plus,
@@ -537,8 +537,9 @@ export function InputNodeDebugPanel({
           size="icon"
           onClick={onClose}
           className="h-8 w-8"
+          title="收起面板"
         >
-          <X className="h-4 w-4" />
+          <ChevronRight className="h-4 w-4" />
         </Button>
       </div>
 

@@ -14,6 +14,10 @@ function isAtLeast(actual, required) {
 const required = { major: 20, minor: 19, patch: 0 }
 const actual = parseNodeVersion(process.versions.node)
 
+if (process.env.SKIP_NODE_VERSION_CHECK === '1' || process.env.SKIP_NODE_VERSION_CHECK === 'true') {
+  process.exit(0)
+}
+
 if (isAtLeast(actual, required)) {
   process.exit(0)
 }
@@ -23,4 +27,3 @@ console.error(
     `Please upgrade Node (e.g. via nvm: "nvm install ${required.major}.${required.minor}.${required.patch}" && "nvm use").`
 )
 process.exit(1)
-

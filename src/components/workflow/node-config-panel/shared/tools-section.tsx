@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Globe,
   Table2,
@@ -16,6 +16,8 @@ import {
   GripVertical,
   Sparkles,
   Bell,
+  Wrench,
+  Music,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +39,9 @@ import {
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { ClaudeSkillDialog, type ClaudeSkill } from "./claude-skill-dialog";
+import { AIGenerateButton } from "./ai-generate-button";
+import { useWorkflowStore } from "@/stores/workflow-store";
+import { SHENSUAN_MODELS, SHENSUAN_DEFAULT_MODELS } from "@/lib/ai/types";
 
 // 工具类型定义
 export interface ToolConfig {
@@ -49,10 +54,15 @@ export interface ToolConfig {
 
 export type ToolType =
   | "http-request"
+  | "code-execution"
   | "feishu-bitable"
   | "xiaohongshu"
+  | "image-gen-ai"
+  | "video-gen-ai"
+  | "audio-tts-ai"
   | "douyin-video"
   | "wechat-mp"
+  | "wechat-channels"
   | "claude-skill"
   | "notification-feishu"
   | "notification-dingtalk"
@@ -75,6 +85,12 @@ const TOOL_METADATA: Record<
     description: "发送 HTTP 请求到外部 API",
     color: "text-blue-500",
   },
+  "code-execution": {
+    label: "代码执行",
+    icon: Wrench,
+    description: "在受控沙箱中运行代码（JS/TS/Python）",
+    color: "text-amber-500",
+  },
   "feishu-bitable": {
     label: "飞书多维表格",
     icon: Table2,
@@ -87,6 +103,24 @@ const TOOL_METADATA: Record<
     description: "发布内容到小红书",
     color: "text-red-500",
   },
+  "image-gen-ai": {
+    label: "图片生成",
+    icon: Sparkles,
+    description: "在当前节点内生成图片",
+    color: "text-purple-500",
+  },
+  "video-gen-ai": {
+    label: "视频生成",
+    icon: Video,
+    description: "在当前节点内生成视频",
+    color: "text-fuchsia-500",
+  },
+  "audio-tts-ai": {
+    label: "音频生成（TTS）",
+    icon: Music,
+    description: "在当前节点内将文本转语音",
+    color: "text-emerald-500",
+  },
   "douyin-video": {
     label: "抖音视频",
     icon: Video,
@@ -98,6 +132,12 @@ const TOOL_METADATA: Record<
     icon: MessageCircle,
     description: "发布文章到微信公众号",
     color: "text-green-500",
+  },
+  "wechat-channels": {
+    label: "视频号",
+    icon: Video,
+    description: "发布内容到视频号",
+    color: "text-teal-500",
   },
   "claude-skill": {
     label: "Claude Skill",
@@ -131,6 +171,25 @@ const TOOL_METADATA: Record<
   },
 };
 
+// 工具展示顺序（添加工具时的列表）
+const TOOL_ORDER: ToolType[] = [
+  "image-gen-ai",
+  "video-gen-ai",
+  "audio-tts-ai",
+  "code-execution",
+  "http-request",
+  "claude-skill",
+  "feishu-bitable",
+  "douyin-video",
+  "wechat-channels",
+  "xiaohongshu",
+  "wechat-mp",
+  "notification-feishu",
+  "notification-dingtalk",
+  "notification-wecom",
+  "custom",
+];
+
 interface ToolsSectionProps {
   tools: ToolConfig[];
   onToolsChange: (tools: ToolConfig[]) => void;
@@ -144,6 +203,21 @@ export function ToolsSection({ tools, onToolsChange }: ToolsSectionProps) {
     null,
   );
 
+  // 从当前选中节点中推断 userPrompt，用于多模态工具默认模板
+  const { nodes, selectedNodeId } = useWorkflowStore();
+  const currentUserPrompt = useMemo(() => {
+    const node = nodes.find((n) => n.id === selectedNodeId);
+    const data = node?.data as
+      | { config?: { userPrompt?: string }; userPrompt?: string }
+      | undefined;
+    // 兼容不同存储方式
+    return (
+      data?.config?.userPrompt ||
+      (node?.data as any)?.userPrompt ||
+      ""
+    );
+  }, [nodes, selectedNodeId]);
+
   // 添加新工具
   const handleAddTool = (type: ToolType) => {
     // Claude Skill 需要打开弹窗选择
@@ -154,12 +228,63 @@ export function ToolsSection({ tools, onToolsChange }: ToolsSectionProps) {
       return;
     }
 
+    let config: Record<string, unknown> = getDefaultConfig(type);
+
+    // 对多模态相关工具，根据当前节点的 userPrompt 生成一个更贴合场景的默认提示词模板
+    if (type === "image-gen-ai" || type === "video-gen-ai" || type === "audio-tts-ai") {
+      const trimmed = currentUserPrompt?.trim() ?? "";
+      const preview =
+        trimmed.length > 200 ? trimmed.slice(0, 200) + "..." : trimmed;
+
+      const commonHeader = [
+        "你是一名多模态创意助手，请基于上游节点提供的内容和当前工具配置，生成适合目标模态的高质量英文提示词（prompt）。",
+        "",
+        preview
+          ? "【上游节点的用户提示（摘要）】\n" + preview + "\n"
+          : "",
+        "【使用说明】",
+      ];
+
+      if (type === "image-gen-ai") {
+        config = {
+          ...config,
+          promptTemplate: [
+            ...commonHeader,
+            "1. 图片生成：尽量具体描述画面主体、风格、光线、构图，结合 imageQuality / imageStyle；",
+            "2. 如需引用工作流变量，请使用 {{节点名.字段名}} 或 {{用户输入.xxx}} 的格式；",
+            "3. 只输出给模型使用的英文 prompt，不要附加任何解释或中英文混排。",
+          ].join("\n"),
+        };
+      } else if (type === "video-gen-ai") {
+        config = {
+          ...config,
+          promptTemplate: [
+            ...commonHeader,
+            "1. 视频生成：可分镜（镜头1/2/3...）描述画面变化，结合时长、宽高比和分辨率；如存在参考图片，请保持画面风格一致；",
+            "2. 如需引用工作流变量，请使用 {{节点名.字段名}} 或 {{用户输入.xxx}} 的格式；",
+            "3. 只输出给模型使用的英文 prompt，不要附加任何解释或中英文混排。",
+          ].join("\n"),
+        };
+      } else if (type === "audio-tts-ai") {
+        config = {
+          ...config,
+          promptTemplate: [
+            ...commonHeader,
+            "1. 文本转语音：请生成适合朗读的脚本，可根据 ttsSpeed / ttsEmotion 控制节奏与情绪；",
+            "2. 语言风格应口语化、自然流畅，适合直接播放给用户；",
+            "3. 如需引用工作流变量，请使用 {{节点名.字段名}} 或 {{用户输入.xxx}} 的格式；",
+            "4. 只输出给模型使用的英文 prompt，不要附加任何解释或中英文混排。",
+          ].join("\n"),
+        };
+      }
+    }
+
     const newTool: ToolConfig = {
       id: `tool_${Date.now()}`,
       type,
       name: TOOL_METADATA[type].label,
       enabled: true,
-      config: getDefaultConfig(type),
+      config,
     };
     onToolsChange([...tools, newTool]);
     setExpandedTools(new Set([...expandedTools, newTool.id]));
@@ -257,8 +382,11 @@ export function ToolsSection({ tools, onToolsChange }: ToolsSectionProps) {
             选择要添加的工具：
           </p>
           <div className="grid grid-cols-2 gap-2">
-            {(Object.keys(TOOL_METADATA) as ToolType[]).map((type) => {
+            {TOOL_ORDER.map((type) => {
               const meta = TOOL_METADATA[type];
+              // 理论上 TOOL_ORDER 中的类型都会在 TOOL_METADATA 中注册，
+              // 但这里仍然做一次空值保护，避免未来改动导致运行时报错。
+              if (!meta) return null;
               const Icon = meta.icon;
               return (
                 <button
@@ -296,7 +424,15 @@ export function ToolsSection({ tools, onToolsChange }: ToolsSectionProps) {
       ) : (
         <div className="space-y-2">
           {tools.map((tool) => {
-            const meta = TOOL_METADATA[tool.type];
+            const meta =
+              TOOL_METADATA[tool.type as ToolType] || {
+                // 兜底处理未知工具类型，避免因后端/历史数据中的旧类型字符串导致运行时报错
+                label: tool.name || "未知工具",
+                icon: Settings,
+                description:
+                  "此工具类型未在当前版本中注册，请重新配置或删除该工具。",
+                color: "text-gray-400",
+              };
             const Icon = meta.icon;
             const isExpanded = expandedTools.has(tool.id);
 
@@ -348,19 +484,6 @@ export function ToolsSection({ tools, onToolsChange }: ToolsSectionProps) {
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
-                      </div>
-
-                      {/* 工具名称 */}
-                      <div className="space-y-1.5">
-                        <Label className="text-xs">工具名称</Label>
-                        <Input
-                          value={tool.name}
-                          onChange={(e) =>
-                            handleUpdateTool(tool.id, { name: e.target.value })
-                          }
-                          className="h-8 text-xs"
-                          placeholder="输入工具名称..."
-                        />
                       </div>
 
                       {/* 工具特定配置 */}
@@ -432,6 +555,41 @@ function getDefaultConfig(type: ToolType): Record<string, unknown> {
         coverUrl: "",
         tags: [],
       };
+    case "code-execution":
+      return {
+        language: "javascript",
+        code: "",
+        timeoutMs: 2000,
+        maxOutputSize: 32000,
+      };
+    case "image-gen-ai":
+      return {
+        promptTemplate: "",
+        imageSize: "1024x1024",
+        imageCount: 1,
+        imageQuality: "standard",
+        imageStyle: "vivid",
+        negativePrompt: "",
+        model: SHENSUAN_DEFAULT_MODELS["image-gen"],
+      };
+    case "video-gen-ai":
+      return {
+        promptTemplate: "",
+        videoDuration: 5,
+        videoAspectRatio: "16:9",
+        videoResolution: "1080p",
+        videoReferenceImage: "",
+        model: SHENSUAN_DEFAULT_MODELS["video-gen"],
+      };
+    case "audio-tts-ai":
+      return {
+        promptTemplate: "",
+        ttsVoice: "",
+        ttsFormat: "mp3",
+        ttsSpeed: 1.0,
+        ttsEmotion: "",
+        model: SHENSUAN_DEFAULT_MODELS["audio-tts"],
+      };
     case "wechat-mp":
       return {
         action: "publish",
@@ -439,6 +597,15 @@ function getDefaultConfig(type: ToolType): Record<string, unknown> {
         content: "",
         author: "",
         digest: "",
+      };
+    case "wechat-channels":
+      return {
+        action: "publish",
+        title: "",
+        description: "",
+        videoUrl: "",
+        coverUrl: "",
+        tags: [],
       };
     case "claude-skill":
       return {
@@ -503,6 +670,31 @@ function ToolConfigPanel({
       return (
         <FeishuBitableConfig config={config} onConfigChange={onConfigChange} />
       );
+    case "code-execution":
+      return (
+        <CodeExecutionConfig config={config} onConfigChange={onConfigChange} />
+      );
+    case "image-gen-ai":
+      return (
+        <MultimodalAiConfig
+          config={config}
+          onConfigChange={onConfigChange}
+        />
+      );
+    case "video-gen-ai":
+      return (
+        <MultimodalAiConfig
+          config={config}
+          onConfigChange={onConfigChange}
+        />
+      );
+    case "audio-tts-ai":
+      return (
+        <MultimodalAiConfig
+          config={config}
+          onConfigChange={onConfigChange}
+        />
+      );
     case "xiaohongshu":
       return (
         <XiaohongshuConfig config={config} onConfigChange={onConfigChange} />
@@ -513,6 +705,10 @@ function ToolConfigPanel({
       );
     case "wechat-mp":
       return <WechatMPConfig config={config} onConfigChange={onConfigChange} />;
+    case "wechat-channels":
+      return (
+        <WechatChannelsConfig config={config} onConfigChange={onConfigChange} />
+      );
     case "claude-skill":
       return (
         <ClaudeSkillConfig
@@ -553,6 +749,464 @@ function ToolConfigPanel({
       return null;
   }
 }
+
+function CodeExecutionConfig({
+  config,
+  onConfigChange,
+}: {
+  config: Record<string, unknown>;
+  onConfigChange: (updates: Record<string, unknown>) => void;
+}) {
+  const language = (config.language as string) || "javascript";
+  const code = (config.code as string) || "";
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label className="text-xs">语言</Label>
+          <Select
+            value={language}
+            onValueChange={(value) => onConfigChange({ language: value })}
+          >
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue placeholder="选择语言" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="javascript">JavaScript</SelectItem>
+              <SelectItem value="typescript">TypeScript</SelectItem>
+              <SelectItem value="python">Python</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">超时时间 (ms)</Label>
+          <Input
+            type="number"
+            min={100}
+            max={10000}
+            value={(config.timeoutMs as number) || 2000}
+            onChange={(e) =>
+              onConfigChange({
+                timeoutMs: Number(e.target.value) || 2000,
+              })
+            }
+            className="h-8 text-xs"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <Label className="text-xs">代码内容</Label>
+          <AIGenerateButton
+            fieldType="code"
+            currentContent={code}
+            onConfirm={(value) => onConfigChange({ code: value })}
+            fieldLabel="代码片段"
+            size="sm"
+            className="h-6"
+          />
+        </div>
+        <Textarea
+          value={code}
+          onChange={(e) => onConfigChange({ code: e.target.value })}
+          className="min-h-[120px] text-xs font-mono"
+          placeholder={
+            language === "python"
+              ? "# 例如：\nresult = input.get('x', 0) + 1"
+              : "// 例如：\n// const { x } = input;\n// return x + 1;"
+          }
+        />
+        <p className="text-[10px] text-muted-foreground">
+          代码在隔离沙箱中执行，可通过 <code>input</code> 访问调用时传入的数据。
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label className="text-xs">最大输出大小</Label>
+        <Input
+          type="number"
+          min={1000}
+          max={256000}
+          value={(config.maxOutputSize as number) || 32000}
+          onChange={(e) =>
+            onConfigChange({
+              maxOutputSize: Number(e.target.value) || 32000,
+            })
+          }
+          className="h-8 text-xs"
+        />
+        <p className="text-[10px] text-muted-foreground">
+          限制 stdout/stderr 输出大小，防止异常日志撑爆上下文。
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function MultimodalAiConfig({
+  config,
+  onConfigChange,
+}: {
+  config: Record<string, unknown>;
+  onConfigChange: (updates: Record<string, unknown>) => void;
+}) {
+  // 通过是否存在视频 / 音频相关字段，推断当前工具的模态类型
+  // image-gen-ai: 只配置图片参数
+  // video-gen-ai: 主要配置视频参数
+  // audio-tts-ai: 主要配置 TTS 参数
+  let modality: "image" | "video" | "audio_tts" = "image";
+  if (config.videoDuration || config.videoAspectRatio || config.videoResolution) {
+    modality = "video";
+  } else if (config.ttsVoice || config.ttsFormat || config.ttsSpeed) {
+    modality = "audio_tts";
+  }
+  const promptTemplate = (config.promptTemplate as string) || "";
+  const imageQuality = (config.imageQuality as string) || "standard";
+  const imageStyle = (config.imageStyle as string) || "vivid";
+  const videoResolution = (config.videoResolution as string) || "1080p";
+  const videoReferenceImage = (config.videoReferenceImage as string) || "";
+  const ttsSpeed =
+    typeof config.ttsSpeed === "number" ? (config.ttsSpeed as number) : 1.0;
+  const ttsEmotion = (config.ttsEmotion as string) || "";
+
+  // 根据当前模态获取可选模型列表和默认模型
+  const modelOptions: string[] =
+    modality === "image"
+      ? (SHENSUAN_MODELS["image-gen"] as readonly string[])
+      : modality === "video"
+        ? (SHENSUAN_MODELS["video-gen"] as readonly string[])
+        : modality === "audio_tts"
+          ? (SHENSUAN_MODELS["audio-tts"] as readonly string[])
+          : [];
+
+  const defaultModel =
+    modality === "image"
+      ? SHENSUAN_DEFAULT_MODELS["image-gen"]
+      : modality === "video"
+        ? SHENSUAN_DEFAULT_MODELS["video-gen"]
+        : modality === "audio_tts"
+          ? SHENSUAN_DEFAULT_MODELS["audio-tts"]
+          : "";
+
+  const selectedModel =
+    (config.model as string) || defaultModel || (modelOptions[0] ?? "");
+
+  // 一键应用常见场景预设
+  const applyPreset = (preset: "wechat-cover" | "short-video-cover" | "podcast-audio") => {
+    if (preset === "wechat-cover") {
+      const updates: Record<string, unknown> = {
+        modality: "image",
+        imageSize: "1024x1024",
+        imageQuality: "hd",
+        imageStyle: "natural",
+        imageCount: 1,
+        model: SHENSUAN_DEFAULT_MODELS["image-gen"],
+      };
+      if (!promptTemplate) {
+        updates.promptTemplate = [
+          "You are an illustration designer for a WeChat Official Account.",
+          "Generate a detailed English prompt for an eye-catching article illustration.",
+          "",
+          "Requirements:",
+          "1. Style: modern, clean, suitable for Chinese business / tech articles.",
+          "2. Avoid any Chinese text, logos, or watermarks in the image.",
+          "3. Composition: keep enough negative space for title overlay if needed.",
+          "4. Reflect the core topic of the upstream article content.",
+        ].join("\n");
+      }
+      onConfigChange(updates);
+      return;
+    }
+
+    if (preset === "short-video-cover") {
+      const updates: Record<string, unknown> = {
+        modality: "image",
+        imageSize: "1024x1792",
+        imageQuality: "hd",
+        imageStyle: "vivid",
+        imageCount: 1,
+        negativePrompt:
+          negativePrompt ||
+          "low quality, blurry, watermark, logo, UI screenshot, text-only image",
+        model: SHENSUAN_DEFAULT_MODELS["image-gen"],
+      };
+      if (!promptTemplate) {
+        updates.promptTemplate = [
+          "You are a designer for short-video cover images.",
+          "Generate a vivid English prompt for a vertical 9:16 thumbnail.",
+          "",
+          "Requirements:",
+          "1. Style: bold, high-contrast, suitable for Douyin / TikTok style feeds.",
+          "2. Focus on a single clear subject with strong emotion or motion.",
+          "3. Avoid any text, logos, or watermarks in the image.",
+          "4. Background can be slightly blurred to make the subject pop.",
+        ].join("\n");
+      }
+      onConfigChange(updates);
+      return;
+    }
+
+    if (preset === "podcast-audio") {
+      const updates: Record<string, unknown> = {
+        modality: "audio_tts",
+        ttsVoice: (config.ttsVoice as string) || "alloy",
+        ttsFormat: "mp3",
+        ttsSpeed: ttsSpeed || 1.0,
+        ttsEmotion: ttsEmotion || "calm",
+        model: SHENSUAN_DEFAULT_MODELS["audio-tts"],
+      };
+      if (!promptTemplate) {
+        updates.promptTemplate = [
+          "You are a script writer for a Chinese podcast episode.",
+          "Generate a natural, spoken-style English prompt that will be converted to audio using TTS.",
+          "",
+          "Requirements:",
+          "1. The script should be easy to read aloud and sound conversational.",
+          "2. Use short sentences and clear structure, suitable for a 3–5 minute episode.",
+          "3. Do not include any instructions to the TTS engine, only the content to be spoken.",
+          "4. The tone should match a calm, friendly podcast host.",
+        ].join("\n");
+      }
+      onConfigChange(updates);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <Label className="text-xs">输入提示词</Label>
+          {/* 复用通用 AI 按钮，对当前模板进行优化 */}
+          <AIGenerateButton
+            fieldType="imagePrompt"
+            currentContent={promptTemplate}
+            onConfirm={(value) => onConfigChange({ promptTemplate: value })}
+            fieldLabel="多模态输入提示词"
+            size="sm"
+            className="h-6"
+          />
+        </div>
+        <Textarea
+          value={promptTemplate}
+          onChange={(e) => onConfigChange({ promptTemplate: e.target.value })}
+          rows={3}
+          className="text-xs"
+          placeholder="请输入给多模态模型的完整提示词，可同时描述希望出现和不希望出现的内容。例如：根据文章内容生成配图提示词（包含风格、画面细节和需要规避的元素）。支持使用 {{变量}} 引用节点输出或用户输入。"
+        />
+      </div>
+
+      {modality === "image" && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">图片尺寸</Label>
+              <Select
+                value={(config.imageSize as string) || "1024x1024"}
+                onValueChange={(value) => onConfigChange({ imageSize: value })}
+              >
+                <SelectTrigger className="h-8 text-xs w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1024x1024">1024x1024 (正方形)</SelectItem>
+                  <SelectItem value="1792x1024">1792x1024 (横版 16:9)</SelectItem>
+                  <SelectItem value="1024x1792">1024x1792 (竖版 9:16)</SelectItem>
+                  <SelectItem value="1280x720">1280x720 (横版 HD)</SelectItem>
+                  <SelectItem value="720x1280">720x1280 (竖版 HD)</SelectItem>
+                  <SelectItem value="900x500">900x500 (公众号封面)</SelectItem>
+                  <SelectItem value="512x512">512x512 (小尺寸)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">数量</Label>
+              <Input
+                type="number"
+                min={1}
+                max={8}
+                value={
+                  typeof config.imageCount === "number" ? config.imageCount : 1
+                }
+                onChange={(e) =>
+                  onConfigChange({
+                    imageCount: Number(e.target.value) || 1,
+                  })
+                }
+                className="h-8 text-xs"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">质量</Label>
+              <Select
+                value={imageQuality}
+                onValueChange={(value) =>
+                  onConfigChange({ imageQuality: value })
+                }
+              >
+                <SelectTrigger className="h-8 text-xs w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="standard">标准</SelectItem>
+                  <SelectItem value="hd">高清 (HD)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">风格</Label>
+              <Select
+                value={imageStyle}
+                onValueChange={(value) =>
+                  onConfigChange({ imageStyle: value })
+                }
+              >
+                <SelectTrigger className="h-8 text-xs w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="vivid">生动 (vivid)</SelectItem>
+                  <SelectItem value="natural">自然 (natural)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modality === "video" && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">时长（秒）</Label>
+              <Input
+                type="number"
+                min={1}
+                max={60}
+                value={
+                  typeof config.videoDuration === "number"
+                    ? config.videoDuration
+                    : 5
+                }
+                onChange={(e) =>
+                  onConfigChange({
+                    videoDuration: Number(e.target.value) || 5,
+                  })
+                }
+                className="h-8 text-xs"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">宽高比</Label>
+              <Input
+                value={(config.videoAspectRatio as string) || "16:9"}
+                onChange={(e) =>
+                  onConfigChange({
+                    videoAspectRatio: e.target.value,
+                  })
+                }
+                className="h-8 text-xs"
+                placeholder="例如 16:9 / 9:16"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">分辨率</Label>
+              <Select
+                value={videoResolution}
+                onValueChange={(value) =>
+                  onConfigChange({ videoResolution: value })
+                }
+              >
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="720p">720p</SelectItem>
+                  <SelectItem value="1080p">1080p</SelectItem>
+                  <SelectItem value="4k">4K</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">参考图片 URL（可选）</Label>
+              <Input
+                value={videoReferenceImage}
+                onChange={(e) =>
+                  onConfigChange({ videoReferenceImage: e.target.value })
+                }
+                className="h-8 text-xs"
+                placeholder="用于图生视频，例如上游图片节点的 URL"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modality === "audio_tts" && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">语音名称</Label>
+              <Input
+                value={(config.ttsVoice as string) || ""}
+                onChange={(e) => onConfigChange({ ttsVoice: e.target.value })}
+                className="h-8 text-xs"
+                placeholder="例如 zh_female_1 / alloy"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">音频格式</Label>
+              <Input
+                value={(config.ttsFormat as string) || "mp3"}
+                onChange={(e) => onConfigChange({ ttsFormat: e.target.value })}
+                className="h-8 text-xs"
+                placeholder="mp3 / wav / opus 等"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs">语速</Label>
+            <Input
+              type="number"
+              step={0.25}
+              min={0.25}
+              max={4}
+              value={ttsSpeed}
+              onChange={(e) =>
+                onConfigChange({
+                  ttsSpeed: Number(e.target.value) || 1.0,
+                })
+              }
+              className="h-8 text-xs"
+              placeholder="0.25 - 4.0，默认 1.0"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs">情绪 / 风格（可选）</Label>
+            <Input
+              value={ttsEmotion}
+              onChange={(e) =>
+                onConfigChange({ ttsEmotion: e.target.value })
+              }
+              className="h-8 text-xs"
+              placeholder="例如 calm, excited, serious，用于提示模型情绪风格"
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 // HTTP 请求配置
 function HttpRequestConfig({
@@ -1035,6 +1689,59 @@ function WechatMPConfig({
           onChange={(e) => onConfigChange({ content: e.target.value })}
           className="min-h-[100px] text-xs font-mono resize-y"
           placeholder="输入文章 HTML 内容，支持 {{变量}}"
+        />
+      </div>
+    </div>
+  );
+}
+
+// 视频号配置
+function WechatChannelsConfig({
+  config,
+  onConfigChange,
+}: {
+  config: Record<string, unknown>;
+  onConfigChange: (updates: Record<string, unknown>) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1.5">
+        <Label className="text-xs">标题</Label>
+        <Input
+          value={(config.title as string) || ""}
+          onChange={(e) => onConfigChange({ title: e.target.value })}
+          className="h-8 text-xs"
+          placeholder="输入标题"
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <Label className="text-xs">描述</Label>
+        <Textarea
+          value={(config.description as string) || ""}
+          onChange={(e) => onConfigChange({ description: e.target.value })}
+          className="min-h-[60px] text-xs resize-y"
+          placeholder="输入描述（可选）"
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <Label className="text-xs">视频 URL</Label>
+        <Input
+          value={(config.videoUrl as string) || ""}
+          onChange={(e) => onConfigChange({ videoUrl: e.target.value })}
+          className="h-8 text-xs font-mono"
+          placeholder="https://..."
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <Label className="text-xs">封面 URL</Label>
+        <Input
+          value={(config.coverUrl as string) || ""}
+          onChange={(e) => onConfigChange({ coverUrl: e.target.value })}
+          className="h-8 text-xs font-mono"
+          placeholder="https://..."
         />
       </div>
     </div>

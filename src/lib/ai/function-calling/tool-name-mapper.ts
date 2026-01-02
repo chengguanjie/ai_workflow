@@ -9,6 +9,10 @@
  */
 const TOOL_NAME_MAP: Record<string, string> = {
   'http-request': 'http_request',
+  'code-execution': 'code_execution',
+  'image-gen-ai': 'image_gen_ai',
+  'video-gen-ai': 'video_gen_ai',
+  'audio-tts-ai': 'audio_tts_ai',
   'notification-feishu': 'send_notification',
   'notification-dingtalk': 'send_notification',
   'notification-wecom': 'send_notification',
@@ -16,6 +20,8 @@ const TOOL_NAME_MAP: Record<string, string> = {
   'xiaohongshu': 'xiaohongshu',
   'douyin-video': 'douyin_video',
   'wechat-mp': 'wechat_mp',
+  'wechat-channels': 'wechat_channels',
+  'multimodal-ai': 'multimodal_ai',
   'claude-skill': 'claude_skill',
   'custom': 'custom',
 }
@@ -25,11 +31,17 @@ const TOOL_NAME_MAP: Record<string, string> = {
  */
 const REVERSE_TOOL_NAME_MAP: Record<string, string> = {
   'http_request': 'http-request',
+  'code_execution': 'code-execution',
+  'image_gen_ai': 'image-gen-ai',
+  'video_gen_ai': 'video-gen-ai',
+  'audio_tts_ai': 'audio-tts-ai',
   'send_notification': 'notification-feishu',
   'feishu_bitable': 'feishu-bitable',
   'xiaohongshu': 'xiaohongshu',
   'douyin_video': 'douyin-video',
   'wechat_mp': 'wechat-mp',
+  'wechat_channels': 'wechat-channels',
+  'multimodal_ai': 'multimodal-ai',
   'claude_skill': 'claude-skill',
   'custom': 'custom',
 }
@@ -77,9 +89,19 @@ export function isNotificationTool(uiToolType: string): boolean {
 export function isToolImplemented(uiToolType: string): boolean {
   const implementedTools = [
     'http-request',
+    'code-execution',
+    'image-gen-ai',
+    'video-gen-ai',
+    'audio-tts-ai',
     'notification-feishu',
     'notification-dingtalk',
     'notification-wecom',
+    'feishu-bitable',
+    'wechat-mp',
+    'xiaohongshu',
+    'douyin-video',
+    'wechat-channels',
+    'multimodal-ai',
   ]
   return implementedTools.includes(uiToolType)
 }
@@ -93,6 +115,7 @@ export function getUnimplementedToolMessage(uiToolType: string): string {
     'xiaohongshu': '小红书',
     'douyin-video': '抖音视频',
     'wechat-mp': '微信公众号',
+    'wechat-channels': '视频号',
     'claude-skill': 'Claude Skill',
     'custom': '自定义工具',
   }

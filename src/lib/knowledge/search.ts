@@ -104,8 +104,12 @@ export async function searchKnowledgeBase(
     }
   }
 
+  if (process.env.KNOWLEDGE_REQUIRE_VECTOR_STORE === 'true') {
+    throw new Error('向量存储不可用或无结果，且已启用强制向量检索（KNOWLEDGE_REQUIRE_VECTOR_STORE=true）')
+  }
+
   // 3. 降级：从数据库获取所有分块并在内存中搜索
-  return searchInMemory(knowledgeBaseId, queryEmbedding.embedding, { topK, threshold })
+  return searchInMemory(knowledgeBaseId, query, queryEmbedding.embedding, { topK, threshold })
 }
 
 /**
@@ -171,9 +175,38 @@ async function searchWithVectorStore(
  */
 async function searchInMemory(
   knowledgeBaseId: string,
+  query: string,
   queryVector: number[],
   options: { topK: number; threshold: number }
 ): Promise<SearchResult[]> {
+  const maxChunks = parseInt(process.env.KNOWLEDGE_IN_MEMORY_MAX_CHUNKS || '2000', 10)
+  const disableInMemory = process.env.KNOWLEDGE_IN_MEMORY_DISABLED === 'true'
+
+  if (disableInMemory) {
+    console.warn('[Search] 内存相似度搜索已禁用（KNOWLEDGE_IN_MEMORY_DISABLED=true），降级到关键词搜索')
+    return fallbackKeywordSearch(knowledgeBaseId, query, options.topK)
+  }
+
+  try {
+    const chunkCount = await prisma.documentChunk.count({
+      where: {
+        document: {
+          knowledgeBaseId,
+          status: 'COMPLETED',
+        },
+      },
+    })
+
+    if (Number.isFinite(maxChunks) && maxChunks > 0 && chunkCount > maxChunks) {
+      console.warn(
+        `[Search] 内存相似度搜索将扫描 ${chunkCount} chunks，超过阈值 ${maxChunks}，已降级到关键词搜索（建议配置向量库）`
+      )
+      return fallbackKeywordSearch(knowledgeBaseId, query, options.topK)
+    }
+  } catch (error) {
+    console.warn('[Search] 统计 chunks 数量失败，将继续尝试内存搜索:', error)
+  }
+
   // 获取知识库中所有文档分块
   const chunks = await prisma.documentChunk.findMany({
     where: {

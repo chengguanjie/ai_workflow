@@ -42,7 +42,7 @@ const mockImportedFiles: ImportedFile[] = [
 
 describe('InputTabs Component', () => {
   const defaultProps = {
-    activeTab: 'upstream-data' as const,
+    activeTab: 'input' as const,
     onTabChange: vi.fn(),
     importedFiles: [] as ImportedFile[],
     onFilesChange: vi.fn(),
@@ -60,10 +60,10 @@ describe('InputTabs Component', () => {
      * Test: Default tab selection
      * **Validates: Requirements 1.2**
      */
-    it('should render with upstream-data tab selected by default', () => {
+    it('should render with input tab selected by default', () => {
       render(<InputTabs {...defaultProps} />)
       
-      const upstreamTab = screen.getByRole('tab', { name: /输入文本/i })
+      const upstreamTab = screen.getByRole('tab', { name: /输入与资料/i })
       expect(upstreamTab.getAttribute('data-state')).toBe('active')
     })
 
@@ -74,8 +74,8 @@ describe('InputTabs Component', () => {
     it('should render both tab triggers', () => {
       render(<InputTabs {...defaultProps} />)
       
-      expect(screen.getByRole('tab', { name: /输入文本/i })).toBeTruthy()
-      expect(screen.getByRole('tab', { name: /上传资料/i })).toBeTruthy()
+      expect(screen.getByRole('tab', { name: /输入与资料/i })).toBeTruthy()
+      expect(screen.getByRole('tab', { name: /引用知识库/i })).toBeTruthy()
     })
   })
 
@@ -84,7 +84,7 @@ describe('InputTabs Component', () => {
      * Test: Display predecessor nodes
      * **Validates: Requirements 1.4**
      */
-    it('should display predecessor nodes when upstream-data tab is active', () => {
+    it('should display predecessor nodes when input tab is active', () => {
       render(<InputTabs {...defaultProps} />)
       
       expect(screen.getByText(/处理节点1/)).toBeTruthy()
@@ -128,7 +128,7 @@ describe('InputTabs Component', () => {
      * **Validates: Requirements 2.1**
      */
     it('should display upload area when file-import tab is active', () => {
-      render(<InputTabs {...defaultProps} activeTab="file-import" />)
+      render(<InputTabs {...defaultProps} activeTab="input" />)
       
       expect(screen.getByText('点击或拖拽文件到此处')).toBeTruthy()
     })
@@ -137,7 +137,7 @@ describe('InputTabs Component', () => {
      * Test: Display supported file types hint
      */
     it('should display supported file types hint', () => {
-      render(<InputTabs {...defaultProps} activeTab="file-import" />)
+      render(<InputTabs {...defaultProps} activeTab="input" />)
       
       expect(screen.getByText(/支持 Word、PDF、Excel/i)).toBeTruthy()
     })
@@ -150,7 +150,7 @@ describe('InputTabs Component', () => {
       render(
         <InputTabs 
           {...defaultProps} 
-          activeTab="file-import"
+          activeTab="input"
           importedFiles={mockImportedFiles}
         />
       )
@@ -165,7 +165,7 @@ describe('InputTabs Component', () => {
       render(
         <InputTabs 
           {...defaultProps} 
-          activeTab="file-import"
+          activeTab="input"
           importedFiles={mockImportedFiles}
         />
       )
@@ -181,12 +181,15 @@ describe('InputTabs Component', () => {
       render(
         <InputTabs 
           {...defaultProps} 
-          activeTab="file-import"
+          activeTab="input"
           importedFiles={mockImportedFiles}
         />
       )
       
-      const clearButton = screen.getByRole('button', { name: /清空/i })
+      const inputTab = screen.getByRole('tab', { name: /输入与资料/i })
+      fireEvent.click(inputTab)
+
+      const clearButton = screen.getByRole('button', { name: /清空/ })
       fireEvent.click(clearButton)
       
       expect(defaultProps.onFilesChange).toHaveBeenCalledWith([])

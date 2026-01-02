@@ -9,6 +9,27 @@ import type { ExecutionContext, NodeOutput } from '../types'
 import { getProcessor } from '../processors'
 import type { AnalyticsCollector } from '../analytics-collector'
 
+function shouldUseToolProcessor(node: NodeConfig): boolean {
+        if (node.type !== 'PROCESS') return false
+
+        const config = node.config as {
+                enableToolCalling?: boolean
+                tools?: Array<{ enabled?: boolean }>
+        } | null | undefined
+
+        const hasEnabledTools = Boolean(config?.tools?.some(tool => tool?.enabled))
+        return Boolean(config?.enableToolCalling || hasEnabledTools)
+}
+
+function getEffectiveProcessor(node: NodeConfig) {
+        // 如果是 PROCESS 节点且启用了工具调用，则切换到带工具的处理器
+        if (shouldUseToolProcessor(node)) {
+                const toolProcessor = getProcessor('PROCESS_WITH_TOOLS')
+                if (toolProcessor) return toolProcessor
+        }
+        return getProcessor(node.type)
+}
+
 /**
  * 执行单个节点
  */
@@ -17,7 +38,7 @@ export async function executeNode(
         context: ExecutionContext,
         analyticsCollector?: AnalyticsCollector | null
 ): Promise<NodeOutput> {
-        const processor = getProcessor(node.type)
+        const processor = getEffectiveProcessor(node)
 
         if (!processor) {
                 // 对于不支持的节点类型，返回跳过状态

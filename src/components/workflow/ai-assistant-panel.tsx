@@ -56,6 +56,7 @@ import {
   MessageCircle,
   PlusCircle,
   Stethoscope,
+  Crosshair,
 } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -63,6 +64,8 @@ import { WorkflowPreview } from "@/components/workflow/workflow-preview";
 import { CreateWorkflowSection } from "@/components/workflow/ai-assistant/create-workflow-section";
 import { DiagnoseSection } from "@/components/workflow/ai-assistant/diagnose-section";
 import { OptimizeSection } from "@/components/workflow/ai-assistant/optimize-section";
+import { RefineSection } from "@/components/workflow/ai-assistant/refine-section";
+import { TestSection } from "@/components/workflow/ai-assistant/test-section";
 import {
   useAIAssistantStore,
   type AIMessage,
@@ -280,10 +283,12 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
             timeoutMs: TIMEOUT_MS,
           },
         );
-        if (!response.ok) {
-          throw new Error("获取服务商配置失败");
-        }
         const resData = await response.json();
+        if (!response.ok) {
+          // 获取服务器返回的详细错误信息
+          const errorMsg = resData?.error?.message || resData?.message || `HTTP ${response.status}`;
+          throw new Error(errorMsg);
+        }
         const data = resData.success ? resData.data : {};
         const providers: AIProviderConfig[] = data.providers || [];
         setProviderConfigs(providers);
@@ -483,7 +488,9 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
     chat: "对话",
     create: "创建",
     diagnose: "诊断",
-    optimize: "优化",
+    optimize: "建议",
+    refine: "精修",
+    test: "测试",
   };
 
   // 模式图标映射
@@ -491,7 +498,9 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
     chat: <MessageCircle className="h-3.5 w-3.5" />,
     create: <PlusCircle className="h-3.5 w-3.5" />,
     diagnose: <Stethoscope className="h-3.5 w-3.5" />,
-    optimize: <Zap className="h-3.5 w-3.5" />,
+    optimize: <Lightbulb className="h-3.5 w-3.5" />,
+    refine: <Crosshair className="h-3.5 w-3.5" />,
+    test: <Play className="h-3.5 w-3.5" />,
   };
 
   const workflowContext = generateWorkflowContext(nodes, edges);
@@ -1222,18 +1231,41 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
     return (
       <div
         ref={panelRef}
-        className="fixed z-50 flex items-center gap-2 rounded-lg border bg-white px-3 py-2 shadow-lg cursor-pointer hover:shadow-xl transition-shadow"
+        className={cn(
+          "fixed z-50 flex items-center gap-2 rounded-xl border bg-white px-3 py-2 shadow-lg hover:shadow-xl transition-shadow",
+          isDragging ? "cursor-grabbing" : "cursor-grab"
+        )}
         style={{
           left: panelPosition?.x ?? 16,
           top: panelPosition?.y ?? 16,
         }}
-        onClick={toggleMinimize}
+        onMouseDown={(e) => {
+          // 点击展开按钮时不触发拖拽
+          if ((e.target as HTMLElement).closest('[data-expand-button]')) {
+            return;
+          }
+          e.preventDefault();
+          const rect = panelRef.current?.getBoundingClientRect();
+          if (rect) {
+            dragOffsetRef.current = {
+              x: e.clientX - rect.left,
+              y: e.clientY - rect.top,
+            };
+            setIsDragging(true);
+          }
+        }}
       >
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-blue-600">
           <Sparkles className="h-4 w-4 text-white" />
         </div>
         <span className="text-sm font-medium text-gray-700">AI 规划助手</span>
-        <Maximize2 className="h-4 w-4 text-gray-400" />
+        <button
+          data-expand-button
+          onClick={toggleMinimize}
+          className="p-1 hover:bg-gray-100 rounded"
+        >
+          <Maximize2 className="h-4 w-4 text-gray-400" />
+        </button>
       </div>
     );
   }
@@ -1242,13 +1274,13 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
     <div
       ref={panelRef}
       className={cn(
-        "fixed z-50 flex flex-col rounded-lg border bg-slate-50 shadow-xl",
+        "fixed z-50 flex flex-col rounded-2xl border bg-slate-50 shadow-xl overflow-hidden",
         isDragging && "cursor-grabbing select-none",
         !panelPosition && "h-full rounded-none" // 默认位置时占满高度
       )}
       style={{
         ...panelStyle,
-        height: panelPosition ? "auto" : "100%",
+        height: panelPosition ? panelSize.height : "100%",
         maxHeight: panelPosition ? "calc(100vh - 32px)" : "100%",
       }}
       onMouseDown={handleDragStart}
@@ -1264,7 +1296,7 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
         data-drag-handle
         className={cn(
           "flex items-center justify-between border-b bg-white px-4 py-3",
-          panelPosition && "rounded-t-lg cursor-grab",
+          panelPosition && "cursor-grab",
           isDragging && "cursor-grabbing"
         )}
       >
@@ -1276,20 +1308,7 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-blue-600">
             <Sparkles className="h-4 w-4 text-white" />
           </div>
-          <div>
-            <h3 className="text-sm font-semibold text-gray-800">AI 规划助手</h3>
-            <div className="flex items-center gap-1.5">
-              <span
-                className={cn(
-                  "h-1.5 w-1.5 rounded-full",
-                  phaseColors[currentPhase],
-                )}
-              />
-              <span className="text-xs text-gray-500">
-                {phaseNames[currentPhase]}
-              </span>
-            </div>
-          </div>
+          <h3 className="text-sm font-semibold text-gray-800">AI 规划助手</h3>
         </div>
         <div className="flex items-center gap-1">
           <Button
@@ -1341,7 +1360,7 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
 
       {/* 模式切换 Tab */}
       <div className="flex border-b bg-white px-2 py-1.5 gap-1">
-        {(["chat", "create", "diagnose", "optimize"] as PanelMode[]).map((m) => (
+        {(["chat", "create", "diagnose", "test", "optimize", "refine"] as PanelMode[]).map((m) => (
           <button
             key={m}
             onClick={() => setMode(m)}
@@ -1425,8 +1444,10 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
         )}
       </div>
 
+      {/* 内容区域容器 - 用于确保子组件可以正确滚动 */}
+      <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
       {showHistory ? (
-        <div className="flex flex-1 flex-col overflow-hidden bg-white">
+        <div className="flex flex-1 flex-col overflow-hidden bg-white min-h-0">
           <div className="flex items-center justify-between border-b px-4 py-2 bg-gray-50">
             <button
               className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700"
@@ -1504,7 +1525,7 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
         // 诊断模式
         <DiagnoseSection workflowId={workflowId} />
       ) : mode === "optimize" ? (
-        // 优化模式
+        // 建议模式（原优化）
         <OptimizeSection
           workflowId={workflowId}
           selectedModel={selectedModel}
@@ -1512,6 +1533,22 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
             setPreviewActions(actions);
             setIsPreviewOpen(true);
           }}
+        />
+      ) : mode === "refine" ? (
+        // 精修模式
+        <RefineSection
+          workflowId={workflowId}
+          selectedModel={selectedModel}
+          onPreview={(actions) => {
+            setPreviewActions(actions);
+            setIsPreviewOpen(true);
+          }}
+        />
+      ) : mode === "test" ? (
+        // 测试模式
+        <TestSection
+          workflowId={workflowId}
+          selectedModel={selectedModel}
         />
       ) : (
         // 对话模式 (chat)
@@ -1537,216 +1574,6 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
             )}
           </div>
 
-          {nodes.length > 0 && (
-            <div className="border-b bg-white">
-              <Collapsible open={showTestInput} onOpenChange={setShowTestInput}>
-                <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-2 text-xs hover:bg-gray-50">
-                  <div className="flex items-center gap-2">
-                    <Zap className="h-3 w-3 text-amber-500" />
-                    <span className="font-medium text-gray-700">
-                      测试与优化
-                    </span>
-                  </div>
-                  {showTestInput ? (
-                    <ChevronUp className="h-3 w-3 text-gray-400" />
-                  ) : (
-                    <ChevronDown className="h-3 w-3 text-gray-400" />
-                  )}
-                </CollapsibleTrigger>
-                <CollapsibleContent className="border-t bg-gray-50 px-4 py-3 space-y-3">
-                  {inputNodeFields.length > 0 && (
-                    <div className="space-y-2">
-                      <Label className="text-xs font-medium text-gray-700">
-                        测试输入
-                      </Label>
-                      {inputNodeFields.map((field, index) => (
-                        <div key={index} className="flex items-center gap-2">
-                          <span
-                            className="text-xs text-gray-500 w-24 truncate"
-                            title={`${field.nodeName}.${field.fieldName}`}
-                          >
-                            {field.fieldName}
-                            {field.required && (
-                              <span className="text-red-500">*</span>
-                            )}
-                          </span>
-                          <Input
-                            className="h-7 text-xs flex-1 border-gray-200 bg-white"
-                            placeholder={`输入 ${field.fieldName}`}
-                            value={testInputFields[field.fieldName] || ""}
-                            onChange={(e) =>
-                              setTestInputFields((prev) => ({
-                                ...prev,
-                                [field.fieldName]: e.target.value,
-                              }))
-                            }
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium text-gray-700">
-                      优化目标（可选）
-                    </Label>
-                    <Textarea
-                      className="min-h-[60px] text-xs resize-none border-gray-200 bg-white"
-                      placeholder="描述期望的输出效果，例如：输出应该更加专业、格式需要是Markdown表格..."
-                      value={targetCriteria}
-                      onChange={(e) => setTargetCriteria(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        id="auto-mode"
-                        checked={isAutoMode}
-                        onCheckedChange={setAutoMode}
-                        disabled={autoOptimization?.isRunning}
-                      />
-                      <Label
-                        htmlFor="auto-mode"
-                        className="text-xs cursor-pointer text-gray-600"
-                      >
-                        自动优化模式
-                      </Label>
-                    </div>
-                    {autoOptimization?.isRunning && (
-                      <div className="flex items-center gap-2">
-                        <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
-                        <span className="text-xs text-gray-500">
-                          第 {autoOptimization.currentIteration}/
-                          {autoOptimization.maxIterations} 轮
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="flex-1 h-8 text-xs border-gray-200 bg-white hover:bg-gray-50"
-                      onClick={handleTest}
-                      disabled={isTesting || isOptimizing || isEvaluating}
-                    >
-                      {isTesting ? (
-                        <>
-                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                          测试中
-                        </>
-                      ) : (
-                        <>
-                          <Play className="mr-1 h-3 w-3" />
-                          执行测试
-                        </>
-                      )}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="flex-1 h-8 text-xs border-gray-200 bg-white hover:bg-gray-50"
-                      onClick={handleAESEvaluate}
-                      disabled={isTesting || isOptimizing || isEvaluating}
-                    >
-                      {isEvaluating ? (
-                        <>
-                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                          评估中
-                        </>
-                      ) : (
-                        <>
-                          <Shield className="mr-1 h-3 w-3" />
-                          AES 评估
-                        </>
-                      )}
-                    </Button>
-                    {lastTestResult && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="flex-1 h-8 text-xs border-gray-200 bg-white hover:bg-gray-50"
-                        onClick={() => handleOptimize("test")}
-                        disabled={isTesting || isOptimizing || isEvaluating}
-                      >
-                        {isOptimizing ? (
-                          <>
-                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                            分析中
-                          </>
-                        ) : (
-                          <>
-                            <RefreshCw className="mr-1 h-3 w-3" />
-                            智能优化
-                          </>
-                        )}
-                      </Button>
-                    )}
-                  </div>
-
-                  {isAutoMode && !autoOptimization?.isRunning && (
-                    <Button
-                      size="sm"
-                      className="w-full h-8 text-xs bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700"
-                      onClick={handleStartAutoLoop}
-                      disabled={isTesting || isOptimizing}
-                    >
-                      <Target className="mr-1 h-3 w-3" />
-                      启动自动优化循环
-                    </Button>
-                  )}
-
-                  {autoOptimization?.isRunning && (
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      className="w-full h-8 text-xs"
-                      onClick={handleStopAutoLoop}
-                    >
-                      <Square className="mr-1 h-3 w-3" />
-                      停止自动优化
-                    </Button>
-                  )}
-
-                  {autoOptimization && autoOptimization.history.length > 0 && (
-                    <div className="space-y-1">
-                      <Label className="text-xs font-medium text-gray-700">
-                        优化历史
-                      </Label>
-                      <div className="max-h-20 overflow-y-auto space-y-1">
-                        {autoOptimization.history.map((item, index) => (
-                          <div
-                            key={index}
-                            className="flex items-center gap-2 text-xs"
-                          >
-                            {item.testResult.success ? (
-                              <CheckCircle2 className="h-3 w-3 text-green-500" />
-                            ) : (
-                              <XCircle className="h-3 w-3 text-red-500" />
-                            )}
-                            <span className="text-gray-600">
-                              第 {item.iteration} 轮
-                            </span>
-                            {item.applied && (
-                              <Badge
-                                variant="secondary"
-                                className="h-4 text-[10px]"
-                              >
-                                已应用
-                              </Badge>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </CollapsibleContent>
-              </Collapsible>
-            </div>
-          )}
-
           <div className="flex-1 overflow-y-auto p-4 bg-white">
             {messages.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center text-center">
@@ -1761,7 +1588,7 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
                   <br />
                   完成需求分析并自动生成工作流
                 </p>
-                <div className="space-y-2 text-xs text-gray-500 w-full px-4">
+                <div className="space-y-3 text-xs text-gray-500 w-full px-4">
                   <p>试试描述你的需求：</p>
                   <div className="space-y-1">
                     <button
@@ -1791,6 +1618,25 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
                       我需要一个数据分析报告生成器
                     </button>
                   </div>
+
+                  {/* 推荐工作流程 */}
+                  <div className="pt-3 border-t border-gray-100">
+                    <p className="text-gray-600 font-medium mb-2">推荐工作流程</p>
+                    <div className="flex items-center justify-center gap-1 text-[10px] text-gray-400">
+                      <span className="px-2 py-1 rounded bg-violet-50 text-violet-600">创建</span>
+                      <span>→</span>
+                      <span className="px-2 py-1 rounded bg-teal-50 text-teal-600">诊断</span>
+                      <span>→</span>
+                      <span className="px-2 py-1 rounded bg-amber-50 text-amber-600">测试</span>
+                      <span>→</span>
+                      <span className="px-2 py-1 rounded bg-orange-50 text-orange-600">建议</span>
+                      <span>→</span>
+                      <span className="px-2 py-1 rounded bg-indigo-50 text-indigo-600">精修</span>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-2">
+                      点击上方标签切换不同模式
+                    </p>
+                  </div>
                 </div>
               </div>
             ) : (
@@ -1806,6 +1652,7 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
                       setPreviewActions(actions);
                       setIsPreviewOpen(true);
                     }}
+                    onNavigate={setMode}
                     isLoading={isLoading}
                   />
                 ))}
@@ -1871,6 +1718,7 @@ export function AIAssistantPanel({ workflowId }: AIAssistantPanelProps) {
           </div>
         </>
       )}
+      </div>
 
       {/* WorkflowPreview Dialog */}
       {previewActions && (
@@ -1956,6 +1804,7 @@ function MessageBubble({
   onSelectOption,
   onOptimize,
   onPreview,
+  onNavigate,
   isLoading,
 }: {
   message: AIMessage;
@@ -1963,6 +1812,7 @@ function MessageBubble({
   onSelectOption: (answer: string) => void;
   onOptimize?: (type: "test" | "aes") => void;
   onPreview?: (actions: NodeAction[]) => void;
+  onNavigate?: (mode: PanelMode) => void;
   isLoading: boolean;
 }) {
   const [applied, setApplied] = useState(false);
@@ -1998,6 +1848,22 @@ function MessageBubble({
     optionLabel: string,
     allowInput?: boolean,
   ) => {
+    // 处理功能导航选项
+    if (optionId.startsWith("navigate_")) {
+      const modeMap: Record<string, PanelMode> = {
+        navigate_diagnose: "diagnose",
+        navigate_optimize: "optimize",
+        navigate_refine: "refine",
+        navigate_test: "test",
+      };
+      const targetMode = modeMap[optionId];
+      if (targetMode && onNavigate) {
+        onNavigate(targetMode);
+        toast.success(`已切换到${optionLabel}`);
+        return;
+      }
+    }
+
     if (allowInput) {
       setSelectedOptions((prev) => ({ ...prev, [questionId]: optionId }));
     } else {

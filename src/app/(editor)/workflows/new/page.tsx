@@ -231,19 +231,21 @@ function WorkflowEditor() {
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: { id: string; data?: { type?: string } }) => {
-      // 首先选中节点，触发高亮效果（连接的节点和边也会高亮）
+      // 选中节点，触发高亮效果
       selectNode(node.id);
 
       const nodeType = node.data?.type?.toLowerCase();
-      // 对于 input 和 process 节点，额外打开调试面板
+      // input / process 节点：打开调试面板
       if (nodeType === "input" || nodeType === "process") {
         openDebugPanel(node.id);
       }
+      // code / output 等其他节点：通过 selectedNodeId 让右侧配置面板自动展开
     },
     [selectNode, openDebugPanel],
   );
 
   const onPaneClick = useCallback(() => {
+    // 点击画布空白处：清空选中节点，配置面板自动收起
     selectNode(null);
   }, [selectNode]);
 
@@ -254,7 +256,7 @@ function WorkflowEditor() {
     const nodeType = (
       selectedNode?.data as { type?: string }
     )?.type?.toLowerCase();
-    // input 和 process 节点不显示配置面板
+    // input 和 process 节点不显示配置面板，只用调试面板
     return nodeType !== "input" && nodeType !== "process";
   }, [selectedNodeId, nodes]);
 

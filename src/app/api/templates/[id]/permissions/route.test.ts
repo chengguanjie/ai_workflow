@@ -129,7 +129,8 @@ describe('Property 1: Template Permission CRUD Consistency', () => {
             targetId: fc.option(fc.uuid(), { nil: null }),
             targetName: fc.string({ minLength: 1, maxLength: 50 }),
             permission: permissionArb,
-            createdAt: fc.date(),
+            // Use integer timestamp to avoid invalid date issues (NaN)
+            createdAt: fc.integer({ min: 946684800000, max: 1924905600000 }).map(ts => new Date(ts)),
             createdBy: fc.record({
               id: fc.uuid(),
               name: fc.option(fc.string({ minLength: 1, maxLength: 50 }), { nil: null }),

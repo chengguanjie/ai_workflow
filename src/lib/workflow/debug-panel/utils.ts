@@ -57,6 +57,79 @@ export function getDefaultModelForModality(modality: ModelModality): string {
 }
 
 /**
+ * 根据用户提示词与工具配置推断“期望的”输出类型
+ *
+ * 注意：这是面向调试面板/预览的软推断，不影响实际执行结果，
+ * 只用于给 OutputType 提供一个更贴近意图的默认值。
+ */
+export function guessOutputTypeFromPromptAndTools(options: {
+  userPrompt?: string
+  tools?: Array<{ type: string; config?: Record<string, unknown> }>
+}): OutputType | null {
+  const { userPrompt = '', tools = [] } = options
+  const prompt = (userPrompt || '').toLowerCase()
+
+  // 1. 先根据启用的工具做强信号判断
+  const enabledTools = tools.filter(t => (t as any).enabled !== false)
+  const hasImageTool = enabledTools.find(t => t.type === 'image-gen-ai')
+  const hasVideoTool = enabledTools.find(t => t.type === 'video-gen-ai')
+  const hasAudioTtsTool = enabledTools.find(t => t.type === 'audio-tts-ai')
+  const hasCodeExecutionTool = enabledTools.find(t => t.type === 'code-execution')
+
+  if (hasImageTool) return 'image'
+  if (hasVideoTool) return 'video'
+  if (hasAudioTtsTool) return 'audio'
+  // 代码执行类工具的结果通常更适合结构化展示，这里推荐使用 JSON
+  if (hasCodeExecutionTool) return 'json'
+
+  // 2. 再根据提示词中的语义做关键词判断
+  // JSON / 结构化对象
+  if (
+    /json/.test(prompt) ||
+    /按\s*json\s*格式/.test(prompt) ||
+    /返回.*json/.test(prompt)
+  ) {
+    return 'json'
+  }
+
+  // 表格 / Excel / CSV
+  if (/csv/.test(prompt)) {
+    return 'csv'
+  }
+  if (/excel/.test(prompt) || /表格/.test(prompt)) {
+    return 'excel'
+  }
+
+  // HTML / 网页
+  if (/html/.test(prompt) || /返回.*网页/.test(prompt)) {
+    return 'html'
+  }
+
+  // 图片 / 配图
+  if (/图片|配图|插图|海报/.test(prompt)) {
+    return 'image'
+  }
+
+  // 音频 / 语音 / 播客
+  if (/音频|语音|播客/.test(prompt)) {
+    return 'audio'
+  }
+
+  // 视频
+  if (/视频/.test(prompt)) {
+    return 'video'
+  }
+
+  // Markdown / 富文本：仍然当作文本
+  if (/markdown|md格式|富文本/.test(prompt)) {
+    return 'text'
+  }
+
+  // 默认返回 null，交给后续基于内容的推断或默认值处理
+  return null
+}
+
+/**
  * 检查模型是否属于指定的模型类别
  * 
  * @param model - 模型ID

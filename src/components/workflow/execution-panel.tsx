@@ -42,6 +42,7 @@ import {
   Trash2,
   List,
   ListChecks,
+  Minimize2,
 } from "lucide-react";
 import type { InputFieldType } from "@/types/workflow";
 import { toast } from "sonner";
@@ -1517,7 +1518,7 @@ export function ExecutionPanel({
             )}
           </div>
           <div className="flex gap-3">
-            <Button variant="outline" onClick={onClose} disabled={isExecuting}>
+            <Button variant="outline" onClick={onClose} disabled={isExecuting && !asyncMode}>
               {(executionMode === "quick" && result) ||
               (executionMode === "monitor" &&
                 monitorStatus !== "idle" &&
@@ -1525,6 +1526,19 @@ export function ExecutionPanel({
                 ? "关闭"
                 : "取消"}
             </Button>
+            {/* 后台执行按钮 - 异步执行中时显示 */}
+            {isExecuting && asyncMode && taskId && (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  toast.info("任务将在后台继续执行，您可以在执行历史中查看进度");
+                  onClose();
+                }}
+              >
+                <Minimize2 className="mr-2 h-4 w-4" />
+                后台执行
+              </Button>
+            )}
             {executionMode === "monitor" && isExecuting ? (
               <Button variant="destructive" onClick={handleStop}>
                 <StopCircle className="mr-2 h-4 w-4" />

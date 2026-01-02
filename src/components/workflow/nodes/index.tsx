@@ -26,8 +26,10 @@ import {
   Image,
   Music,
   FileText,
+  FileJson,
   Wrench,
   Code,
+  GitBranch,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -39,8 +41,14 @@ import {
 } from "@/components/ui/tooltip";
 import { useWorkflowStore } from "@/stores/workflow-store";
 import { useNodeDebug } from "@/hooks/use-node-debug";
-import type { InputField, KnowledgeItem, UIToolConfig } from "@/types/workflow";
+import type {
+  InputField,
+  KnowledgeItem,
+  UIToolConfig,
+  ProcessNodeConfigData,
+} from "@/types/workflow";
 import { getModelModality, type ModelModality } from "@/lib/ai/types";
+import type { OutputType } from "@/lib/workflow/debug-panel/types";
 
 // 工具类型到图标和颜色的映射
 const TOOL_ICONS: Record<string, { icon: LucideIcon; color: string; label: string }> = {
@@ -68,15 +76,15 @@ const MODEL_TYPE_ICONS: Record<ModelModality, { icon: LucideIcon; color: string;
   "ocr": { icon: Image, color: "text-teal-600", bgColor: "bg-teal-100", label: "图文识别" },
 };
 
-export const nodeStyles: Record<
-  string,
-  {
-    icon: React.ElementType;
-    color: string;
-    headerColor: string;
-    borderColor: string;
-  }
-> = {
+interface NodeStyle {
+  icon: React.ElementType;
+  color: string;
+  headerColor: string;
+  borderColor: string;
+  className?: string;
+}
+
+export const nodeStyles: Record<string, NodeStyle> = {
   input: {
     icon: ArrowDownToLine,
     color: "text-yellow-700",
@@ -89,6 +97,13 @@ export const nodeStyles: Record<
     headerColor: "bg-sky-100",
     borderColor: "border-sky-200",
   },
+  logic: {
+    icon: GitBranch,
+    color: "text-indigo-700",
+    headerColor: "bg-indigo-100",
+    borderColor: "border-indigo-200",
+    className: "rounded-[2rem]", // 更大的圆角，区分于普通节点
+  },
   group: {
     icon: Group,
     color: "text-green-700",
@@ -100,22 +115,14 @@ export const nodeStyles: Record<
 interface NodeData {
   name: string;
   type: string;
-  config?: {
+  // 直接复用类型层定义的配置结构，避免重复维护字段
+  config?: ProcessNodeConfigData & {
     fields?: InputField[];
-    knowledgeItems?: KnowledgeItem[];
-    prompt?: string;
-    userPrompt?: string;
-    format?: string;
     mode?: "input" | "output";
     stopAutoOptimization?: boolean;
     addOptimizationIteration?: (iteration: number) => void;
     isAutoMode?: boolean;
     setAutoMode?: (mode: boolean) => void;
-    // AI 配置
-    model?: string;
-    // 工具配置
-    tools?: UIToolConfig[];
-    enableToolCalling?: boolean;
   };
   previewStatus?: "added" | "modified" | "removed" | "unchanged";
   comment?: string;
@@ -123,15 +130,23 @@ interface NodeData {
 }
 
 function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
-  const baseStyle = nodeStyles[data.type.toLowerCase()] || nodeStyles.input;
+  const nodeKind = data.type.toLowerCase();
+  const baseStyle = nodeStyles[nodeKind] || nodeStyles.input;
 
-  // 根据模型类型获取动态样式
-  const getDynamicStyle = () => {
-    if (data.type.toLowerCase() !== "process" || !data.config?.model) {
+  // 根据模型类型获取动态样式（仅针对 process 节点）
+  const getDynamicStyle = (): NodeStyle => {
+    if (nodeKind !== "process") {
       return baseStyle;
     }
 
-    const modality = getModelModality(data.config.model);
+    // 获取 modality：对于 text/code 共用模型，优先使用用户配置的 modality
+    const inferredModality = data.config?.model ? getModelModality(data.config.model) : null;
+    const configModality = data.config?.modality;
+    // 如果推断的是 text/code 且用户配置了 text/code，优先使用用户配置
+    const modality = (inferredModality === 'text' || inferredModality === 'code') &&
+                     (configModality === 'text' || configModality === 'code')
+                     ? configModality
+                     : (inferredModality || configModality);
     if (!modality) return baseStyle;
 
     switch (modality) {
@@ -163,6 +178,13 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
           color: "text-amber-700",
           headerColor: "bg-amber-100",
           borderColor: "border-amber-200",
+        };
+      case "embedding":
+        return {
+          icon: Bot,
+          color: "text-cyan-700",
+          headerColor: "bg-cyan-100",
+          borderColor: "border-cyan-200",
         };
       case "ocr":
         return {
@@ -262,7 +284,7 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
       case "paused":
         return "已暂停";
       default:
-        return "执行此节点";
+        return "开始执行";
     }
   };
 
@@ -288,11 +310,146 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
 
   const summary = getSummary();
 
+  // 统一获取输出类型的样式信息，方便顶部背景色和徽标复用
+  const getOutputTypeMeta = () => {
+    const config = data.config;
+    let outputType = config?.expectedOutputType as OutputType | undefined;
+
+    // 如果还没有显式设置 expectedOutputType，则基于模态做一个温和的默认推断
+    if (!outputType && data.type.toLowerCase() === "process") {
+      const modality = config?.modality as ModelModality | undefined;
+      if (modality) {
+        const modalityMap: Partial<Record<ModelModality, OutputType>> = {
+          text: "text",
+          code: "json",
+          "image-gen": "image",
+          "video-gen": "video",
+          "audio-transcription": "text",
+          "audio-tts": "audio",
+          embedding: "json",
+          ocr: "text",
+        };
+        outputType = modalityMap[modality];
+      }
+    }
+
+    if (!outputType) return null;
+
+    const map: Record<
+      OutputType,
+      { icon: LucideIcon; bg: string; fg: string; label: string }
+    > = {
+      text: {
+        icon: FileText,
+        bg: "bg-slate-100",
+        fg: "text-slate-700",
+        label: "文本输出",
+      },
+      json: {
+        icon: FileJson,
+        bg: "bg-emerald-100",
+        fg: "text-emerald-700",
+        label: "JSON 输出",
+      },
+      html: {
+        icon: Code,
+        bg: "bg-indigo-100",
+        fg: "text-indigo-700",
+        label: "HTML 输出",
+      },
+      csv: {
+        icon: Table2,
+        bg: "bg-amber-100",
+        fg: "text-amber-800",
+        label: "CSV 输出",
+      },
+      word: {
+        icon: FileText,
+        bg: "bg-blue-100",
+        fg: "text-blue-700",
+        label: "Word 文档",
+      },
+      pdf: {
+        icon: FileText,
+        bg: "bg-red-100",
+        fg: "text-red-700",
+        label: "PDF 文档",
+      },
+      excel: {
+        icon: Table2,
+        bg: "bg-green-100",
+        fg: "text-green-700",
+        label: "Excel 表格",
+      },
+      ppt: {
+        icon: FileText,
+        bg: "bg-orange-100",
+        fg: "text-orange-700",
+        label: "PPT 演示",
+      },
+      image: {
+        icon: Image,
+        bg: "bg-purple-100",
+        fg: "text-purple-700",
+        label: "图片输出",
+      },
+      audio: {
+        icon: Music,
+        bg: "bg-pink-100",
+        fg: "text-pink-700",
+        label: "音频输出",
+      },
+      video: {
+        icon: Video,
+        bg: "bg-teal-100",
+        fg: "text-teal-700",
+        label: "视频输出",
+      },
+    };
+
+    const meta = map[outputType];
+    if (!meta) return null;
+
+    return { outputType, meta };
+  };
+
+  // 根据输出类型返回图标和颜色
+  const getOutputTypeBadge = () => {
+    const result = getOutputTypeMeta();
+    if (!result) return null;
+
+    const { outputType, meta } = result;
+    const BadgeIcon = meta.icon;
+
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div
+            className={cn(
+              "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium shadow-sm",
+              meta.bg,
+              meta.fg,
+            )}
+          >
+            <BadgeIcon className="h-3 w-3" />
+            <span>
+              {outputType.toUpperCase()}
+            </span>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="left">
+          <p className="text-xs">{meta.label}</p>
+        </TooltipContent>
+      </Tooltip>
+    );
+  };
+
   return (
     <TooltipProvider delayDuration={0}>
       <div
         className={cn(
-          "group relative min-w-[240px] rounded-xl border-2 bg-white transition-all duration-300",
+          "group relative min-w-[240px] border-2 bg-white transition-all duration-300",
+          baseStyle.className || "rounded-xl",
           "shadow-sm hover:shadow-md",
           "hover:-translate-y-0.5",
           style.borderColor,
@@ -303,10 +460,7 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
             ? "ring-2 ring-primary/60 ring-offset-2 scale-[1.02] shadow-md shadow-primary/20"
             : "",
           executionStatus === "running" &&
-            "animate-pulse border-blue-400 shadow-blue-500/20",
-          executionStatus === "completed" && "border-green-400",
-          executionStatus === "failed" && "border-red-400",
-          executionStatus === "pending" && "opacity-70",
+            "node-executing border-blue-500",
           shouldDim && "opacity-30 grayscale-[0.6] blur-[0.5px] scale-[0.98]",
           data.previewStatus === "added" &&
             "ring-[3px] ring-green-500 border-green-500 shadow-lg shadow-green-500/20",
@@ -317,7 +471,7 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
         )}
         onContextMenu={handleContextMenu}
       >
-        {data.type.toLowerCase() !== "input" && (
+        {nodeKind !== "input" && (
           <div className="absolute -left-1.5 top-1/2 -translate-y-1/2 px-2 py-4 opacity-0 transition-opacity duration-300 group-hover:opacity-100 z-50">
             <Handle
               type="target"
@@ -327,10 +481,22 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
           </div>
         )}
 
+        {/*
+          顶部标题栏背景色：
+          - 对于 process 节点，如果有输出类型，就使用输出类型的 bg 颜色
+          - 逻辑节点使用统一的逻辑样式
+          - 其他情况保持原有基于节点类型 / 模态的 headerColor
+        */}
         <div
           className={cn(
             "flex items-center justify-between px-4 py-3 rounded-t-[10px] border-b",
-            style.headerColor,
+            (() => {
+              const outputMeta = getOutputTypeMeta();
+              if (nodeKind === "process" && outputMeta) {
+                return outputMeta.meta.bg;
+              }
+              return style.headerColor;
+            })(),
             style.borderColor,
           )}
         >
@@ -347,10 +513,14 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
               {data.name}
             </span>
           </div>
-
-          {data.type.toLowerCase() !== "input" && (
+          {nodeKind !== "input" && (
             <div
-              className={`transition-opacity duration-200 ${executionStatus === "running" ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+              className={cn(
+                "transition-opacity duration-200",
+                executionStatus === "running"
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100",
+              )}
             >
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -380,81 +550,110 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
         </div>
 
         <div className="p-4 space-y-2">
-          {/* 类型标签和模型类型 */}
-          <div className="flex items-center gap-2 flex-wrap">
-            {data.type.toLowerCase() === "process" && data.config?.model ? (
-              // Process 节点：显示模型模态类型
-              (() => {
-                const modality = getModelModality(data.config.model);
-                if (modality && MODEL_TYPE_ICONS[modality]) {
-                  const { icon: ModalityIcon, color, bgColor, label } = MODEL_TYPE_ICONS[modality];
+          {/* 输入 / 输出格式 + 工具（同一行） */}
+          <div className="flex flex-col gap-1">
+            {nodeKind === "process" ? (
+              <div className="flex items-center gap-2 flex-wrap text-[10px]">
+                {(() => {
+                  // 获取 modality：对于 text/code 共用模型，优先使用用户配置的 modality
+                  const inferredModality = data.config?.model
+                    ? getModelModality(data.config.model)
+                    : null;
+                  const configModality = data.config?.modality;
+                  // 如果推断的是 text/code 且用户配置了 text/code，优先使用用户配置
+                  const modality =
+                    (inferredModality === "text" || inferredModality === "code") &&
+                    (configModality === "text" || configModality === "code")
+                      ? configModality
+                      : (inferredModality || configModality);
+
+                  if (modality && MODEL_TYPE_ICONS[modality]) {
+                    const {
+                      icon: ModalityIcon,
+                      color,
+                      bgColor,
+                      label,
+                    } = MODEL_TYPE_ICONS[modality];
+                    return (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span
+                            className={cn(
+                              "flex items-center gap-1 font-bold tracking-wider px-2 py-0.5 rounded-full",
+                              "text-[10px]",
+                              bgColor,
+                              color,
+                            )}
+                          >
+                            <ModalityIcon className="h-3 w-3" />
+                            {label}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">
+                          <p className="text-xs">
+                            {data.config?.model || "未选择模型"}
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  }
+
                   return (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className={cn(
-                          "flex items-center gap-1 text-[10px] font-bold tracking-wider px-2 py-0.5 rounded-full",
-                          bgColor, color
-                        )}>
-                          <ModalityIcon className="h-3 w-3" />
-                          {label}
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent side="top">
-                        <p className="text-xs">{data.config.model}</p>
-                      </TooltipContent>
-                    </Tooltip>
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/60 bg-muted/50 px-2 py-0.5 rounded-full">
+                      {getTypeLabel(data.type)}
+                    </span>
                   );
-                }
-                // 默认文本模型
-                return (
-                  <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/60 bg-muted/50 px-2 py-0.5 rounded-full">
-                    {getTypeLabel(data.type)}
-                  </span>
-                );
-              })()
+                })()}
+                {getOutputTypeBadge()}
+
+                {/* 工具图标并到同一行，去掉“工具”文字 */}
+                {data.config?.tools &&
+                  data.config.tools.filter((t) => t.enabled).length > 0 && (
+                    <>
+                      {data.config.tools
+                        .filter((t) => t.enabled)
+                        .slice(0, 4)
+                        .map((tool) => {
+                          const toolMeta =
+                            TOOL_ICONS[tool.type] || TOOL_ICONS["custom"];
+                          const ToolIcon = toolMeta.icon;
+                          return (
+                            <Tooltip key={tool.id}>
+                              <TooltipTrigger asChild>
+                                <div
+                                  className={cn(
+                                    "flex items-center justify-center h-5 w-5 rounded bg-slate-100 hover:bg-slate-200 transition-colors cursor-default",
+                                    toolMeta.color,
+                                  )}
+                                >
+                                  <ToolIcon className="h-3 w-3" />
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">
+                                <p className="text-xs">
+                                  {tool.name || toolMeta.label}
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          );
+                        })}
+                      {data.config.tools.filter((t) => t.enabled).length > 4 && (
+                        <span className="text-[10px] text-muted-foreground/60 ml-0.5">
+                          +{data.config.tools.filter((t) => t.enabled).length - 4}
+                        </span>
+                      )}
+                    </>
+                  )}
+              </div>
             ) : (
-              // 其他节点：显示默认类型标签
-              <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/60 bg-muted/50 px-2 py-0.5 rounded-full">
-                {getTypeLabel(data.type)}
-              </span>
+              // 非 Process 节点：展示节点类型标签
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/60 bg-muted/50 px-2 py-0.5 rounded-full">
+                  {getTypeLabel(data.type)}
+                </span>
+              </div>
             )}
           </div>
-
-          {/* 工具调用显示 */}
-          {data.type.toLowerCase() === "process" &&
-           data.config?.tools &&
-           data.config.tools.filter(t => t.enabled).length > 0 && (
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[9px] text-muted-foreground/50 mr-0.5">工具:</span>
-              {data.config.tools
-                .filter(t => t.enabled)
-                .slice(0, 4)
-                .map((tool) => {
-                  const toolMeta = TOOL_ICONS[tool.type] || TOOL_ICONS["custom"];
-                  const ToolIcon = toolMeta.icon;
-                  return (
-                    <Tooltip key={tool.id}>
-                      <TooltipTrigger asChild>
-                        <div className={cn(
-                          "flex items-center justify-center h-5 w-5 rounded bg-slate-100 hover:bg-slate-200 transition-colors cursor-default",
-                          toolMeta.color
-                        )}>
-                          <ToolIcon className="h-3 w-3" />
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent side="top">
-                        <p className="text-xs">{tool.name || toolMeta.label}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  );
-                })}
-              {data.config.tools.filter(t => t.enabled).length > 4 && (
-                <span className="text-[10px] text-muted-foreground/60 ml-0.5">
-                  +{data.config.tools.filter(t => t.enabled).length - 4}
-                </span>
-              )}
-            </div>
-          )}
 
           {/* 摘要信息 */}
           {summary && (
@@ -771,8 +970,295 @@ export const GroupNode = memo((props: NodeProps) => (
 ));
 GroupNode.displayName = "GroupNode";
 
+// 逻辑节点数据接口
+interface LogicNodeData {
+  name: string;
+  type: string;
+  config?: {
+    mode?: string;
+  };
+  previewStatus?: "added" | "modified" | "removed" | "unchanged";
+  comment?: string;
+  [key: string]: unknown;
+}
+
+// 逻辑节点组件 - 圆形样式
+function LogicNodeComponent({
+  data,
+  selected,
+  id,
+}: NodeProps & { data: LogicNodeData }) {
+  const style = nodeStyles.logic;
+  const Icon = style.icon;
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const {
+    deleteNode,
+    duplicateNode,
+    openDebugPanel,
+    nodeExecutionStatus,
+    connectedNodeIds,
+    selectedNodeId,
+  } = useWorkflowStore();
+  const { runNode, getDefaultInputs } = useNodeDebug();
+
+  const executionStatus = nodeExecutionStatus[id] || "idle";
+  const isConnected = connectedNodeIds.includes(id);
+  const isSelected = id === selectedNodeId;
+  const hasSelection = !!selectedNodeId;
+  const shouldDim = hasSelection && !isSelected && !isConnected;
+
+  const config = data.config || {};
+  const mode = config.mode || "condition";
+
+  const getModeLabel = (m: string) => {
+    const labels: Record<string, string> = {
+      condition: "条件判断",
+      split: "并行拆分",
+      merge: "结果合并",
+      switch: "分支选择",
+    };
+    return labels[m] || m;
+  };
+
+  useEffect(() => {
+    if (!contextMenu) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setContextMenu(null);
+      }
+    };
+
+    const timeoutId = setTimeout(() => {
+      document.addEventListener("mousedown", handleClickOutside, true);
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+      document.removeEventListener("mousedown", handleClickOutside, true);
+    };
+  }, [contextMenu]);
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  };
+
+  const handleDuplicate = () => {
+    duplicateNode(id);
+    setContextMenu(null);
+  };
+
+  const handleDelete = () => {
+    deleteNode(id);
+    setContextMenu(null);
+  };
+
+  const handleDebug = () => {
+    openDebugPanel(id);
+    setContextMenu(null);
+  };
+
+  const handleExecute = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const inputs = getDefaultInputs(id);
+    runNode(id, inputs);
+  };
+
+  const getStatusTooltip = () => {
+    switch (executionStatus) {
+      case "running":
+        return "执行中...";
+      case "completed":
+        return "执行成功";
+      case "failed":
+        return "执行失败";
+      case "pending":
+        return "等待执行";
+      case "skipped":
+        return "已跳过";
+      case "paused":
+        return "已暂停";
+      default:
+        return "开始执行";
+    }
+  };
+
+  return (
+    <TooltipProvider delayDuration={0}>
+      <div
+        className={cn(
+          "group relative flex flex-col items-center justify-center",
+          "w-[120px] h-[120px] rounded-full",
+          "border-2 transition-all duration-300",
+          "shadow-sm hover:shadow-md",
+          "hover:-translate-y-0.5",
+          style.headerColor,
+          style.borderColor,
+          selected
+            ? "ring-[3px] ring-primary ring-offset-2 shadow-lg shadow-primary/30"
+            : "",
+          !selected && connectedNodeIds.includes(id)
+            ? "ring-2 ring-primary/60 ring-offset-2 scale-[1.02] shadow-md shadow-primary/20"
+            : "",
+          executionStatus === "running" && "node-executing border-blue-500",
+          shouldDim && "opacity-30 grayscale-[0.6] blur-[0.5px] scale-[0.98]",
+          data.previewStatus === "added" &&
+            "ring-[3px] ring-green-500 border-green-500 shadow-lg shadow-green-500/20",
+          data.previewStatus === "modified" &&
+            "ring-[3px] ring-amber-500 border-amber-500 shadow-lg shadow-amber-500/20",
+          data.previewStatus === "removed" &&
+            "ring-[3px] ring-red-500 border-red-500 opacity-60 grayscale bg-red-50",
+        )}
+        onContextMenu={handleContextMenu}
+      >
+        {/* 左侧入口 Handle */}
+        <div className="absolute -left-1.5 top-1/2 -translate-y-1/2 px-2 py-4 opacity-0 transition-opacity duration-300 group-hover:opacity-100 z-50">
+          <Handle
+            type="target"
+            position={Position.Left}
+            className="!h-3 !w-3 !border-2 !border-background !bg-muted-foreground hover:!bg-primary hover:!w-4 hover:!h-4 transition-all"
+          />
+        </div>
+
+        {/* 圆形内容区 */}
+        <div
+          className={cn(
+            "flex flex-col items-center justify-center text-center p-3",
+            "rounded-full w-full h-full",
+          )}
+        >
+          <div
+            className={cn(
+              "flex h-12 w-12 items-center justify-center rounded-full bg-white/80 shadow-sm mb-1",
+              style.color,
+            )}
+          >
+            <Icon className="h-6 w-6" />
+          </div>
+          <span className="text-[10px] text-muted-foreground font-medium">
+            {getModeLabel(mode)}
+          </span>
+        </div>
+
+        {/* 执行按钮 */}
+        <div
+          className={cn(
+            "absolute -bottom-1 left-1/2 -translate-x-1/2 transition-opacity duration-200",
+            executionStatus === "running"
+              ? "opacity-100"
+              : "opacity-0 group-hover:opacity-100",
+          )}
+        >
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "h-6 w-6 shrink-0 rounded-full bg-white shadow-sm border",
+                  style.color,
+                )}
+                onClick={handleExecute}
+                disabled={executionStatus === "running"}
+              >
+                {executionStatus === "running" ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Play className="h-3 w-3 fill-current" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <p>{getStatusTooltip()}</p>
+            </TooltipContent>
+          </Tooltip>
+        </div>
+
+        {/* 右侧出口 Handle */}
+        <div className="absolute -right-1.5 top-1/2 -translate-y-1/2 px-2 py-4 opacity-0 transition-opacity duration-300 group-hover:opacity-100 z-50">
+          <Handle
+            type="source"
+            position={Position.Right}
+            className="!h-3 !w-3 !border-2 !border-background !bg-muted-foreground hover:!bg-primary hover:!w-4 hover:!h-4 transition-all"
+          />
+        </div>
+
+        {/* 右键菜单 */}
+        {contextMenu &&
+          typeof document !== "undefined" &&
+          createPortal(
+            <div
+              ref={menuRef}
+              className="min-w-[140px] rounded-lg border bg-popover/95 backdrop-blur-sm p-1.5 shadow-xl animate-in fade-in zoom-in-95 duration-100"
+              style={{
+                position: "fixed",
+                left: contextMenu.x,
+                top: contextMenu.y,
+                zIndex: 9999,
+              }}
+            >
+              <button
+                className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm text-foreground/80 hover:bg-accent hover:text-accent-foreground transition-colors"
+                onClick={handleDebug}
+              >
+                <Settings className="h-4 w-4" />
+                配置
+              </button>
+              <button
+                className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm text-foreground/80 hover:bg-accent hover:text-accent-foreground transition-colors"
+                onClick={() => {
+                  const event = new CustomEvent("openNodeComment", {
+                    detail: {
+                      nodeId: id,
+                      nodeName: data.name,
+                      nodeType: data.type,
+                      comment: data.comment,
+                    },
+                  });
+                  window.dispatchEvent(event);
+                  setContextMenu(null);
+                }}
+              >
+                <MessageSquare className="h-4 w-4" />
+                {data.comment ? "编辑批注" : "添加批注"}
+              </button>
+              <button
+                className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm text-foreground/80 hover:bg-accent hover:text-accent-foreground transition-colors"
+                onClick={handleDuplicate}
+              >
+                <Copy className="h-4 w-4" />
+                复制
+              </button>
+              <div className="my-1 border-b border-border/50" />
+              <button
+                className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+                onClick={handleDelete}
+              >
+                <Trash2 className="h-4 w-4" />
+                删除
+              </button>
+            </div>,
+            document.body,
+          )}
+      </div>
+    </TooltipProvider>
+  );
+}
+
+export const LogicNode = memo((props: NodeProps) => (
+  <LogicNodeComponent {...props} data={props.data as LogicNodeData} />
+));
+LogicNode.displayName = "LogicNode";
+
 export const nodeTypes = {
   input: InputNode,
   process: ProcessNode,
+  logic: LogicNode,
   group: GroupNode,
 };

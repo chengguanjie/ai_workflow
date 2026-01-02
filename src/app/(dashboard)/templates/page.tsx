@@ -14,7 +14,6 @@ import {
   Users,
   ChevronRight,
   ChevronLeft,
-  ChevronDown,
   Loader2,
   AlertCircle,
   CheckCircle,
@@ -24,7 +23,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
-  CATEGORY_GROUPS,
+  DEPARTMENT_CATEGORIES,
   getCategoryName,
   getCategoryIcon,
 } from '@/lib/constants/template-categories'
@@ -61,10 +60,6 @@ export default function TemplatesPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [libraryType, setLibraryType] = useState<TemplateLibraryType>('external')
   const [currentPage, setCurrentPage] = useState(1)
-  // 分组的折叠状态
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
-    new Set(CATEGORY_GROUPS.map(g => g.id))
-  )
 
 
   // 加载模板
@@ -114,19 +109,6 @@ export default function TemplatesPage() {
   useEffect(() => {
     setCurrentPage(1)
   }, [selectedCategory, searchQuery, libraryType])
-
-  // 切换分组折叠状态
-  const toggleGroup = (groupId: string) => {
-    setExpandedGroups(prev => {
-      const newSet = new Set(prev)
-      if (newSet.has(groupId)) {
-        newSet.delete(groupId)
-      } else {
-        newSet.add(groupId)
-      }
-      return newSet
-    })
-  }
 
   // 分页计算
   const paginationData = useMemo(() => {
@@ -204,7 +186,7 @@ export default function TemplatesPage() {
                 分类筛选
               </h2>
 
-              <div className="space-y-2 overflow-y-auto flex-1">
+              <div className="space-y-1 overflow-y-auto flex-1">
                 {/* 全部模板 */}
                 <button
                   onClick={() => setSelectedCategory(null)}
@@ -218,53 +200,24 @@ export default function TemplatesPage() {
                   全部模板
                 </button>
 
-                {/* 分类组 */}
-                {CATEGORY_GROUPS.map((group) => {
-                  const GroupIcon = group.icon
-                  const isExpanded = expandedGroups.has(group.id)
-
+                {/* 部门分类 */}
+                {DEPARTMENT_CATEGORIES.map((category) => {
+                  const CategoryIcon = getCategoryIcon(category.id)
                   return (
-                    <div key={group.id} className="space-y-0.5">
-                      {/* 分组标题 */}
-                      <button
-                        onClick={() => toggleGroup(group.id)}
-                        className="w-full px-2 py-1.5 text-left text-sm font-medium text-gray-900 rounded-md hover:bg-gray-50 transition-colors flex items-center gap-2"
-                      >
-                        <ChevronDown
-                          className={cn(
-                            'w-3.5 h-3.5 transition-transform',
-                            !isExpanded && '-rotate-90'
-                          )}
-                        />
-                        <GroupIcon className="w-4 h-4" />
-                        {group.name}
-                      </button>
-
-                      {/* 分类项 */}
-                      {isExpanded && (
-                        <div className="ml-6 space-y-0.5">
-                          {group.categories.map((category) => {
-                            const CategoryIcon = getCategoryIcon(category.id)
-                            return (
-                              <button
-                                key={category.id}
-                                onClick={() => setSelectedCategory(category.id)}
-                                className={cn(
-                                  'w-full px-3 py-1.5 text-left text-sm rounded-md transition-colors flex items-center gap-2',
-                                  selectedCategory === category.id
-                                    ? 'bg-blue-50 text-blue-700 font-medium'
-                                    : 'text-gray-600 hover:bg-gray-50'
-                                )}
-                                title={category.description}
-                              >
-                                <CategoryIcon className="w-4 h-4" />
-                                {category.name}
-                              </button>
-                            )
-                          })}
-                        </div>
+                    <button
+                      key={category.id}
+                      onClick={() => setSelectedCategory(category.id)}
+                      className={cn(
+                        'w-full px-3 py-1.5 text-left text-sm rounded-md transition-colors flex items-center gap-2',
+                        selectedCategory === category.id
+                          ? 'bg-blue-50 text-blue-700 font-medium'
+                          : 'text-gray-600 hover:bg-gray-50'
                       )}
-                    </div>
+                      title={category.description}
+                    >
+                      <CategoryIcon className="w-4 h-4" />
+                      {category.name}
+                    </button>
                   )
                 })}
               </div>

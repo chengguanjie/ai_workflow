@@ -13,7 +13,7 @@ import type { ModelModality } from '@/lib/ai/types'
 /**
  * 输入Tab类型
  */
-export type InputTabType = 'file-import' | 'upstream-data'
+export type InputTabType = 'input' | 'reference'
 
 /**
  * 支持的文件类型分类
@@ -70,6 +70,23 @@ export const MODALITY_LABELS: Record<ModelModality, string> = {
   'audio-tts': '文字转语音',
   'embedding': '向量嵌入',
   'ocr': '图文识别'
+}
+
+/**
+ * 模型类别到默认输出类型的映射
+ * 当用户选择模型类别时，自动设置对应的输出类型
+ */
+export const MODALITY_TO_OUTPUT_TYPE: Record<ModelModality, OutputType> = {
+  // 对于文本模型，默认按「纯文本」展示，
+  // 只有在用户显式要求或工具/提示词推断为结构化时，才使用 JSON 等格式。
+  'text': 'text',
+  'code': 'json',
+  'image-gen': 'image',
+  'video-gen': 'video',
+  'audio-transcription': 'text',
+  'audio-tts': 'audio',
+  'embedding': 'json',
+  'ocr': 'text'
 }
 
 // ============================================

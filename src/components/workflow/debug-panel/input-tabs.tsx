@@ -12,22 +12,29 @@ import {
   Trash2,
   CheckCircle2,
   AlertCircle,
+  BookOpen,
+  Database,
+  Plus,
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Slider } from "@/components/ui/slider";
 
 import { cn } from "@/lib/utils";
 import {
   type InputTabType,
   type ImportedFile,
+  type EnhancedProcessConfig,
   ALL_SUPPORTED_EXTENSIONS,
 } from "@/lib/workflow/debug-panel/types";
 import {
   isFileTypeSupported,
   getFileCategory,
 } from "@/lib/workflow/debug-panel/utils";
+import type { KnowledgeItem, RAGConfig } from "@/types/workflow";
 
 // ============================================
 // Types
@@ -83,6 +90,28 @@ interface InputTabsProps {
   onMockInputChange: (nodeName: string, field: string, value: string) => void;
   /** 节点执行结果映射（用于显示哪些上游节点有已保存的结果） */
   nodeExecutionResults?: Record<string, NodeExecutionResult | null>;
+  /** PROCESS 节点配置，用于在「参考材料」Tab 中编辑 */
+  processConfig?: EnhancedProcessConfig;
+  onProcessConfigChange?: (config: Partial<EnhancedProcessConfig>) => void;
+  /** RAG 知识库配置（用于引用知识库 Tab） */
+  knowledgeBases?: KnowledgeBase[];
+  loadingKnowledgeBases?: boolean;
+  ragConfig?: RAGConfig;
+  onRAGConfigChange?: (key: keyof RAGConfig, value: number) => void;
+  /** 静态参考规则（知识项） */
+  knowledgeItems?: KnowledgeItem[];
+  onAddKnowledgeItem?: () => void;
+  onUpdateKnowledgeItem?: (index: number, updates: Partial<KnowledgeItem>) => void;
+  onRemoveKnowledgeItem?: (index: number) => void;
+}
+
+interface KnowledgeBase {
+  id: string;
+  name: string;
+  description: string | null;
+  documentCount: number;
+  chunkCount: number;
+  isActive: boolean;
 }
 
 // ============================================
@@ -139,6 +168,16 @@ export function InputTabs({
   mockInputs,
   onMockInputChange,
   nodeExecutionResults,
+  processConfig,
+  onProcessConfigChange,
+  knowledgeBases,
+  loadingKnowledgeBases,
+  ragConfig,
+  onRAGConfigChange,
+  knowledgeItems = [],
+  onAddKnowledgeItem,
+  onUpdateKnowledgeItem,
+  onRemoveKnowledgeItem,
 }: InputTabsProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -247,18 +286,19 @@ export function InputTabs({
         className="w-full"
       >
         <TabsList className="w-full grid grid-cols-2 mb-4">
-          <TabsTrigger value="upstream-data" className="flex items-center gap-2">
+          <TabsTrigger value="input" className="flex items-center gap-2">
             <ArrowRightFromLine className="h-4 w-4" />
-            输入文本
+            输入与资料
           </TabsTrigger>
-          <TabsTrigger value="file-import" className="flex items-center gap-2">
-            <Upload className="h-4 w-4" />
-            上传资料
+          <TabsTrigger value="reference" className="flex items-center gap-2">
+            <BookOpen className="h-4 w-4" />
+            引用知识库
           </TabsTrigger>
         </TabsList>
 
-        {/* Tab 1: 输入文本 (Upstream Node Inputs) */}
-        <TabsContent value="upstream-data" className="mt-0 space-y-4">
+        {/* Tab 1: 输入与资料（合并原输入文本 + 上传资料） */}
+        <TabsContent value="input" className="mt-0 space-y-6">
+          {/* 上游节点输入 */}
           {predecessorNodes.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-lg text-sm bg-muted/20">
               暂无上游节点输入
@@ -317,10 +357,7 @@ export function InputTabs({
               })}
             </div>
           )}
-        </TabsContent>
-
-        {/* Tab 2: 上传资料 (File Import) */}
-        <TabsContent value="file-import" className="mt-0">
+          {/* 上传资料（原 Tab2 内容移动到这里） */}
           <div className="space-y-4">
             {/* Upload Area */}
             <div
@@ -440,6 +477,161 @@ export function InputTabs({
               </div>
             )}
           </div>
+        </TabsContent>
+
+        {/* Tab 2: 引用知识库 */}
+        <TabsContent value="reference" className="mt-0 space-y-4">
+          {processConfig ? (
+            <>
+              {/* RAG 知识库选择 */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Database className="h-4 w-4 text-primary" />
+                  <span className="text-xs font-medium">RAG 知识库</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  选择知识库，AI 将自动检索相关内容作为上下文。
+                </p>
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs"
+                  value={processConfig.knowledgeBaseId || ""}
+                  onChange={(e) =>
+                    onProcessConfigChange?.({
+                      knowledgeBaseId: e.target.value || undefined,
+                    })
+                  }
+                >
+                  <option value="">不使用知识库</option>
+                  {knowledgeBases
+                    ?.filter((kb) => kb.isActive)
+                    .map((kb) => (
+                      <option key={kb.id} value={kb.id}>
+                        {kb.name} ({kb.documentCount} 文档
+                        {typeof kb.chunkCount === "number"
+                          ? `, ${kb.chunkCount} 分块`
+                          : ""}
+                        )
+                      </option>
+                    ))}
+                </select>
+
+                {/* RAG 详细配置：TopK + 阈值 */}
+                {processConfig.knowledgeBaseId && ragConfig && onRAGConfigChange && (
+                  <div className="p-3 bg-muted/50 rounded-lg space-y-3 mt-2">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium">检索数量 (Top K)</span>
+                        <span className="text-xs text-muted-foreground">
+                          {ragConfig.topK}
+                        </span>
+                      </div>
+                      <Slider
+                        value={[ragConfig.topK || 5]}
+                        onValueChange={([v]) => onRAGConfigChange("topK", v)}
+                        min={1}
+                        max={20}
+                        step={1}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium">相似度阈值</span>
+                        <span className="text-xs text-muted-foreground">
+                          {(ragConfig.threshold || 0.7).toFixed(2)}
+                        </span>
+                      </div>
+                      <Slider
+                        value={[ragConfig.threshold || 0.7]}
+                        onValueChange={([v]) => onRAGConfigChange("threshold", v)}
+                        min={0}
+                        max={1}
+                        step={0.05}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 静态参考规则（与调试面板逻辑对齐） */}
+              <div className="space-y-3 border-t pt-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-primary" />
+                    <span className="text-xs font-medium">参考规则</span>
+                  </div>
+                  {onAddKnowledgeItem && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-[11px]"
+                      onClick={onAddKnowledgeItem}
+                    >
+                      <Plus className="mr-1 h-3 w-3" />
+                      添加
+                    </Button>
+                  )}
+                </div>
+
+                {knowledgeItems.length === 0 ? (
+                  <div className="text-center py-4 text-muted-foreground border-2 border-dashed rounded-lg text-[11px]">
+                    暂无参考规则
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {knowledgeItems.map((item, index) => (
+                      <div
+                        key={item.id}
+                        className="border rounded-lg p-3 space-y-2 bg-white/50"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <Input
+                            value={item.name}
+                            onChange={(e) =>
+                              onUpdateKnowledgeItem?.(index, {
+                                name: e.target.value,
+                              })
+                            }
+                            className="h-7 text-xs font-medium flex-1"
+                            placeholder="规则名称"
+                          />
+                          {onRemoveKnowledgeItem && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-red-500"
+                              onClick={() => onRemoveKnowledgeItem(index)}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </div>
+                        <Textarea
+                          className="text-xs overflow-y-auto resize-y"
+                          placeholder="输入规则内容..."
+                          value={item.content}
+                          onChange={(e) =>
+                            onUpdateKnowledgeItem?.(index, {
+                              content: e.target.value,
+                            })
+                          }
+                          style={{
+                            scrollbarWidth: "thin",
+                            height: "120px",
+                            minHeight: "80px",
+                            maxHeight: "300px",
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="text-xs text-muted-foreground border border-dashed rounded-lg py-6 text-center">
+              仅处理节点支持参考材料配置。
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     </div>

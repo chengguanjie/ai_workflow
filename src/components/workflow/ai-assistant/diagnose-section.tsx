@@ -13,6 +13,9 @@ import {
   RefreshCw,
   ChevronDown,
   ChevronRight,
+  Crosshair,
+  ArrowRight,
+  FlaskConical,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -79,6 +82,7 @@ export function DiagnoseSection({ workflowId }: DiagnoseSectionProps) {
     setDiagnosisResult,
     setIsDiagnosing,
     clearDiagnosis,
+    setMode,
   } = useAIAssistantStore();
 
   const { nodes, edges, updateNode } = useWorkflowStore();
@@ -191,22 +195,25 @@ export function DiagnoseSection({ workflowId }: DiagnoseSectionProps) {
   );
 
   return (
-    <div className="flex flex-col h-full">
-      {/* 顶部区域 */}
-      <div className="p-4 border-b">
-        <div className="text-center mb-4">
-          <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-teal-100 to-cyan-100 mb-3">
-            <Stethoscope className="h-6 w-6 text-teal-600" />
+    <div className="flex flex-col h-full min-h-0">
+      {/* 顶部区域 - 紧凑布局 */}
+      <div className="shrink-0 px-4 py-3 border-b bg-white">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-teal-100 to-cyan-100">
+            <Stethoscope className="h-5 w-5 text-teal-600" />
           </div>
-          <h4 className="font-medium text-gray-800">工作流诊断</h4>
-          <p className="text-xs text-gray-500 mt-1">
-            检查工作流配置问题和潜在隐患
-          </p>
+          <div>
+            <h4 className="font-medium text-gray-800 text-sm">工作流诊断</h4>
+            <p className="text-xs text-gray-500">
+              检查配置问题和潜在隐患
+            </p>
+          </div>
         </div>
 
         <Button
           onClick={handleDiagnose}
           disabled={isDiagnosing || nodes.length === 0}
+          size="sm"
           className="w-full bg-gradient-to-r from-teal-500 to-cyan-600 hover:from-teal-600 hover:to-cyan-700"
         >
           {isDiagnosing ? (
@@ -224,13 +231,13 @@ export function DiagnoseSection({ workflowId }: DiagnoseSectionProps) {
       </div>
 
       {/* 诊断结果区域 */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 min-h-0 overflow-y-auto p-4">
         {!diagnosisResult ? (
-          <div className="flex flex-col items-center justify-center h-full text-center text-gray-500">
-            <Stethoscope className="h-12 w-12 text-gray-300 mb-3" />
+          <div className="flex flex-col items-center justify-center py-8 text-center text-gray-500">
+            <Stethoscope className="h-10 w-10 text-gray-300 mb-2" />
             <p className="text-sm">点击上方按钮开始诊断</p>
-            <p className="text-xs mt-1">
-              诊断将检查连接、配置、变量引用等问题
+            <p className="text-xs mt-1 text-gray-400">
+              检查连接、配置、变量引用等问题
             </p>
           </div>
         ) : (
@@ -374,6 +381,80 @@ export function DiagnoseSection({ workflowId }: DiagnoseSectionProps) {
                 />
                 重新诊断
               </Button>
+            )}
+
+            {/* 后续操作提示 */}
+            {diagnosisResult.issues.length > 0 && (
+              <div className="p-3 rounded-lg bg-gray-50 border border-gray-100 mt-4">
+                <p className="text-xs font-medium text-gray-700 mb-2">
+                  下一步操作
+                </p>
+                <div className="space-y-2">
+                  <button
+                    onClick={() => {
+                      setMode("refine");
+                      toast.info("已切换到精修模式");
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 transition-colors text-left"
+                  >
+                    <Crosshair className="h-4 w-4 text-indigo-500" />
+                    <div className="flex-1">
+                      <span className="text-xs font-medium text-gray-700">
+                        去精修
+                      </span>
+                      <p className="text-[10px] text-gray-500">
+                        根据诊断结果精确修改配置
+                      </p>
+                    </div>
+                    <ArrowRight className="h-4 w-4 text-gray-400" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMode("test");
+                      toast.info("已切换到测试模式");
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 transition-colors text-left"
+                  >
+                    <FlaskConical className="h-4 w-4 text-amber-500" />
+                    <div className="flex-1">
+                      <span className="text-xs font-medium text-gray-700">
+                        去测试
+                      </span>
+                      <p className="text-[10px] text-gray-500">
+                        验证修复效果
+                      </p>
+                    </div>
+                    <ArrowRight className="h-4 w-4 text-gray-400" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 诊断通过后的提示 */}
+            {diagnosisResult.issues.length === 0 && (
+              <div className="p-3 rounded-lg bg-green-50 border border-green-100 mt-4">
+                <p className="text-xs font-medium text-green-700 mb-2">
+                  配置良好，可以继续
+                </p>
+                <button
+                  onClick={() => {
+                    setMode("test");
+                    toast.info("已切换到测试模式");
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-green-200 hover:bg-green-50 transition-colors text-left"
+                >
+                  <FlaskConical className="h-4 w-4 text-amber-500" />
+                  <div className="flex-1">
+                    <span className="text-xs font-medium text-gray-700">
+                      去测试
+                    </span>
+                    <p className="text-[10px] text-gray-500">
+                      执行测试验证工作流
+                    </p>
+                  </div>
+                  <ArrowRight className="h-4 w-4 text-gray-400" />
+                </button>
+              </div>
             )}
           </div>
         )}

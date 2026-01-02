@@ -9,7 +9,7 @@ import type { NodeConfig } from '@/types/workflow'
 import type { NodeOutput } from '../types'
 import { NODE_TYPE_DB_MAP } from './types'
 import { estimateTokenCount, truncateToTokenLimit } from '@/lib/ai/token-utils'
-import { Prisma } from '@prisma/client'
+import { AIProvider, Prisma } from '@prisma/client'
 
 // 日志大小限制配置
 const LOG_SIZE_LIMITS = {
@@ -127,6 +127,8 @@ export async function saveNodeLog(
       input: truncatedInput as Prisma.InputJsonValue,
       output: truncatedOutput as Prisma.InputJsonValue,
       status: result.status === 'success' ? 'COMPLETED' : 'FAILED',
+      aiProvider: result.aiProvider as unknown as AIProvider | undefined,
+      aiModel: result.aiModel,
       promptTokens: result.tokenUsage?.promptTokens,
       completionTokens: result.tokenUsage?.completionTokens,
       startedAt: result.startedAt,
@@ -167,6 +169,8 @@ export async function saveNodeLogsBatch(
       input: truncatedInput as Prisma.InputJsonValue,
       output: truncatedOutput as Prisma.InputJsonValue,
       status: result.status === 'success' ? 'COMPLETED' as const : 'FAILED' as const,
+      aiProvider: result.aiProvider as unknown as AIProvider | undefined,
+      aiModel: result.aiModel,
       promptTokens: result.tokenUsage?.promptTokens,
       completionTokens: result.tokenUsage?.completionTokens,
       startedAt: result.startedAt,

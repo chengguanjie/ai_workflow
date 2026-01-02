@@ -140,3 +140,84 @@
 .react-flow__node.selected {
   box-shadow: none !important;
 }
+
+/* 节点执行中的闪烁动画 */
+@keyframes node-execution-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7),
+                0 0 0 0 rgba(59, 130, 246, 0.4);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 20px 5px rgba(59, 130, 246, 0.5),
+                0 0 40px 10px rgba(59, 130, 246, 0.3);
+    transform: scale(1.02);
+  }
+}
+
+.node-executing {
+  animation: node-execution-pulse 1.5s ease-in-out infinite;
+  border-color: rgb(59, 130, 246) !important;
+}
+
+/* 连线光粒子流动动画 */
+@keyframes flow-particle {
+  0% {
+    stroke-dashoffset: 24;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes flow-glow {
+  0%, 100% {
+    filter: drop-shadow(0 0 3px rgba(139, 92, 246, 0.6));
+  }
+  50% {
+    filter: drop-shadow(0 0 8px rgba(139, 92, 246, 0.9));
+  }
+}
+
+.edge-particle-flow {
+  stroke-dasharray: 8 16;
+  animation: flow-particle 0.8s linear infinite, flow-glow 1.5s ease-in-out infinite;
+}
+
+/* 光粒子动画 - 更流畅的粒子效果 */
+@keyframes particle-move {
+  0% {
+    offset-distance: 0%;
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+  }
+}
+
+/* 渐变流动动画 */
+@keyframes gradient-flow {
+  0% {
+    stop-opacity: 0;
+  }
+  30% {
+    stop-opacity: 0.9;
+  }
+  70% {
+    stop-opacity: 0.9;
+  }
+  100% {
+    stop-opacity: 0;
+  }
+}
+
+.animate-flow-gradient {
+  animation: flow-glow 1.5s ease-in-out infinite;
+}

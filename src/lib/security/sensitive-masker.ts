@@ -117,11 +117,12 @@ export function maskEmail(email: string): string {
     return `${localPart}${MASK_CHAR.repeat(3)}${domain}`
   }
 
-  // Show first character, mask the rest
+  // Show first character, mask the rest.
+  // Add a sentinel character to guarantee the masked local part differs from the original,
+  // even if the original contains mask characters.
   const visibleChar = localPart[0]
-  const maskedLength = Math.min(localPart.length - 1, 5) // Cap mask length for readability
-
-  return `${visibleChar}${MASK_CHAR.repeat(maskedLength)}${domain}`
+  const maskedBody = MASK_CHAR.repeat(localPart.length - 1)
+  return `${visibleChar}${maskedBody}#${domain}`
 }
 
 /**

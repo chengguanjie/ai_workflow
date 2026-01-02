@@ -4,6 +4,7 @@ import { stat } from 'fs/promises'
 import { auth } from '@/lib/auth'
 import { storageService } from '@/lib/storage'
 import { ApiResponse } from '@/lib/api/api-response'
+import { verifyFileDownloadToken } from '@/lib/storage/file-download-token'
 
 interface RouteParams {
   params: Promise<{ fileKey: string }>
@@ -18,12 +19,18 @@ interface RouteParams {
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const session = await auth()
-    if (!session?.user) {
-      return ApiResponse.error('未登录', 401)
-    }
 
     const { fileKey } = await params
     const decodedKey = decodeURIComponent(fileKey)
+
+    // Allow signed public download for media (used by AI providers fetching internal files)
+    let effectiveOrgId: string | null = session?.user?.organizationId ?? null
+    if (!effectiveOrgId) {
+      const token = request.nextUrl.searchParams.get('token')
+      if (!token) return ApiResponse.error('未登录', 401)
+      const payload = verifyFileDownloadToken(token, { fileKey: decodedKey })
+      effectiveOrgId = payload.organizationId
+    }
 
     // 获取文件信息
     const downloadInfo = await storageService.getDownloadInfoByKey(decodedKey)
@@ -35,7 +42,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const { file, localPath } = downloadInfo
 
     // 验证权限
-    if (file.organizationId !== session.user.organizationId) {
+    if (file.organizationId !== effectiveOrgId) {
       return ApiResponse.error('无权下载此文件', 403)
     }
 

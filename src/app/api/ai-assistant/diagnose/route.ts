@@ -33,10 +33,10 @@ interface DiagnosisResult {
   score: number;
 }
 
-// 节点配置接口
-interface NodeConfig {
-  name?: string;
+// 节点配置数据接口（node.data.config 中的内容）
+interface NodeConfigData {
   prompt?: string;
+  userPrompt?: string;
   systemPrompt?: string;
   model?: string;
   aiConfigId?: string;
@@ -55,6 +55,11 @@ interface NodeConfig {
     operator: string;
     value: string;
   }>;
+  fields?: Array<{
+    id: string;
+    name: string;
+    value?: string;
+  }>;
 }
 
 // 边接口
@@ -65,12 +70,54 @@ interface EdgeData {
   targetHandle?: string | null;
 }
 
+// 节点数据接口（ReactFlow node.data 的内容）
+interface NodeDataPayload {
+  id?: string;
+  name?: string;
+  type?: string;
+  position?: { x: number; y: number };
+  config?: NodeConfigData;
+  comment?: string;
+  // 兼容旧格式：配置可能直接在 data 下
+  prompt?: string;
+  userPrompt?: string;
+  systemPrompt?: string;
+  model?: string;
+  aiConfigId?: string;
+  tools?: NodeConfigData['tools'];
+  knowledgeBaseId?: string;
+}
+
 // 节点接口
 interface NodeData {
   id: string;
   type: string;
   position: { x: number; y: number };
-  data: NodeConfig;
+  data: NodeDataPayload;
+}
+
+// 获取节点配置的辅助函数（支持两种格式）
+function getNodeConfig(node: NodeData): NodeConfigData {
+  const data = node.data;
+  // 优先使用 data.config（新格式），如果不存在则使用 data 本身（旧格式/兼容模式）
+  if (data.config && typeof data.config === 'object') {
+    return data.config;
+  }
+  // 兼容模式：配置直接在 data 下
+  return {
+    prompt: data.prompt,
+    userPrompt: data.userPrompt,
+    systemPrompt: data.systemPrompt,
+    model: data.model,
+    aiConfigId: data.aiConfigId,
+    tools: data.tools,
+    knowledgeBaseId: data.knowledgeBaseId,
+  };
+}
+
+// 获取节点名称的辅助函数
+function getNodeName(node: NodeData): string {
+  return node.data?.name || node.id;
 }
 
 export async function POST(request: NextRequest) {
@@ -199,36 +246,34 @@ function checkConnectionIntegrity(
   outgoingEdges: Map<string, EdgeData[]>,
   issues: DiagnosisIssue[]
 ) {
-  // 找到起始节点（trigger类型）
-  const triggerNodes = nodes.filter((n) => n.type === "trigger");
+  // 找到起始节点（可以是 trigger、INPUT、input 类型，或者没有输入连接的节点）
+  const entryNodeTypes = ["trigger", "INPUT", "input"];
+  const entryNodes = nodes.filter((n) =>
+    entryNodeTypes.includes(n.type) ||
+    entryNodeTypes.includes(n.type?.toUpperCase())
+  );
 
-  if (triggerNodes.length === 0) {
+  // 如果没有明确的入口节点类型，检查是否有无输入连接的节点作为起点
+  const nodesWithoutIncoming = nodes.filter((n) => !incomingEdges.has(n.id));
+
+  // 只有当工作流完全没有起点时才报错
+  if (entryNodes.length === 0 && nodesWithoutIncoming.length === 0) {
     issues.push({
       nodeId: "",
       nodeName: "",
       severity: "error",
       category: "connection",
-      issue: "缺少触发器节点",
-      suggestion: "请添加一个触发器节点作为工作流的起点",
+      issue: "工作流没有起始节点",
+      suggestion: "请添加一个输入节点或触发器节点作为工作流的起点",
       autoFixable: false,
     });
   }
 
-  if (triggerNodes.length > 1) {
-    issues.push({
-      nodeId: "",
-      nodeName: "",
-      severity: "warning",
-      category: "connection",
-      issue: "存在多个触发器节点",
-      suggestion: "通常工作流只需要一个触发器节点，请检查是否需要删除多余的触发器",
-      autoFixable: false,
-    });
-  }
-
-  // 检查孤立节点
+  // 检查孤立节点（有多个入口且节点之间没有连接的情况）
   nodes.forEach((node) => {
-    if (node.type === "trigger") return; // 触发器节点不需要入边
+    const nodeType = node.type?.toUpperCase();
+    // 入口类型节点不需要检查入边
+    if (entryNodeTypes.map(t => t.toUpperCase()).includes(nodeType)) return;
 
     const hasIncoming = incomingEdges.has(node.id);
     const hasOutgoing = outgoingEdges.has(node.id);
@@ -236,21 +281,22 @@ function checkConnectionIntegrity(
     if (!hasIncoming && !hasOutgoing) {
       issues.push({
         nodeId: node.id,
-        nodeName: node.data?.name || node.id,
+        nodeName: getNodeName(node),
         severity: "error",
         category: "connection",
         issue: "孤立节点，没有任何连接",
         suggestion: "请将此节点连接到工作流中，或删除此节点",
         autoFixable: false,
       });
-    } else if (!hasIncoming) {
+    } else if (!hasIncoming && hasOutgoing) {
+      // 只有有出边但没有入边的非入口节点才报警告
       issues.push({
         nodeId: node.id,
-        nodeName: node.data?.name || node.id,
-        severity: "warning",
+        nodeName: getNodeName(node),
+        severity: "info",
         category: "connection",
         issue: "节点没有输入连接",
-        suggestion: "此节点无法接收上游数据，请检查连接是否正确",
+        suggestion: "此节点作为独立起点，如果需要接收上游数据，请添加输入连接",
         autoFixable: false,
       });
     }
@@ -258,16 +304,21 @@ function checkConnectionIntegrity(
 
   // 检查末端节点
   const endNodes = nodes.filter((n) => !outgoingEdges.has(n.id));
-  const outputNodes = endNodes.filter((n) => n.type === "output");
+  const outputNodeTypes = ["output", "OUTPUT"];
+  const outputNodes = endNodes.filter((n) =>
+    outputNodeTypes.includes(n.type) ||
+    outputNodeTypes.includes(n.type?.toUpperCase())
+  );
 
-  if (endNodes.length > 0 && outputNodes.length === 0) {
+  // 仅当明确需要输出时才提示（改为info级别，不强制要求）
+  if (endNodes.length > 0 && outputNodes.length === 0 && nodes.length > 3) {
     issues.push({
       nodeId: "",
       nodeName: "",
       severity: "info",
       category: "connection",
-      issue: "工作流没有输出节点",
-      suggestion: "建议添加输出节点来返回工作流结果",
+      issue: "工作流没有明确的输出节点",
+      suggestion: "如果需要返回工作流结果，建议添加输出节点",
       autoFixable: false,
     });
   }
@@ -276,11 +327,11 @@ function checkConnectionIntegrity(
 // 检查配置完整性
 function checkConfigIntegrity(nodes: NodeData[], issues: DiagnosisIssue[]) {
   nodes.forEach((node) => {
-    const config = node.data;
-    const nodeName = config?.name || node.id;
+    const config = getNodeConfig(node);
+    const nodeName = getNodeName(node);
 
     // 检查节点名称
-    if (!config?.name || config.name.trim() === "") {
+    if (!node.data?.name || node.data.name.trim() === "") {
       issues.push({
         nodeId: node.id,
         nodeName: node.id,
@@ -293,9 +344,10 @@ function checkConfigIntegrity(nodes: NodeData[], issues: DiagnosisIssue[]) {
     }
 
     // 处理节点特定检查
-    if (node.type === "process") {
-      // 检查提示词
-      if (!config?.prompt || config.prompt.trim().length < 10) {
+    if (node.type === "process" || node.type === "PROCESS") {
+      // 检查提示词（支持 prompt 和 userPrompt）
+      const prompt = config?.userPrompt || config?.prompt;
+      if (!prompt || prompt.trim().length < 10) {
         issues.push({
           nodeId: node.id,
           nodeName,
@@ -321,7 +373,7 @@ function checkConfigIntegrity(nodes: NodeData[], issues: DiagnosisIssue[]) {
       }
     }
 
-    if (node.type === "condition") {
+    if (node.type === "condition" || node.type === "CONDITION") {
       // 检查条件配置
       if (!config?.conditions || config.conditions.length === 0) {
         issues.push({
@@ -336,9 +388,9 @@ function checkConfigIntegrity(nodes: NodeData[], issues: DiagnosisIssue[]) {
       }
     }
 
-    if (node.type === "trigger") {
+    if (node.type === "trigger" || node.type === "TRIGGER") {
       // 触发器检查
-      if (!config?.name) {
+      if (!node.data?.name) {
         issues.push({
           nodeId: node.id,
           nodeName,
@@ -367,11 +419,11 @@ function checkVariableReferences(
   });
 
   nodes.forEach((node) => {
-    const config = node.data;
-    const nodeName = config?.name || node.id;
+    const config = getNodeConfig(node);
+    const nodeName = getNodeName(node);
 
-    // 检查prompt中的变量引用
-    const textsToCheck = [config?.prompt, config?.systemPrompt].filter(
+    // 检查prompt中的变量引用（支持 prompt、userPrompt、systemPrompt）
+    const textsToCheck = [config?.prompt, config?.userPrompt, config?.systemPrompt].filter(
       Boolean
     );
 
@@ -411,24 +463,49 @@ function checkVariableReferences(
   });
 }
 
+// 检测字符串是否包含占位符（如 {{请配置}}）
+function containsPlaceholder(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  return /\{\{[^}]+\}\}/.test(value);
+}
+
 // 检查工具配置
 function checkToolConfigs(nodes: NodeData[], issues: DiagnosisIssue[]) {
   nodes.forEach((node) => {
-    const config = node.data;
-    const nodeName = config?.name || node.id;
+    const config = getNodeConfig(node);
+    const nodeName = getNodeName(node);
 
-    if (node.type === "process" && config?.tools && config.tools.length > 0) {
+    if ((node.type === "process" || node.type === "PROCESS") && config?.tools && config.tools.length > 0) {
       config.tools.forEach((tool) => {
         if (!tool.enabled) return;
 
+        const toolConfig = tool.config as Record<string, unknown> | undefined;
+
+        // 检查占位符（适用于所有工具类型）
+        if (toolConfig) {
+          for (const [key, value] of Object.entries(toolConfig)) {
+            if (containsPlaceholder(value)) {
+              issues.push({
+                nodeId: node.id,
+                nodeName,
+                severity: "error",
+                category: "tool",
+                issue: `工具 "${tool.name}" 的 ${key} 字段包含占位符，需要用户配置`,
+                suggestion: `请将 ${key} 字段中的占位符替换为实际值`,
+                autoFixable: false,
+              });
+            }
+          }
+        }
+
         // HTTP工具检查
-        if (tool.type === "http" || tool.type === "HTTP") {
-          const toolConfig = tool.config as {
+        if (tool.type === "http" || tool.type === "HTTP" || tool.type === "http-request") {
+          const httpConfig = toolConfig as {
             url?: string;
             method?: string;
           } | undefined;
 
-          if (!toolConfig?.url) {
+          if (!httpConfig?.url) {
             issues.push({
               nodeId: node.id,
               nodeName,
@@ -439,8 +516,9 @@ function checkToolConfigs(nodes: NodeData[], issues: DiagnosisIssue[]) {
               autoFixable: false,
             });
           } else if (
-            !toolConfig.url.startsWith("http://") &&
-            !toolConfig.url.startsWith("https://")
+            !containsPlaceholder(httpConfig.url) &&
+            !httpConfig.url.startsWith("http://") &&
+            !httpConfig.url.startsWith("https://")
           ) {
             issues.push({
               nodeId: node.id,
@@ -453,7 +531,7 @@ function checkToolConfigs(nodes: NodeData[], issues: DiagnosisIssue[]) {
             });
           }
 
-          if (!toolConfig?.method) {
+          if (!httpConfig?.method) {
             issues.push({
               nodeId: node.id,
               nodeName,
@@ -476,6 +554,22 @@ function checkToolConfigs(nodes: NodeData[], issues: DiagnosisIssue[]) {
             });
           }
         }
+
+        // 通知工具检查
+        if (tool.type?.startsWith("notification-")) {
+          const notifConfig = toolConfig as { webhookUrl?: string } | undefined;
+          if (!notifConfig?.webhookUrl && !containsPlaceholder(notifConfig?.webhookUrl)) {
+            issues.push({
+              nodeId: node.id,
+              nodeName,
+              severity: "error",
+              category: "tool",
+              issue: `通知工具 "${tool.name}" 没有配置 Webhook URL`,
+              suggestion: "请配置有效的 Webhook URL",
+              autoFixable: false,
+            });
+          }
+        }
       });
     }
   });
@@ -487,13 +581,13 @@ function checkKnowledgeBaseConfigs(
   issues: DiagnosisIssue[]
 ) {
   nodes.forEach((node) => {
-    const config = node.data;
-    const nodeName = config?.name || node.id;
+    const config = getNodeConfig(node);
+    const nodeName = getNodeName(node);
 
     // 检查是否启用了知识库但未配置ID
-    if (node.type === "process") {
+    if (node.type === "process" || node.type === "PROCESS") {
       // 如果prompt中提到了知识库相关内容但未配置
-      const prompt = config?.prompt || "";
+      const prompt = config?.userPrompt || config?.prompt || "";
       const knowledgeKeywords = ["知识库", "文档", "检索", "RAG", "knowledge"];
 
       const mentionsKnowledge = knowledgeKeywords.some((kw) =>
@@ -579,7 +673,7 @@ function checkPerformanceIssues(
   }
 
   // 检查AI节点数量
-  const aiNodes = nodes.filter((n) => n.type === "process");
+  const aiNodes = nodes.filter((n) => n.type === "process" || n.type === "PROCESS");
   if (aiNodes.length > 10) {
     issues.push({
       nodeId: "",

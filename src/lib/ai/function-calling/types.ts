@@ -129,6 +129,19 @@ export interface ToolExecutionContext {
   testMode?: boolean
   /** 自定义变量 */
   variables?: Record<string, unknown>
+  /**
+   * 当前节点使用的 AI 配置（可选）
+   *
+   * 对于需要调用模型的工具（如图片/音频/视频生成、代码大模型等），
+   * 可以优先使用这里提供的 provider/apiKey/baseUrl/defaultModel。
+   * 普通 HTTP / 通知类工具可以忽略该字段。
+   */
+  aiConfig?: {
+    provider: string
+    apiKey: string
+    baseUrl?: string
+    defaultModel?: string
+  }
 }
 
 /**

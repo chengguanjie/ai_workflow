@@ -3,6 +3,7 @@
  */
 
 import type { NodeConfig, OutputFormat } from '@/types/workflow'
+import type { OutputType } from '@/lib/workflow/debug-panel/types'
 
 /**
  * 执行上下文
@@ -69,7 +70,15 @@ export interface NodeOutput {
   nodeType: string
   status: 'success' | 'error' | 'skipped' | 'paused'
   data: Record<string, unknown>
+  /**
+   * 节点标准化输出类型（可选）
+   * - 用于前端根据类型选择合适的预览与下载方式
+   * - 由各节点处理器在有明确语义时填充（如多模态图片/音频/视频结果）
+   */
+  outputType?: OutputType
   error?: string
+  aiProvider?: AIConfigCache['provider']
+  aiModel?: string
   startedAt: Date
   completedAt?: Date
   duration?: number

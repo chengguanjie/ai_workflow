@@ -5,13 +5,12 @@ import { useWorkflowStore } from '@/stores/workflow-store'
 import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Separator } from '@/components/ui/separator'
 import { X, Plus } from 'lucide-react'
 import type { InputField } from '@/types/workflow'
 
 import { InputNodeConfigPanel } from './input-node-config'
 import { ProcessNodeConfigPanel } from './process-node-config'
+import { LogicNodeConfigPanel } from './logic-node-config'
 
 function NodeConfigPanelInner() {
   const selectedNode = useWorkflowStore((state) =>
@@ -85,10 +84,6 @@ function NodeConfigPanelInner() {
     config?: Record<string, unknown>
   }
 
-  const handleNameChange = (name: string) => {
-    updateNode(selectedNodeId!, { name })
-  }
-
   const handleConfigChange = (config: Record<string, unknown>) => {
     updateNode(selectedNodeId!, { config })
   }
@@ -113,6 +108,14 @@ function NodeConfigPanelInner() {
             onUpdate={handleConfigChange}
           />
         )
+      case 'logic':
+        return (
+          <LogicNodeConfigPanel
+            nodeId={selectedNodeId!}
+            config={nodeData.config}
+            onUpdate={handleConfigChange}
+          />
+        )
       default:
         return null
     }
@@ -127,7 +130,12 @@ function NodeConfigPanelInner() {
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between border-b p-4 sticky top-0 bg-background z-20">
-          <h3 className="font-medium">节点配置</h3>
+          <Input
+            className="h-8 max-w-xs border-none px-0 text-base font-medium focus-visible:ring-0 focus-visible:ring-offset-0"
+            value={nodeData.name}
+            onChange={(e) => updateNode(selectedNodeId!, { name: e.target.value })}
+            placeholder="输入节点名称"
+          />
           <Button variant="ghost" size="icon" onClick={() => selectNode(null)}>
             <X className="h-4 w-4" />
           </Button>
@@ -157,18 +165,6 @@ function NodeConfigPanelInner() {
         )}
 
         <div className="space-y-6">
-          <div className="p-4 pb-0 space-y-4">
-            <div className="space-y-2">
-              <Label>节点名称</Label>
-              <Input
-                value={nodeData.name}
-                onChange={(e) => handleNameChange(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <Separator />
-
           <div className="px-4 pb-4">
             {renderConfigPanel()}
           </div>
@@ -182,3 +178,4 @@ export const NodeConfigPanel = memo(NodeConfigPanelInner)
 
 export { InputNodeConfigPanel } from './input-node-config'
 export { ProcessNodeConfigPanel } from './process-node-config'
+export { LogicNodeConfigPanel } from './logic-node-config'

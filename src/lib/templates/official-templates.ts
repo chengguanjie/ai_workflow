@@ -1049,7 +1049,7 @@ const OFFICIAL_TEMPLATES = [
     name: "全网趋势捕捉与多端爆文引擎",
     description:
       "识别最新热点，自动适配不同平台调性，并一键生成高审美配图提示词",
-    category: "operation",
+    category: "new-media",
     tags: ["新媒体", "流量密码", "AI扩文"],
     metadata: {
       estimatedTime: "3-5分钟",
@@ -1086,6 +1086,457 @@ const OFFICIAL_TEMPLATES = [
             systemPrompt:
               "你是一个视觉设计总监。根据文案主题：\n1. 生成高审美的封面图 Prompt\n2. 汇总所有文案和视觉信息，生成发布包",
             userPrompt: "文案内容：{{多平台文案生成.result}}",
+          },
+        },
+      ],
+      edges: [
+        { id: "e1", source: "input-1", target: "process-1" },
+        { id: "e2", source: "process-1", target: "process-2" },
+      ],
+    },
+  },
+
+  // ============================================================
+  // 14.1 新媒体：一键多平台发布（工具闭环）
+  // ============================================================
+  {
+    name: "一键多平台发布（公众号/小红书/抖音/视频号）",
+    description:
+      "生成内容并直接调用平台工具完成发布（需配置对应平台环境变量鉴权）",
+    category: "new-media",
+    tags: ["新媒体", "多平台发布", "工具调用"],
+    metadata: {
+      estimatedTime: "3-8分钟",
+      difficulty: "intermediate",
+      useCases: ["新媒体运营", "多平台分发", "内容发布"],
+    },
+    config: {
+      version: 3,
+      nodes: [
+        {
+          id: "input-1",
+          type: "INPUT",
+          name: "发布需求输入",
+          position: { x: 100, y: 300 },
+          config: {
+            fields: [
+              { id: "topic", name: "选题", value: "", height: 80 },
+              { id: "platforms", name: "发布平台", value: "公众号,小红书" },
+              { id: "tone", name: "内容调性", value: "专业但亲和" },
+              {
+                id: "video_url",
+                name: "视频URL（抖音/视频号）",
+                value: "",
+                placeholder: "可选：用于视频平台发布",
+              },
+            ],
+          },
+        },
+        {
+          id: "process-1",
+          type: "PROCESS",
+          name: "生成并发布",
+          position: { x: 430, y: 300 },
+          config: {
+            enableToolCalling: true,
+            tools: [
+              {
+                id: "tool-wechat-mp",
+                type: "wechat-mp",
+                name: "微信公众号",
+                enabled: true,
+                config: { action: "publish", title: "", content: "", author: "", digest: "" },
+              },
+              {
+                id: "tool-xhs",
+                type: "xiaohongshu",
+                name: "小红书",
+                enabled: true,
+                config: { action: "publish", title: "", content: "", images: [] },
+              },
+              {
+                id: "tool-douyin",
+                type: "douyin-video",
+                name: "抖音视频",
+                enabled: true,
+                config: { action: "publish", title: "", description: "", videoUrl: "", coverUrl: "", tags: [] },
+              },
+              {
+                id: "tool-channels",
+                type: "wechat-channels",
+                name: "视频号",
+                enabled: true,
+                config: { action: "publish", title: "", description: "", videoUrl: "", coverUrl: "", tags: [] },
+              },
+            ],
+            systemPrompt:
+              "你是一个新媒体分发运营官。\n\n目标：根据输入生成对应平台内容，并调用工具完成发布。\n\n要求：\n1) 先基于【选题】和【调性】生成：\n- 公众号：title + HTML 正文（content）+ digest（可选）\n- 小红书：title + 正文（content）\n- 抖音/视频号：title + description + video_url（必须来自用户输入的 视频URL；若为空则不要发布视频）\n2) 仅对用户选择的平台执行发布。\n3) 调用工具时参数必须齐全：\n- wechat_mp：operation=create_draft（title/content），必要时再 submit_publish。\n- xiaohongshu：action=publish（title/content）。\n- douyin_video：action=publish（title/video_url）。\n- wechat_channels：action=publish（title/video_url）。\n4) 工具执行失败时，给出可执行的排查建议（环境变量/权限/URL）。\n\n输出：最终总结（发布结果、返回ID、失败原因）。",
+            userPrompt:
+              "选题：{{发布需求输入.选题}}\n发布平台：{{发布需求输入.发布平台}}\n内容调性：{{发布需求输入.内容调性}}\n视频URL：{{发布需求输入.视频URL（抖音/视频号）}}\n\n请开始执行。",
+          },
+        },
+      ],
+      edges: [{ id: "e1", source: "input-1", target: "process-1" }],
+    },
+  },
+
+  // ============================================================
+  // 14.2 新媒体：短视频脚本生成 Agent
+  // ============================================================
+  {
+    name: "短视频脚本智能创作 Agent",
+    description:
+      "根据选题自动生成抖音/快手/视频号短视频脚本，包含分镜、台词、BGM建议和拍摄指导",
+    category: "new-media",
+    tags: ["短视频", "脚本创作", "抖音", "快手", "视频号"],
+    metadata: {
+      estimatedTime: "3-5分钟",
+      difficulty: "intermediate",
+      useCases: ["短视频创作", "脚本生成", "内容策划"],
+    },
+    config: {
+      version: 3,
+      nodes: [
+        {
+          id: "input-1",
+          type: "INPUT",
+          name: "视频选题输入",
+          position: { x: 100, y: 300 },
+          config: {
+            fields: [
+              {
+                id: "topic",
+                name: "视频选题",
+                value: "",
+                height: 80,
+                placeholder: "如：职场干货、美食探店、穿搭分享...",
+              },
+              {
+                id: "platform",
+                name: "目标平台",
+                value: "抖音",
+                placeholder: "抖音/快手/视频号/小红书视频",
+              },
+              {
+                id: "duration",
+                name: "视频时长",
+                value: "60秒",
+                placeholder: "15秒/30秒/60秒/3分钟",
+              },
+              {
+                id: "style",
+                name: "风格调性",
+                value: "轻松幽默",
+                placeholder: "轻松幽默/专业干货/情感共鸣/剧情反转",
+              },
+              {
+                id: "target_audience",
+                name: "目标受众",
+                value: "",
+                placeholder: "如：18-25岁女性、职场白领...",
+              },
+            ],
+          },
+        },
+        {
+          id: "process-1",
+          type: "PROCESS",
+          name: "爆款元素分析与结构设计",
+          position: { x: 400, y: 300 },
+          config: {
+            systemPrompt:
+              '你是一个短视频编剧专家。请执行以下任务：\n\n**1. 平台算法适配分析：**\n- 根据目标平台特点优化内容策略\n- 抖音：3秒黄金法则，强节奏感\n- 快手：真实接地气，社交属性\n- 视频号：社交裂变，情感共鸣\n- 小红书：种草属性，精致生活\n\n**2. 爆款要素提炼：**\n- 确定吸睛开场（Hook）\n- 设计情绪起伏曲线\n- 埋设互动点（评论区引导）\n- 设计结尾 Call to Action\n\n**3. 脚本结构设计：**\n- 开头（0-3秒）：吸睛抓眼球\n- 铺垫（3-15秒）：建立情境\n- 高潮（15-45秒）：核心价值/反转\n- 结尾（最后5-10秒）：总结+引导\n\n请输出JSON格式：{"platform_strategy": "平台适配策略", "hook": "开场设计", "structure": "脚本结构", "interaction_points": ["互动点列表"]}',
+            userPrompt:
+              "选题：{{视频选题输入.topic}}\n平台：{{视频选题输入.platform}}\n时长：{{视频选题输入.duration}}\n风格：{{视频选题输入.style}}\n受众：{{视频选题输入.target_audience}}",
+          },
+        },
+        {
+          id: "process-2",
+          type: "PROCESS",
+          name: "完整脚本与拍摄指导",
+          position: { x: 700, y: 300 },
+          config: {
+            systemPrompt:
+              "你是一个专业短视频导演。请根据结构设计生成完整的拍摄脚本：\n\n**1. 分镜脚本表：**\n- 镜号\n- 画面描述（景别、运镜）\n- 台词/旁白\n- 字幕文案\n- 时长\n- BGM/音效建议\n\n**2. 拍摄指导：**\n- 场景布置建议\n- 灯光要求\n- 道具清单\n- 演员/主播表演指导\n\n**3. 后期剪辑要点：**\n- 节奏把控要点\n- 特效/贴纸建议\n- 封面设计建议\n- 标题优化（带话题标签）\n\n**4. 发布策略：**\n- 最佳发布时间\n- 标题话题标签\n- 首条评论引导语\n\n输出格式：Markdown，包含分镜表、拍摄指导及发布策略",
+            userPrompt:
+              "结构设计：{{爆款元素分析与结构设计.result}}\n原始需求：选题={{视频选题输入.topic}}，时长={{视频选题输入.duration}}，风格={{视频选题输入.style}}",
+          },
+        },
+      ],
+      edges: [
+        { id: "e1", source: "input-1", target: "process-1" },
+        { id: "e2", source: "process-1", target: "process-2" },
+      ],
+    },
+  },
+
+  // ============================================================
+  // 14.3 新媒体：直播带货脚本 Agent
+  // ============================================================
+  {
+    name: "直播带货全流程脚本 Agent",
+    description:
+      "为电商直播生成完整的带货脚本，包含开场、产品讲解、逼单话术、互动节奏和应急预案",
+    category: "new-media",
+    tags: ["直播带货", "电商直播", "话术脚本", "抖音", "快手"],
+    metadata: {
+      estimatedTime: "5-8分钟",
+      difficulty: "intermediate",
+      useCases: ["直播带货", "电商直播", "主播培训"],
+    },
+    config: {
+      version: 3,
+      nodes: [
+        {
+          id: "input-1",
+          type: "INPUT",
+          name: "直播信息输入",
+          position: { x: 100, y: 300 },
+          config: {
+            fields: [
+              {
+                id: "products",
+                name: "带货商品列表",
+                value: "",
+                height: 150,
+                placeholder: "商品名称、价格、卖点、库存量...\n每行一个商品",
+              },
+              {
+                id: "duration",
+                name: "直播时长",
+                value: "2小时",
+                placeholder: "如：1小时、2小时、4小时",
+              },
+              {
+                id: "anchor_style",
+                name: "主播风格",
+                value: "专业讲解型",
+                placeholder: "激情叫卖型/专业讲解型/闺蜜种草型/幽默搞笑型",
+              },
+              {
+                id: "target_gmv",
+                name: "目标GMV",
+                value: "",
+                placeholder: "如：10万、50万",
+              },
+              {
+                id: "special_offers",
+                name: "专属福利",
+                value: "",
+                placeholder: "满减、赠品、限时折扣等",
+              },
+            ],
+          },
+        },
+        {
+          id: "process-1",
+          type: "PROCESS",
+          name: "直播节奏与话术设计",
+          position: { x: 400, y: 300 },
+          config: {
+            systemPrompt:
+              '你是一个顶级直播策划师。请执行以下任务：\n\n**1. 直播节奏规划（时间轴）：**\n- 预热期：开播前5分钟引流\n- 开场期：前15分钟暖场、福利预告\n- 爆品期：主推爆款，密集转化\n- 平稳期：常规款讲解，穿插互动\n- 高潮期：限时秒杀、大额福利\n- 收尾期：最后15分钟返场、预告\n\n**2. 商品上架顺序优化：**\n- 引流款（低价高性价比）\n- 利润款（主推核心利润产品）\n- 形象款（提升品牌调性）\n- 返场款（二次转化）\n\n**3. 核心话术模块：**\n- 开场话术（欢迎语、人设建立）\n- 产品讲解话术（FAB法则）\n- 逼单话术（限时限量、从众心理）\n- 互动话术（问答、点赞、加粉丝团）\n- 应对砍价话术\n- 下播预告话术\n\n请输出JSON格式：{"timeline": [{"time": "", "action": "", "products": []}], "product_sequence": [], "key_scripts": {}}',
+            userPrompt:
+              "商品：{{直播信息输入.products}}\n时长：{{直播信息输入.duration}}\n主播风格：{{直播信息输入.anchor_style}}\n目标GMV：{{直播信息输入.target_gmv}}\n福利：{{直播信息输入.special_offers}}",
+          },
+        },
+        {
+          id: "process-2",
+          type: "PROCESS",
+          name: "完整脚本与应急预案",
+          position: { x: 700, y: 300 },
+          config: {
+            systemPrompt:
+              "你是一个资深直播运营专家。请生成完整的直播执行手册：\n\n**1. 分时段完整脚本：**\n为每个时间段生成：\n- 主播台词（逐字稿）\n- 产品演示动作指导\n- 助播配合提示\n- 运营操作提示（改价、上库存、发优惠券）\n\n**2. 互动引导话术库：**\n- 拉停留话术（5句）\n- 引导点赞话术（5句）\n- 引导评论话术（5句）\n- 引导下单话术（5句）\n- 粉丝团引导话术（5句）\n\n**3. 应急预案：**\n- 冷场应对（无人下单）\n- 负面评论处理\n- 技术故障（断网、声音问题）\n- 库存告急/售罄\n- 突发敏感问题\n\n**4. 数据监控要点：**\n- 实时GMV追踪节点\n- 转化率预警阈值\n- 互动率监控\n\n输出格式：Markdown，包含完整脚本、话术库及应急预案",
+            userPrompt:
+              "节奏规划：{{直播节奏与话术设计.result}}\n商品信息：{{直播信息输入.products}}\n主播风格：{{直播信息输入.anchor_style}}",
+          },
+        },
+      ],
+      edges: [
+        { id: "e1", source: "input-1", target: "process-1" },
+        { id: "e2", source: "process-1", target: "process-2" },
+      ],
+    },
+  },
+
+  // ============================================================
+  // 14.4 新媒体：内容热度预测 Agent
+  // ============================================================
+  {
+    name: "新媒体内容热度预测 Agent",
+    description:
+      "基于选题、标题、封面等要素预测内容热度，提供优化建议以提升爆款概率",
+    category: "new-media",
+    tags: ["热度预测", "内容优化", "爆款分析", "数据驱动"],
+    metadata: {
+      estimatedTime: "3-5分钟",
+      difficulty: "intermediate",
+      useCases: ["内容策划", "爆款预测", "选题决策"],
+    },
+    config: {
+      version: 3,
+      nodes: [
+        {
+          id: "input-1",
+          type: "INPUT",
+          name: "内容要素输入",
+          position: { x: 100, y: 300 },
+          config: {
+            fields: [
+              {
+                id: "platform",
+                name: "发布平台",
+                value: "小红书",
+                placeholder: "小红书/抖音/公众号/视频号/微博",
+              },
+              {
+                id: "title",
+                name: "标题/文案",
+                value: "",
+                height: 80,
+                placeholder: "输入计划使用的标题或开头文案...",
+              },
+              {
+                id: "topic",
+                name: "内容主题",
+                value: "",
+                placeholder: "如：护肤、穿搭、职场、美食...",
+              },
+              {
+                id: "cover_desc",
+                name: "封面描述",
+                value: "",
+                placeholder: "描述封面图的内容和风格...",
+              },
+              {
+                id: "content_type",
+                name: "内容形式",
+                value: "图文",
+                placeholder: "图文/短视频/长视频/直播切片",
+              },
+              {
+                id: "publish_time",
+                name: "计划发布时间",
+                value: "",
+                placeholder: "如：周五晚上8点",
+              },
+            ],
+          },
+        },
+        {
+          id: "process-1",
+          type: "PROCESS",
+          name: "多维度热度评估",
+          position: { x: 400, y: 300 },
+          config: {
+            systemPrompt:
+              '你是一个新媒体数据分析专家。请执行以下分析：\n\n**1. 选题热度评估（权重30%）：**\n- 话题时效性（热点/常青/过时）\n- 受众规模（大众/垂直/小众）\n- 竞争饱和度（蓝海/红海）\n- 平台算法偏好匹配度\n\n**2. 标题吸引力评估（权重25%）：**\n- 情绪触发强度（好奇/共鸣/争议）\n- 利益点明确度\n- 关键词优化程度\n- 长度适配性\n\n**3. 封面视觉评估（权重20%）：**\n- 视觉冲击力\n- 信息传达清晰度\n- 与标题配合度\n- 平台调性匹配\n\n**4. 发布时机评估（权重15%）：**\n- 目标用户活跃时段匹配\n- 避免热点冲突\n- 节假日/特殊节点利用\n\n**5. 内容形式评估（权重10%）：**\n- 平台主推形式适配\n- 用户消费习惯匹配\n\n请输出JSON格式：{"overall_score": 0-100, "breakdown": {"topic": 0-100, "title": 0-100, "cover": 0-100, "timing": 0-100, "format": 0-100}, "heat_prediction": "爆款潜力/中等热度/一般表现/需优化", "risk_factors": []}',
+            userPrompt:
+              "平台：{{内容要素输入.platform}}\n标题：{{内容要素输入.title}}\n主题：{{内容要素输入.topic}}\n封面：{{内容要素输入.cover_desc}}\n形式：{{内容要素输入.content_type}}\n发布时间：{{内容要素输入.publish_time}}",
+          },
+        },
+        {
+          id: "process-2",
+          type: "PROCESS",
+          name: "优化建议与替代方案",
+          position: { x: 700, y: 300 },
+          config: {
+            systemPrompt:
+              "你是一个爆款内容策划专家。请根据评估结果提供优化建议：\n\n**1. 标题优化建议：**\n- 提供 5 个优化版标题\n- 说明每个标题的优化点\n- 标注推荐指数\n\n**2. 封面优化建议：**\n- 构图优化方向\n- 文字排版建议\n- 色彩搭配建议\n- 提供 3 个封面设计方案描述\n\n**3. 发布策略优化：**\n- 最佳发布时间推荐\n- 首发话题/标签建议（5-10个）\n- 首条评论引导语\n\n**4. 内容增强建议：**\n- 可补充的爆点元素\n- 互动钩子设计\n- 系列化延展方向\n\n**5. 预期数据范围：**\n- 预估曝光量区间\n- 预估互动率区间\n- 对标爆款案例\n\n**6. 风险提示：**\n- 可能触发的平台限制\n- 敏感词/违规风险\n- 负面评价风险\n\n输出格式：Markdown，包含评分卡、优化建议及预期数据",
+            userPrompt:
+              "评估结果：{{多维度热度评估.result}}\n原始内容：标题={{内容要素输入.title}}，主题={{内容要素输入.topic}}，平台={{内容要素输入.platform}}",
+          },
+        },
+      ],
+      edges: [
+        { id: "e1", source: "input-1", target: "process-1" },
+        { id: "e2", source: "process-1", target: "process-2" },
+      ],
+    },
+  },
+
+  // ============================================================
+  // 14.5 新媒体：粉丝互动运营 Agent
+  // ============================================================
+  {
+    name: "粉丝互动与社群运营 Agent",
+    description:
+      "分析粉丝画像与互动数据，生成个性化互动策略、评论回复话术和社群运营方案",
+    category: "new-media",
+    tags: ["粉丝运营", "社群管理", "互动策略", "私域流量"],
+    metadata: {
+      estimatedTime: "3-5分钟",
+      difficulty: "intermediate",
+      useCases: ["粉丝运营", "社群管理", "私域引流"],
+    },
+    config: {
+      version: 3,
+      nodes: [
+        {
+          id: "input-1",
+          type: "INPUT",
+          name: "运营数据输入",
+          position: { x: 100, y: 300 },
+          config: {
+            fields: [
+              {
+                id: "account_info",
+                name: "账号信息",
+                value: "",
+                placeholder: "账号名称、领域、粉丝量级、定位...",
+              },
+              {
+                id: "fan_data",
+                name: "粉丝画像数据",
+                value: "",
+                height: 100,
+                placeholder: "性别比例、年龄分布、地域分布、活跃时段...",
+              },
+              {
+                id: "recent_comments",
+                name: "近期典型评论",
+                value: "",
+                height: 120,
+                placeholder: "粘贴近期收到的评论（包括正面和负面）...",
+              },
+              {
+                id: "interaction_goal",
+                name: "互动目标",
+                value: "提升互动率",
+                placeholder: "提升互动率/增加粉丝粘性/引流私域/打造铁粉",
+              },
+              {
+                id: "community_platform",
+                name: "社群平台",
+                value: "微信群",
+                placeholder: "微信群/QQ群/粉丝群/Discord",
+              },
+            ],
+          },
+        },
+        {
+          id: "process-1",
+          type: "PROCESS",
+          name: "粉丝分层与互动诊断",
+          position: { x: 400, y: 300 },
+          config: {
+            systemPrompt:
+              '你是一个粉丝运营专家。请执行以下分析：\n\n**1. 粉丝价值分层：**\n- 铁粉（高频互动、高消费意愿）\n- 活跃粉（定期互动、有一定粘性）\n- 沉默粉（关注但少互动）\n- 僵尸粉（长期无任何互动）\n- 分析各层级占比和特征\n\n**2. 互动健康度诊断：**\n- 互动率是否达标（对标行业基准）\n- 评论质量分析（真实讨论 vs 水评论）\n- 负面情绪占比\n- 互动活跃时段分布\n\n**3. 评论情感分析：**\n- 正面评论主题聚类\n- 负面评论痛点提取\n- 高频提问归纳\n- 潜在KOC识别\n\n**4. 私域引流潜力评估：**\n- 可转化私域的粉丝比例\n- 引流切入点识别\n\n请输出JSON格式：{"fan_layers": {}, "health_score": 0-100, "sentiment": {}, "koc_candidates": [], "private_traffic_potential": ""}',
+            userPrompt:
+              "账号信息：{{运营数据输入.account_info}}\n粉丝画像：{{运营数据输入.fan_data}}\n典型评论：{{运营数据输入.recent_comments}}\n运营目标：{{运营数据输入.interaction_goal}}",
+          },
+        },
+        {
+          id: "process-2",
+          type: "PROCESS",
+          name: "互动策略与话术生成",
+          position: { x: 700, y: 300 },
+          config: {
+            systemPrompt:
+              "你是一个顶级社群运营专家。请生成完整的粉丝运营方案：\n\n**1. 评论回复话术库：**\n- 感谢类回复（10句）\n- 问题解答类回复（10句）\n- 争议处理类回复（10句）\n- 互动引导类回复（10句）\n- 铁粉培养类回复（10句）\n\n**2. 主动互动策略：**\n- 每日互动SOP（时段+内容+数量）\n- 评论区氛围营造技巧\n- 带动粉丝互动的话题设计\n- 互动活动策划（投票/抽奖/征集）\n\n**3. 社群运营方案：**\n- 社群定位与规则\n- 入群欢迎语模板\n- 每日/每周运营节奏\n- 社群专属福利设计\n- 活跃度激励机制\n- 沉默用户激活话术\n\n**4. 铁粉培养计划：**\n- 铁粉专属权益设计\n- 核心粉丝圈运营\n- KOC孵化计划\n- 铁粉转化路径\n\n**5. 危机应对预案：**\n- 黑粉/喷子处理\n- 负面舆情应对\n- 粉丝争吵调解\n\n输出格式：Markdown，包含话术库、运营SOP及社群方案",
+            userPrompt:
+              "诊断结果：{{粉丝分层与互动诊断.result}}\n运营目标：{{运营数据输入.interaction_goal}}\n社群平台：{{运营数据输入.community_platform}}\n账号信息：{{运营数据输入.account_info}}",
           },
         },
       ],

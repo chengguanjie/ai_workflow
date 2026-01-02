@@ -3,6 +3,8 @@
  */
 
 import type { ToolExecutor, ToolDefinition, ToolCallResult, ToolExecutionContext } from '../types'
+import { MultimodalToolExecutor, ImageGenerationToolExecutor, VideoGenerationToolExecutor, AudioTTSToolExecutor } from './multimodal'
+import { CodeExecutionToolExecutor } from './code-execution'
 
 // 导出所有执行器
 export { 
@@ -16,6 +18,14 @@ export {
   HttpToolExecutor,
   createHttpTool,
 } from './http'
+
+export { FeishuBitableToolExecutor } from './feishu-bitable'
+export { WechatMpToolExecutor } from './wechat-mp'
+export { DouyinVideoToolExecutor } from './douyin-video'
+export { WechatChannelsToolExecutor } from './wechat-channels'
+export { XiaohongshuToolExecutor } from './xiaohongshu'
+export { MultimodalToolExecutor, ImageGenerationToolExecutor, VideoGenerationToolExecutor, AudioTTSToolExecutor } from './multimodal'
+export { CodeExecutionToolExecutor } from './code-execution'
 
 /**
  * 工具执行器注册表
@@ -123,3 +133,4 @@ class ToolExecutorRegistry {
 
 // 全局单例
 export const toolRegistry = new ToolExecutorRegistry()
+

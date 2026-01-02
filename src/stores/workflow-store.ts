@@ -16,6 +16,7 @@ import type {
   InputFieldType,
 } from "@/types/workflow";
 import dagre from "dagre";
+import type { EnhancedDebugResult } from "@/lib/workflow/debug-panel/types";
 
 interface GroupNodeConfigData {
   childNodeIds?: string[];
@@ -108,18 +109,7 @@ interface WorkflowState {
   // 节点执行结果
   nodeExecutionResults: Record<
     string,
-    {
-      status: "success" | "error" | "skipped";
-      output: Record<string, unknown>;
-      error?: string;
-      duration: number;
-      tokenUsage?: {
-        promptTokens: number;
-        completionTokens: number;
-        totalTokens: number;
-      };
-      logs?: string[];
-    } | null
+    import("@/lib/workflow/debug-panel/types").EnhancedDebugResult | null
   >;
 
   // 操作方法
@@ -190,18 +180,7 @@ interface WorkflowState {
   // 节点执行结果操作
   updateNodeExecutionResult: (
     nodeId: string,
-    result: {
-      status: "success" | "error" | "skipped";
-      output: Record<string, unknown>;
-      error?: string;
-      duration: number;
-      tokenUsage?: {
-        promptTokens: number;
-        completionTokens: number;
-        totalTokens: number;
-      };
-      logs?: string[];
-    } | null,
+    result: EnhancedDebugResult | null,
   ) => void;
   clearNodeExecutionResult: (nodeId: string) => void;
   clearAllNodeExecutionResults: () => void;
@@ -243,18 +222,7 @@ const initialState = {
   >,
   nodeExecutionResults: {} as Record<
     string,
-    {
-      status: "success" | "error" | "skipped";
-      output: Record<string, unknown>;
-      error?: string;
-      duration: number;
-      tokenUsage?: {
-        promptTokens: number;
-        completionTokens: number;
-        totalTokens: number;
-      };
-      logs?: string[];
-    } | null
+    import("@/lib/workflow/debug-panel/types").EnhancedDebugResult | null
   >,
 };
 

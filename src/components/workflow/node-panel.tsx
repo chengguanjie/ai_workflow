@@ -1,7 +1,7 @@
 "use client";
 
 import { DragEvent, memo, useCallback } from "react";
-import { ArrowDownToLine, Bot, Sparkles } from "lucide-react";
+import { ArrowDownToLine, Bot, GitBranch, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAIAssistantStore } from "@/stores/ai-assistant-store";
 import { useWorkflowStore } from "@/stores/workflow-store";
@@ -30,6 +30,14 @@ export const primaryNodes: NodeType[] = [
     name: "AI处理",
     description: "AI 文本处理，支持知识库",
     icon: Bot,
+    color: "text-gray-700",
+    bgColor: "bg-gray-100",
+  },
+  {
+    type: "logic",
+    name: "逻辑判断",
+    description: "条件/分支/合并/分支选择控制流",
+    icon: GitBranch,
     color: "text-gray-700",
     bgColor: "bg-gray-100",
   },
@@ -66,6 +74,11 @@ function getDefaultConfig(type: string): Record<string, unknown> {
         temperature: 0.7,
         maxTokens: 2048,
       };
+    case "logic":
+      return {
+        mode: "condition",
+        conditions: [],
+      };
     default:
       return {};
   }
@@ -76,6 +89,7 @@ function getNodeName(type: string): string {
   const names: Record<string, string> = {
     input: "用户输入",
     process: "AI处理",
+    logic: "逻辑判断",
   };
   return names[type] || "节点";
 }
@@ -107,7 +121,7 @@ export const NodePanel = memo(function NodePanel() {
 
       addNode({
         id: nodeId,
-        type: nodeType.toUpperCase() as "INPUT" | "PROCESS",
+        type: nodeType.toUpperCase() as "INPUT" | "PROCESS" | "LOGIC",
         name: getNodeName(nodeType),
         position,
         config: getDefaultConfig(nodeType),
