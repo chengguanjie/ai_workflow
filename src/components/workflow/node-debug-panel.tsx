@@ -362,8 +362,15 @@ export function NodeDebugPanel() {
       prevOpenedNodeIdRef.current = debugNodeId;
       setSelectedModality(DEFAULT_MODALITY);
 
-      // 根据文本模态设置默认输出类型
-      setSelectedOutputType(MODALITY_TO_OUTPUT_TYPE[DEFAULT_MODALITY] || "json");
+      // 优先使用节点配置中已保存的 expectedOutputType，否则使用默认值
+      const currentNode = nodes.find((n) => n.id === debugNodeId);
+      const savedExpectedOutputType = (currentNode?.data?.config as Record<string, unknown>)?.expectedOutputType as OutputType | undefined;
+      if (savedExpectedOutputType) {
+        setSelectedOutputType(savedExpectedOutputType);
+      } else {
+        // 只有在没有保存值时才使用默认值
+        setSelectedOutputType(MODALITY_TO_OUTPUT_TYPE[DEFAULT_MODALITY] || "json");
+      }
 
       // 只在节点切换时重置预览状态
       if (isNodeChanged) {
