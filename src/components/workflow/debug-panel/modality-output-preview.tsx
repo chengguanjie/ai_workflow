@@ -51,7 +51,6 @@ interface ModalityOutputPreviewProps {
  * 根据输出类型自动显示合适的预览界面
  */
 export function ModalityOutputPreview({ output, className }: ModalityOutputPreviewProps) {
-  // 检测输出类型
   const outputType = detectOutputType(output)
 
   switch (outputType) {

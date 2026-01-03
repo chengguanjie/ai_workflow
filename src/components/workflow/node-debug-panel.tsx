@@ -51,6 +51,7 @@ import {
   DEFAULT_MODALITY,
 } from "./debug-panel/modality-selector";
 import { InputNodeDebugPanel } from "./input-debug-panel";
+import { LogicNodeConfigPanel } from "./node-config-panel/logic-node-config";
 import { PreviewModal } from "./debug-panel/preview-modal";
 import { ModalityOutputPreview } from "./debug-panel/modality-output-preview";
 import { OutputTypeSelector } from "./debug-panel/output-type-selector";
@@ -69,6 +70,7 @@ import {
   guessOutputTypeFromPromptAndTools,
 } from "@/lib/workflow/debug-panel/utils";
 import { getModelModality } from "@/lib/ai/types";
+import { extractVariableReferences } from "@/lib/workflow/utils";
 
 type TriggerType = "MANUAL" | "WEBHOOK" | "SCHEDULE";
 
@@ -316,8 +318,10 @@ export function NodeDebugPanel() {
     // 只有在节点真正切换时才重置 UI 状态，避免在同一节点执行时折叠面板
     const isNodeChanged = prevDebugNodeIdRef.current !== debugNodeId;
 
-    if (debugNodeId && predecessorNodes.length > 0) {
+    if (debugNodeId) {
       const defaultInputs: Record<string, Record<string, unknown>> = {};
+      
+      // 1. 处理直接上游节点
       for (const predNode of predecessorNodes) {
         if (predNode) {
           const predNodeName = predNode.data.name as string;
@@ -334,6 +338,74 @@ export function NodeDebugPanel() {
           }
         }
       }
+      
+      // 2. 解析 userPrompt 中引用的所有节点，包括非直接上游的节点
+      const currentNode = nodes.find((n) => n.id === debugNodeId);
+      const nodeConfig = currentNode?.data?.config as Record<string, unknown> | undefined;
+      const userPrompt = nodeConfig?.userPrompt as string | undefined;
+      
+      if (userPrompt) {
+        const variableRefs = extractVariableReferences(userPrompt);
+        
+        for (const ref of variableRefs) {
+          const { nodeName, fieldPath } = ref;
+          
+          // 跳过已经处理过的节点
+          if (defaultInputs[nodeName]) {
+            // 如果节点已存在但字段不存在，添加字段
+            if (fieldPath && !(fieldPath in defaultInputs[nodeName])) {
+              // 处理嵌套字段路径，如 "配图数量" 或 "a.b.c"
+              const topField = fieldPath.split('.')[0];
+              if (!(topField in defaultInputs[nodeName])) {
+                defaultInputs[nodeName][topField] = `[请填写: ${topField}]`;
+              }
+            }
+            continue;
+          }
+          
+          // 在 nodes 中查找匹配的节点
+          const matchedNode = nodes.find((n) => n.data.name === nodeName);
+          if (matchedNode) {
+            // 检查是否有已保存的执行结果
+            const matchedNodeResult = nodeExecutionResults?.[matchedNode.id];
+            if (matchedNodeResult?.status === "success" && matchedNodeResult.output) {
+              defaultInputs[nodeName] = matchedNodeResult.output;
+            } else {
+              // 创建包含引用字段的占位符对象
+              const placeholderObj: Record<string, unknown> = {};
+              if (fieldPath) {
+                const topField = fieldPath.split('.')[0];
+                placeholderObj[topField] = `[请填写: ${topField}]`;
+              } else {
+                placeholderObj.result = `[数据来自: ${nodeName}]`;
+              }
+              defaultInputs[nodeName] = placeholderObj;
+            }
+          } else {
+            // 节点不在工作流中，但在提示词中被引用，创建占位符
+            const placeholderObj: Record<string, unknown> = {};
+            if (fieldPath) {
+              const topField = fieldPath.split('.')[0];
+              placeholderObj[topField] = `[请填写: ${topField}]`;
+            } else {
+              placeholderObj.result = `[数据来自: ${nodeName}]`;
+            }
+            defaultInputs[nodeName] = placeholderObj;
+          }
+        }
+        
+        // 3. 补充同一节点的其他字段引用
+        for (const ref of variableRefs) {
+          const { nodeName, fieldPath } = ref;
+          if (fieldPath && defaultInputs[nodeName]) {
+            const topField = fieldPath.split('.')[0];
+            if (!(topField in defaultInputs[nodeName])) {
+              defaultInputs[nodeName][topField] = `[请填写: ${topField}]`;
+            }
+          }
+        }
+      }
+      
       setMockInputs(defaultInputs);
     } else {
       setMockInputs({});
@@ -763,6 +835,100 @@ export function NodeDebugPanel() {
     );
   }
 
+  // 处理逻辑节点配置更新
+  const handleLogicConfigUpdate = (config: Record<string, unknown>) => {
+    updateNode(debugNodeId!, {
+      config: { ...currentConfig, ...config },
+    });
+  };
+
+  // 如果是逻辑节点，显示专用的配置面板
+  if (nodeType === "LOGIC") {
+    return (
+      <div
+        ref={panelRef}
+        className="h-full border-l bg-background shadow-lg flex flex-col overflow-hidden transition-all duration-300 ease-in-out"
+        style={{
+          width: `${panelWidth}px`,
+          flexShrink: 0,
+        }}
+      >
+        {/* Resize Handle */}
+        <div
+          className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-primary/20 transition-colors z-10"
+          onMouseDown={() => setIsResizing(true)}
+        />
+
+        {/* Header */}
+        <div
+          className="flex items-center justify-between border-b px-4 py-3 bg-muted/10"
+          onMouseDown={handleDragStart}
+        >
+          <div className="flex items-center gap-3">
+            {/* Drag Handle */}
+            <div className="drag-handle cursor-move p-1 hover:bg-muted rounded">
+              <GripVertical className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div className="h-8 w-8 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-700">
+              <Workflow className="h-4 w-4" />
+            </div>
+            <div className="flex-1">
+              {isEditingTitle ? (
+                <input
+                  type="text"
+                  value={editedTitle}
+                  onChange={(e) => setEditedTitle(e.target.value)}
+                  onBlur={handleTitleSave}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleTitleSave();
+                    if (e.key === "Escape") {
+                      setEditedTitle((debugNode.data.name as string) || "");
+                      setIsEditingTitle(false);
+                    }
+                  }}
+                  className="font-semibold text-sm bg-transparent border-b border-primary outline-none w-full"
+                  autoFocus
+                />
+              ) : (
+                <h2
+                  className="font-semibold text-sm cursor-pointer hover:text-primary transition-colors"
+                  onClick={() => setIsEditingTitle(true)}
+                  title="点击编辑节点名称"
+                >
+                  {debugNode.data.name as string}
+                </h2>
+              )}
+            </div>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={closeDebugPanel}
+            className="h-8 w-8 rounded-full hover:bg-muted"
+            title="收起面板"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+
+        {/* Logic Node Config Content */}
+        <div
+          className="flex-1 bg-slate-50/50 overflow-y-auto p-4"
+          style={{
+            scrollbarWidth: "thin",
+            scrollbarColor: "#cbd5e1 transparent",
+          }}
+        >
+          <LogicNodeConfigPanel
+            nodeId={debugNodeId!}
+            config={currentConfig}
+            onUpdate={handleLogicConfigUpdate}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       ref={panelRef}
@@ -1132,7 +1298,7 @@ export function NodeDebugPanel() {
 
                       <div className="relative">
                         <ModalityOutputPreview
-                          output={result.output}
+                          output={((result as any).output ?? (result as any).data ?? result) as Record<string, unknown>}
                           className="mb-4"
                         />
 
@@ -1226,7 +1392,8 @@ export function NodeDebugPanel() {
                           "pdf",
                           "excel",
                           "ppt",
-                        ].includes(selectedOutputType) && (
+                        ].includes(selectedOutputType) &&
+                          !((result as any).output?.images || (result as any).output?.videos || (result as any).output?.audio) && (
                           <div className="rounded-lg border bg-muted/20 p-6 flex flex-col items-center justify-center">
                             {selectedOutputType === "image" && (
                               <>
