@@ -154,6 +154,23 @@ const processNodeSchema = baseNodeSchema.extend({
     toolChoice: z.enum(["auto", "none", "required"]).optional(),
     maxToolCallRounds: z.number().optional(),
 
+    // ===== 期望输出类型（用于画布展示与下载预设）=====
+    expectedOutputType: z
+      .enum([
+        "text",
+        "json",
+        "html",
+        "csv",
+        "word",
+        "pdf",
+        "excel",
+        "ppt",
+        "image",
+        "audio",
+        "video",
+      ])
+      .optional(),
+
     // ===== 多模态生成配置（PROCESS 节点复用）=====
     imageSize: z.string().optional(),
     imageCount: z.number().optional(),

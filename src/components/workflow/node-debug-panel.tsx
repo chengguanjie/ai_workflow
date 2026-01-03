@@ -364,7 +364,9 @@ export function NodeDebugPanel() {
 
       // 优先使用节点配置中已保存的 expectedOutputType，否则使用默认值
       const currentNode = nodes.find((n) => n.id === debugNodeId);
-      const savedExpectedOutputType = (currentNode?.data?.config as Record<string, unknown>)?.expectedOutputType as OutputType | undefined;
+      const nodeConfig = currentNode?.data?.config as Record<string, unknown> | undefined;
+      const savedExpectedOutputType = nodeConfig?.expectedOutputType as OutputType | undefined;
+      
       if (savedExpectedOutputType) {
         setSelectedOutputType(savedExpectedOutputType);
       } else {
@@ -591,7 +593,8 @@ export function NodeDebugPanel() {
     const currentNode = nodesRef.current.find((n) => n.id === debugNodeId);
     if (!currentNode) return;
     const currentConfig = currentNode.data.config || {};
-    updateNode(debugNodeId, { config: { ...currentConfig, ...updates } });
+    const newConfig = { ...currentConfig, ...updates };
+    updateNode(debugNodeId, { config: newConfig });
   }, [debugNodeId, updateNode]);
 
   const processConfig = (debugNode?.data.config as Record<string, unknown>) || {};
