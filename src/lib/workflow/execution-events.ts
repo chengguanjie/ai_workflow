@@ -35,6 +35,14 @@ export interface ExecutionProgressEvent {
     stack?: string
     analysis?: Prisma.InputJsonValue // Added Prisma.InputJsonValue here
   }
+  /** 输入状态 */
+  inputStatus?: 'pending' | 'valid' | 'invalid' | 'missing'
+  /** 输出状态 */
+  outputStatus?: 'pending' | 'valid' | 'error' | 'empty'
+  /** 输入错误信息 */
+  inputError?: string
+  /** 输出错误信息 */
+  outputError?: string
 }
 
 // 节点状态
@@ -48,6 +56,11 @@ export interface NodeStatus {
   duration?: number
   output?: Record<string, unknown>
   error?: string
+  inputStatus?: 'pending' | 'valid' | 'invalid' | 'missing'
+  outputStatus?: 'pending' | 'valid' | 'error' | 'empty'
+  inputError?: string
+  outputError?: string
+  triggered?: boolean
 }
 
 // 执行状态
@@ -148,7 +161,14 @@ class ExecutionEventManager extends EventEmitter {
   /**
    * 节点开始执行
    */
-  nodeStart(executionId: string, nodeId: string, nodeName: string, nodeType: string): void {
+  nodeStart(
+    executionId: string,
+    nodeId: string,
+    nodeName: string,
+    nodeType: string,
+    inputStatus?: 'valid' | 'invalid' | 'missing',
+    inputError?: string
+  ): void {
     const state = this.executionStates.get(executionId)
     if (!state) return
 
@@ -156,6 +176,9 @@ class ExecutionEventManager extends EventEmitter {
     if (nodeStatus) {
       nodeStatus.status = 'running'
       nodeStatus.startedAt = new Date()
+      nodeStatus.triggered = true
+      nodeStatus.inputStatus = inputStatus || 'valid'
+      nodeStatus.inputError = inputError
     }
 
     state.currentNodeId = nodeId
@@ -172,6 +195,8 @@ class ExecutionEventManager extends EventEmitter {
       totalNodes: state.totalNodes,
       currentNodeIndex: state.completedNodes.length,
       timestamp: new Date(),
+      inputStatus: inputStatus || 'valid',
+      inputError,
     }
 
     this.broadcast(executionId, event)
@@ -185,7 +210,8 @@ class ExecutionEventManager extends EventEmitter {
     nodeId: string,
     nodeName: string,
     nodeType: string,
-    output?: Record<string, unknown>
+    output?: Record<string, unknown>,
+    outputStatus?: 'valid' | 'empty'
   ): void {
     const state = this.executionStates.get(executionId)
     if (!state) return
@@ -198,6 +224,7 @@ class ExecutionEventManager extends EventEmitter {
         ? nodeStatus.completedAt.getTime() - nodeStatus.startedAt.getTime()
         : 0
       nodeStatus.output = output
+      nodeStatus.outputStatus = outputStatus || 'valid'
     }
 
     if (!state.completedNodes.includes(nodeId)) {
@@ -218,6 +245,7 @@ class ExecutionEventManager extends EventEmitter {
       totalNodes: state.totalNodes,
       currentNodeIndex: state.completedNodes.length,
       output,
+      outputStatus: outputStatus || 'valid',
       timestamp: new Date(),
     }
 
@@ -233,7 +261,8 @@ class ExecutionEventManager extends EventEmitter {
     nodeName: string,
     nodeType: string,
     error: string,
-    errorDetail?: { friendlyMessage: string; suggestions: string[]; code?: string; isRetryable?: boolean; stack?: string; analysis?: Prisma.InputJsonValue } // Updated errorDetail type
+    errorDetail?: { friendlyMessage: string; suggestions: string[]; code?: string; isRetryable?: boolean; stack?: string; analysis?: Prisma.InputJsonValue },
+    errorPhase?: 'input' | 'output'
   ): void {
     const state = this.executionStates.get(executionId)
     if (!state) return
@@ -246,6 +275,13 @@ class ExecutionEventManager extends EventEmitter {
         ? nodeStatus.completedAt.getTime() - nodeStatus.startedAt.getTime()
         : 0
       nodeStatus.error = error
+      if (errorPhase === 'input') {
+        nodeStatus.inputStatus = 'invalid'
+        nodeStatus.inputError = error
+      } else {
+        nodeStatus.outputStatus = 'error'
+        nodeStatus.outputError = error
+      }
     }
 
     const event: ExecutionProgressEvent = {
@@ -261,6 +297,10 @@ class ExecutionEventManager extends EventEmitter {
       currentNodeIndex: state.completedNodes.length,
       error,
       errorDetail,
+      inputStatus: errorPhase === 'input' ? 'invalid' : undefined,
+      outputStatus: errorPhase === 'output' ? 'error' : undefined,
+      inputError: errorPhase === 'input' ? error : undefined,
+      outputError: errorPhase === 'output' ? error : undefined,
       timestamp: new Date(),
     }
 

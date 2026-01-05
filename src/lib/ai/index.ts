@@ -28,6 +28,9 @@ export * from './types'
 // 导出 Function Calling 模块
 export * from './function-calling'
 
+// 导出上下文构建器
+export * from './context-builder'
+
 class AIService {
   private providers: Map<AIProviderType, AIProvider> = new Map()
 

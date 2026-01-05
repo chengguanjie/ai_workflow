@@ -6,6 +6,8 @@ import { aiService } from "@/lib/ai";
 import { ApiResponse } from "@/lib/api/api-response";
 import {
   ENHANCED_SYSTEM_PROMPT,
+  TEST_ANALYSIS_PROMPT,
+  NODE_DIAGNOSIS_PROMPT,
   validateWorkflowActions,
 } from "@/lib/workflow/generator";
 import { AIAssistantError } from "@/lib/errors/ai-assistant-errors";
@@ -104,7 +106,23 @@ interface QuestionOption {
 interface Question {
   id: string;
   question: string;
-  options: QuestionOption[];
+  type?: 'single' | 'multiple' | 'text';
+  options?: QuestionOption[];
+  required?: boolean;
+}
+
+interface RequirementConfirmation {
+  workflowName: string;
+  goal: string;
+  inputFields: Array<{ name: string; type: string; required: boolean; description?: string }>;
+  processSteps: Array<{ name: string; description: string }>;
+}
+
+interface NodeSelectionInfo {
+  nodeId: string;
+  nodeName: string;
+  nodeType: string;
+  configSummary?: string;
 }
 
 interface ParsedResponse {
@@ -116,6 +134,18 @@ interface ParsedResponse {
     phase: string;
     questions: Question[];
   };
+  testRequest?: {
+    autoGenerate: boolean;
+    testInput?: Record<string, unknown>;
+    requiredFields?: string[];
+    suggestedValues?: Record<string, string>;
+  };
+  requireConfirmation?: boolean;
+  requirementConfirmation?: RequirementConfirmation;
+  interactiveQuestions?: Question[];
+  nodeSelection?: NodeSelectionInfo[];
+  layoutPreview?: unknown[];
+  planningStep?: number;
 }
 
 function parseAIResponse(content: string): ParsedResponse {
@@ -124,6 +154,13 @@ function parseAIResponse(content: string): ParsedResponse {
   let phase: string | undefined;
   let analysis: unknown;
   let questionOptions: ParsedResponse["questionOptions"];
+  let testRequest: ParsedResponse["testRequest"];
+  let requireConfirmation: boolean | undefined;
+  let requirementConfirmation: RequirementConfirmation | undefined;
+  let interactiveQuestions: Question[] | undefined;
+  let nodeSelection: NodeSelectionInfo[] | undefined;
+  let layoutPreview: unknown[] | undefined;
+  let planningStep: number | undefined;
 
   const actionMatch = content.match(/```json:actions\s*([\s\S]*?)```/);
   if (actionMatch) {
@@ -135,6 +172,13 @@ function parseAIResponse(content: string): ParsedResponse {
       nodeActions = actionsJson.nodeActions || null;
       phase = actionsJson.phase;
       analysis = actionsJson.analysis;
+      testRequest = actionsJson.testRequest;
+      requireConfirmation = actionsJson.requireConfirmation;
+      requirementConfirmation = actionsJson.requirementConfirmation;
+      interactiveQuestions = actionsJson.interactiveQuestions;
+      nodeSelection = actionsJson.nodeSelection;
+      layoutPreview = actionsJson.layoutPreview;
+      planningStep = actionsJson.planningStep;
     } catch {}
   }
 
@@ -161,6 +205,13 @@ function parseAIResponse(content: string): ParsedResponse {
     phase,
     analysis,
     questionOptions,
+    testRequest,
+    requireConfirmation,
+    requirementConfirmation,
+    interactiveQuestions,
+    nodeSelection,
+    layoutPreview,
+    planningStep,
   };
 }
 
@@ -192,6 +243,7 @@ export async function POST(request: NextRequest) {
       targetCriteria,
       currentActions,
       targetNode,
+      nodeConfig,
     } = body;
 
     console.log(`[AI Chat][${requestId}] 请求参数:`, {
@@ -200,9 +252,10 @@ export async function POST(request: NextRequest) {
       messageLength: message?.length,
       hasWorkflowContext: !!workflowContext,
       historyLength: history?.length,
+      hasNodeConfig: !!nodeConfig,
     });
 
-    if (!message && mode !== "optimization" && mode !== "refinement") {
+    if (!message && mode !== "optimization" && mode !== "refinement" && mode !== "test_analysis" && mode !== "node_diagnosis") {
       console.log(`[AI Chat][${requestId}] 消息为空`);
       return ApiResponse.error("消息不能为空", 400);
     }
@@ -280,6 +333,10 @@ export async function POST(request: NextRequest) {
       systemPrompt = OPTIMIZATION_PROMPT;
     } else if (mode === "refinement") {
       systemPrompt = REFINEMENT_PROMPT;
+    } else if (mode === "test_analysis") {
+      systemPrompt = TEST_ANALYSIS_PROMPT;
+    } else if (mode === "node_diagnosis") {
+      systemPrompt = NODE_DIAGNOSIS_PROMPT;
     }
 
     let systemContent = systemPrompt;
@@ -300,6 +357,13 @@ export async function POST(request: NextRequest) {
     } else if (mode === "refinement" && currentActions) {
       systemContent += `\n\n## 当前待审查的方案 (JSON Actions)\n\`\`\`json\n${JSON.stringify(currentActions, null, 2)}\n\`\`\``;
       systemContent += `\n\n## 目标修改节点\n${targetNode}`;
+    } else if (mode === "test_analysis" && testResult) {
+      systemContent += `\n\n## 测试执行结果\n\`\`\`json\n${JSON.stringify(testResult, null, 2)}\n\`\`\``;
+    } else if (mode === "node_diagnosis" && nodeConfig) {
+      systemContent += `\n\n## 失败节点配置信息\n\`\`\`json\n${JSON.stringify(nodeConfig, null, 2)}\n\`\`\``;
+      if (testResult) {
+        systemContent += `\n\n## 测试执行结果\n\`\`\`json\n${JSON.stringify(testResult, null, 2)}\n\`\`\``;
+      }
     }
 
     const messages: Array<{
@@ -325,6 +389,16 @@ export async function POST(request: NextRequest) {
       messages.push({
         role: "user",
         content: `请根据以下要求修改节点 "${targetNode}"：\n${message}\n\n请输出完整的更新后的 JSON Action 列表。`,
+      });
+    } else if (mode === "test_analysis") {
+      messages.push({
+        role: "user",
+        content: "请分析上面的测试执行结果。如果测试成功，总结执行情况和关键输出；如果失败，分析原因并给出具体的修复方案。",
+      });
+    } else if (mode === "node_diagnosis") {
+      messages.push({
+        role: "user",
+        content: "请根据上面提供的节点配置信息进行深度诊断，分析可能的问题原因并给出修复建议。",
       });
     } else {
       messages.push({ role: "user", content: message });
@@ -352,7 +426,7 @@ export async function POST(request: NextRequest) {
             model: selectedModel,
             messages,
             temperature: 0.7,
-            maxTokens: 8192,
+            maxTokens: 4096,
           },
           safeDecryptApiKey(apiKey.keyEncrypted),
           apiKey.baseUrl || undefined,
@@ -374,13 +448,102 @@ export async function POST(request: NextRequest) {
       phase,
       analysis,
       questionOptions,
+      testRequest,
+      requireConfirmation,
+      requirementConfirmation,
+      interactiveQuestions,
+      nodeSelection,
+      layoutPreview,
+      planningStep,
     } = parseAIResponse(response.content);
+
+    console.log(`[AI Chat][${requestId}] 解析结果:`, {
+      phase,
+      hasTestRequest: !!testRequest,
+      testInputKeys: testRequest?.testInput ? Object.keys(testRequest.testInput) : null,
+      hasNodeActions: !!nodeActions,
+      contentPreview: response.content.substring(0, 200),
+    });
 
     let finalContent = parsedContent;
     if (nodeActions && Array.isArray(nodeActions)) {
-      const validation = validateWorkflowActions(nodeActions);
+      const validation = validateWorkflowActions(nodeActions as Parameters<typeof validateWorkflowActions>[0]);
       if (!validation.valid && validation.errors.length > 0) {
         finalContent += `\n\n> ⚠️ **系统检测到生成的工作流可能存在隐患**：\n${validation.errors.map((e) => `> - ${e}`).join("\n")}`;
+      }
+    }
+
+    if (phase === "testing" && testRequest?.autoGenerate && testRequest.testInput && body.workflowId) {
+      console.log(`[AI Chat][${requestId}] 触发工作流测试`);
+      try {
+        const workflow = await prisma.workflow.findUnique({
+          where: { id: body.workflowId },
+        });
+
+        const config = workflow?.config as { nodes?: Array<{ id: string; name?: string; type?: string }> } | null;
+        const workflowNodes = config?.nodes || [];
+        const pendingNodes = workflowNodes.map((node, index) => ({
+          nodeId: node.id,
+          nodeName: node.name || `节点${index + 1}`,
+          nodeType: node.type || "UNKNOWN",
+          status: index === 0 ? ("running" as const) : ("pending" as const),
+        }));
+
+        const { executeWorkflow } = await import("@/lib/workflow/engine");
+        
+        const executionPromise = executeWorkflow(
+          body.workflowId,
+          session.user.organizationId,
+          session.user.id,
+          testRequest.testInput
+        );
+
+        const initialExecution = await prisma.execution.create({
+          data: {
+            workflowId: body.workflowId,
+            organizationId: session.user.organizationId,
+            userId: session.user.id,
+            status: "RUNNING",
+            input: testRequest.testInput as object,
+          },
+        });
+
+        executionPromise
+          .then(async (result) => {
+            await prisma.execution.update({
+              where: { id: initialExecution.id },
+              data: {
+                status: result.status,
+                output: result.output as object | undefined,
+                error: result.error,
+                duration: result.duration,
+                totalTokens: result.totalTokens,
+              },
+            });
+          })
+          .catch(async (error) => {
+            await prisma.execution.update({
+              where: { id: initialExecution.id },
+              data: {
+                status: "FAILED",
+                error: error instanceof Error ? error.message : "执行失败",
+              },
+            });
+          });
+
+        console.log(`[AI Chat][${requestId}] 测试已启动, executionId: ${initialExecution.id}`);
+
+        return ApiResponse.success({
+          content: finalContent,
+          phase: "testing_pending",
+          pendingNodes,
+          executionId: initialExecution.id,
+          testInput: testRequest.testInput,
+          model: response.model,
+          usage: response.usage,
+        });
+      } catch (importError) {
+        console.error(`[AI Chat][${requestId}] 测试启动失败:`, importError);
       }
     }
 
@@ -390,6 +553,13 @@ export async function POST(request: NextRequest) {
       phase,
       analysis,
       questionOptions,
+      testRequest,
+      requireConfirmation,
+      requirementConfirmation,
+      interactiveQuestions,
+      nodeSelection,
+      layoutPreview,
+      planningStep,
       model: response.model,
       usage: response.usage,
     });
@@ -397,14 +567,18 @@ export async function POST(request: NextRequest) {
     const totalDuration = Date.now() - startTime;
     console.error(
       `[AI Chat][${requestId}] 请求失败 (耗时 ${totalDuration}ms):`,
-      error,
     );
+    console.error(`[AI Chat][${requestId}] 错误详情:`, {
+      name: error instanceof Error ? error.name : 'Unknown',
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack?.split('\n').slice(0, 5).join('\n') : undefined,
+    });
     if (error instanceof AIAssistantError) {
       return ApiResponse.error(error.userMessage, 500);
     }
     return ApiResponse.error(
       error instanceof Error ? error.message : "AI请求失败",
-      500,
+      500
     );
   }
 }

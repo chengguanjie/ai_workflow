@@ -4,29 +4,8 @@ import { prisma } from '@/lib/db'
 import { safeDecryptApiKey } from '@/lib/crypto'
 import { aiService } from '@/lib/ai'
 import { ApiResponse } from '@/lib/api/api-response'
+import { WorkflowContextBuilder } from '@/lib/ai/context-builder'
 
-// 节点类型中文名称映射
-const NODE_TYPE_NAMES: Record<string, string> = {
-  INPUT: '输入节点',
-  PROCESS: '文本处理节点',
-  CODE: '代码节点',
-  OUTPUT: '输出节点',
-  DATA: '数据节点',
-  IMAGE: '图片节点',
-  VIDEO: '视频节点',
-  AUDIO: '音频节点',
-  CONDITION: '条件分支节点',
-  LOOP: '循环节点',
-  SWITCH: '多路分支节点',
-  HTTP: 'HTTP请求节点',
-  MERGE: '合并节点',
-  IMAGE_GEN: '图片生成节点',
-  NOTIFICATION: '通知节点',
-  TRIGGER: '触发器节点',
-  GROUP: '节点组',
-}
-
-// 字段类型描述映射
 const FIELD_TYPE_DESCRIPTIONS: Record<string, string> = {
   systemPrompt: '系统提示词 - 用于设定AI的角色 and 行为方式',
   userPrompt: '用户提示词 - AI处理的具体指令，可引用其他节点的输出',
@@ -47,75 +26,6 @@ const FIELD_TYPE_DESCRIPTIONS: Record<string, string> = {
   default: '文本内容',
 }
 
-// 构建工作流上下文描述
-function buildWorkflowContext(workflowContext: {
-  workflowName?: string
-  workflowDescription?: string
-  nodes?: Array<{
-    id: string
-    name: string
-    type: string
-    config?: Record<string, unknown>
-  }>
-  currentNodeId?: string
-  currentNodeName?: string
-  currentNodeType?: string
-}): string {
-  const {
-    workflowName,
-    workflowDescription,
-    nodes = [],
-    currentNodeId,
-    currentNodeName,
-    currentNodeType,
-  } = workflowContext
-
-  let context = '## 工作流信息\n'
-  if (workflowName) context += `- 名称：${workflowName}\n`
-  if (workflowDescription) context += `- 描述：${workflowDescription}\n`
-
-  // 找到当前节点在工作流中的位置
-  const currentNodeIndex = nodes.findIndex(n => n.id === currentNodeId)
-
-  // 获取前置节点信息（当前节点之前的节点）
-  const predecessorNodes = nodes.slice(0, Math.max(0, currentNodeIndex))
-
-  if (predecessorNodes.length > 0) {
-    context += '\n## 前置节点\n'
-    predecessorNodes.forEach((node, index) => {
-      const nodeTypeName = NODE_TYPE_NAMES[node.type] || node.type
-      context += `${index + 1}. **${node.name}** (${nodeTypeName})\n`
-
-      // 添加关键配置信息
-      if (node.config) {
-        if (node.type === 'INPUT' && node.config.fields) {
-          const fields = node.config.fields as Array<{ name: string; fieldType?: string }>
-          context += `   - 输入字段：${fields.map(f => f.name).join('、')}\n`
-        }
-        if (node.type === 'PROCESS') {
-          if (node.config.systemPrompt) {
-            const sp = String(node.config.systemPrompt)
-            context += `   - 系统提示词：${sp.substring(0, 100)}${sp.length > 100 ? '...' : ''}\n`
-          }
-          if (node.config.userPrompt) {
-            const up = String(node.config.userPrompt)
-            context += `   - 用户提示词：${up.substring(0, 100)}${up.length > 100 ? '...' : ''}\n`
-          }
-        }
-      }
-    })
-  }
-
-  // 当前节点信息
-  if (currentNodeName && currentNodeType) {
-    const nodeTypeName = NODE_TYPE_NAMES[currentNodeType] || currentNodeType
-    context += `\n## 当前节点\n- 名称：${currentNodeName}\n- 类型：${nodeTypeName}\n`
-  }
-
-  return context
-}
-
-// 根据字段类型构建提示词
 function buildPromptForFieldType(
   fieldType: string,
   currentContent: string,
@@ -144,7 +54,6 @@ ${availableReferences.length > 0 ? availableReferences.join('\n') : '暂无可�
   let userPrompt = ''
 
   if (currentContent && currentContent.trim()) {
-    // 优化模式
     userPrompt = `${workflowContext}
 
 ## 任务
@@ -162,7 +71,6 @@ ${currentContent}
 
 请直接输出优化后的内容：`
   } else {
-    // 生成模式
     userPrompt = `${workflowContext}
 
 ## 任务
@@ -189,17 +97,16 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     const {
-      fieldType,          // 字段类型：systemPrompt, userPrompt, prompt, content, etc.
-      currentContent,     // 当前内容（如果有）
-      workflowContext,    // 工作流上下文
-      availableReferences // 可用的节点引用列表
+      fieldType,
+      currentContent,
+      workflowContext,
+      availableReferences
     } = body
 
     if (!fieldType) {
       return ApiResponse.error('缺少字段类型', 400)
     }
 
-    // 获取AI配置
     const apiKey = await prisma.apiKey.findFirst({
       where: {
         organizationId: session.user.organizationId,
@@ -209,45 +116,80 @@ export async function POST(request: NextRequest) {
     })
 
     if (!apiKey) {
-      return ApiResponse.error('未配置AI服务，请先在设置中配置AI服务商', 400)
+      return ApiResponse.error('未配置AI服务，请先在设置中配置AI服务商', 400, { code: 'NO_AI_CONFIG' })
     }
 
-    // 构建工作流上下文描述
-    const contextDescription = buildWorkflowContext(workflowContext || {})
+    const contextBuilder = new WorkflowContextBuilder({
+      maxTokens: 6000,
+      reservedForResponse: 2000,
+    })
 
-    // 构建提示词
+    const contextResult = contextBuilder.build(workflowContext || {})
+
+    if (contextResult.wasTruncated) {
+      console.log(
+        `[AI Generate] Context truncated: ${contextResult.truncationInfo?.originalTokens} -> ${contextResult.estimatedTokens} tokens`,
+        contextResult.truncationInfo?.removedNodes?.length 
+          ? `Removed nodes: ${contextResult.truncationInfo.removedNodes.join(', ')}`
+          : ''
+      )
+    }
+
     const { systemPrompt, userPrompt } = buildPromptForFieldType(
       fieldType,
       currentContent || '',
-      contextDescription,
+      contextResult.context,
       availableReferences || []
     )
 
-    // 调用AI生成内容
     const messages: Array<{ role: 'system' | 'user'; content: string }> = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ]
 
     const selectedModel = apiKey.defaultModel || 'deepseek/deepseek-chat'
-    const response = await aiService.chat(
-      apiKey.provider,
-      {
-        model: selectedModel,
-        messages,
-        temperature: 0.7,
-        maxTokens: 2000,
-      },
-      safeDecryptApiKey(apiKey.keyEncrypted),
-      apiKey.baseUrl || undefined
-    )
+    
+    try {
+      const response = await aiService.chat(
+        apiKey.provider,
+        {
+          model: selectedModel,
+          messages,
+          temperature: 0.7,
+          maxTokens: 2000,
+        },
+        safeDecryptApiKey(apiKey.keyEncrypted),
+        apiKey.baseUrl || undefined
+      )
 
-    return ApiResponse.success({
-      content: response.content.trim(),
-      isOptimization: Boolean(currentContent && currentContent.trim()),
-    })
+      return ApiResponse.success({
+        content: response.content.trim(),
+        isOptimization: Boolean(currentContent && currentContent.trim()),
+        contextInfo: {
+          estimatedTokens: contextResult.estimatedTokens,
+          wasTruncated: contextResult.wasTruncated,
+        },
+      })
+    } catch (aiError) {
+      const error = aiError as Error & { code?: string; inputTokens?: number; contextLimit?: number }
+      
+      if (error.code === 'CONTEXT_LIMIT_EXCEEDED') {
+        return ApiResponse.error(
+          '上下文超出模型限制，请减少工作流复杂度或联系管理员',
+          400,
+          { code: 'CONTEXT_LIMIT_EXCEEDED' }
+        )
+      }
+      
+      throw aiError
+    }
   } catch (error) {
     console.error('Generate field content error:', error)
-    return ApiResponse.error(error instanceof Error ? error.message : '生成内容失败', 500)
+    const err = error as Error & { code?: string }
+    return ApiResponse.error(
+      err.message || '生成内容失败',
+      500,
+      { code: err.code || 'GENERATION_FAILED' }
+    )
   }
 }

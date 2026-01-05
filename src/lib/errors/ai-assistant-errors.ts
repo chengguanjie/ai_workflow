@@ -71,6 +71,9 @@ export async function withAIErrorHandling<T>(
                                     if (error.message?.includes('401')) {
                                                       throw new AIAssistantError(AIAssistantErrorCode.API_KEY_INVALID, error.message);
                                     }
+                                    if (error.message?.includes('403')) {
+                                                      throw new AIAssistantError(AIAssistantErrorCode.API_KEY_INVALID, error.message, 'API Key 权限不足或已被禁用，请检查配置。');
+                                    }
                                     if (error.message?.includes('429')) {
                                                       throw new AIAssistantError(AIAssistantErrorCode.MODEL_QUOTA_EXCEEDED, error.message, undefined, true);
                                     }

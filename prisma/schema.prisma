@@ -231,12 +231,63 @@ model Workflow {
   versions            WorkflowVersion[]
   analyticsConfigs    AnalyticsConfig[]
   analyticsDashboards AnalyticsDashboard[]
+  aiConversations     AIConversation[]
 
   @@index([organizationId])
   @@index([creatorId])
   @@index([deletedAt])
   @@index([publishStatus])
   @@map("workflows")
+}
+
+// =========================================================================================
+// AI Assistant Conversations
+// =========================================================================================
+
+model AIConversation {
+  id         String      @id @default(cuid())
+  title      String      @default("新对话")
+  workflowId String
+  userId     String
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  workflow   Workflow    @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  messages   AIMessage[]
+
+  @@index([workflowId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("ai_conversations")
+}
+
+model AIMessage {
+  id             String         @id @default(cuid())
+  role           AIMessageRole
+  content        String         @db.Text
+  phase          String?
+  nodeActions    Json?
+  testResult     Json?
+  pendingFix     Boolean        @default(false)
+  fixStatus      String?
+  diagnosis      Json?
+  suggestions    Json?
+  interactiveQuestions Json?
+  nodeSelection  Json?
+  layoutPreview  Json?
+  requirementConfirmation Json?
+  createdAt      DateTime       @default(now())
+  conversationId String
+  conversation   AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([createdAt])
+  @@map("ai_messages")
+}
+
+enum AIMessageRole {
+  user
+  assistant
+  system
 }
 
 model WorkflowPermission {

@@ -30,6 +30,10 @@ import {
   Wrench,
   Code,
   GitBranch,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  AlertCircle,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -211,12 +215,15 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
     openDebugPanel,
     nodes,
     nodeExecutionStatus,
+    nodeExecutionDetails,
     connectedNodeIds,
     selectedNodeId,
   } = useWorkflowStore();
   const { runNode, getDefaultInputs } = useNodeDebug();
 
-  const executionStatus = nodeExecutionStatus[id] || "idle";
+  const executionStatus = nodeExecutionStatus[id];
+  const hasExecutionStatus = executionStatus !== undefined;
+  const executionDetails = nodeExecutionDetails[id];
 
   const isConnected = connectedNodeIds.includes(id);
   const isSelected = id === selectedNodeId;
@@ -459,8 +466,9 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
           !selected && connectedNodeIds.includes(id)
             ? "ring-2 ring-primary/60 ring-offset-2 scale-[1.02] shadow-md shadow-primary/20"
             : "",
-          executionStatus === "running" &&
-            "node-executing border-blue-500",
+          executionStatus === "failed" && "node-failed border-red-500",
+          executionStatus === "completed" && "node-completed border-green-500",
+          executionStatus === "running" && "node-executing border-blue-500",
           shouldDim && "opacity-30 grayscale-[0.6] blur-[0.5px] scale-[0.98]",
           data.previewStatus === "added" &&
             "ring-[3px] ring-green-500 border-green-500 shadow-lg shadow-green-500/20",
@@ -662,6 +670,131 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
             </div>
           )}
         </div>
+
+        {/* 执行状态指示条 - 仅在有执行状态时显示 */}
+        {(hasExecutionStatus || executionDetails) && (
+          <div
+            className={cn(
+              "flex items-center justify-between gap-2 px-3 py-2 text-[10px] border-t rounded-b-[10px]",
+              executionStatus === "completed" && "bg-green-50 border-green-200",
+              executionStatus === "failed" && "bg-red-50 border-red-200",
+              executionStatus === "running" && "bg-blue-50 border-blue-200",
+              executionStatus === "pending" && "bg-slate-50 border-slate-200",
+              executionStatus === "skipped" && "bg-gray-50 border-gray-200",
+              !hasExecutionStatus && executionDetails && "bg-slate-50 border-slate-200",
+            )}
+          >
+            <div className="flex items-center gap-3">
+              {/* 输入状态 */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-1">
+                    {executionDetails?.inputStatus === 'valid' ? (
+                      <CheckCircle2 className="h-3 w-3 text-green-500" />
+                    ) : executionDetails?.inputStatus === 'invalid' ? (
+                      <XCircle className="h-3 w-3 text-red-500" />
+                    ) : executionDetails?.inputStatus === 'missing' ? (
+                      <AlertCircle className="h-3 w-3 text-amber-500" />
+                    ) : (
+                      <Clock className="h-3 w-3 text-gray-400" />
+                    )}
+                    <span className={cn(
+                      "font-medium",
+                      executionDetails?.inputStatus === 'valid' && "text-green-600",
+                      executionDetails?.inputStatus === 'invalid' && "text-red-600",
+                      executionDetails?.inputStatus === 'missing' && "text-amber-600",
+                      (!executionDetails || executionDetails.inputStatus === 'pending') && "text-gray-500",
+                    )}>
+                      输入
+                    </span>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p className="text-xs">
+                    {executionDetails?.inputStatus === 'valid' && "输入数据正常"}
+                    {executionDetails?.inputStatus === 'invalid' && (executionDetails?.inputError || "输入数据异常")}
+                    {executionDetails?.inputStatus === 'missing' && "缺少必要的输入数据"}
+                    {(!executionDetails || executionDetails.inputStatus === 'pending') && "等待输入"}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+
+              {/* 输出状态 */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-1">
+                    {executionDetails?.outputStatus === 'valid' ? (
+                      <CheckCircle2 className="h-3 w-3 text-green-500" />
+                    ) : executionDetails?.outputStatus === 'error' ? (
+                      <XCircle className="h-3 w-3 text-red-500" />
+                    ) : executionDetails?.outputStatus === 'empty' ? (
+                      <AlertCircle className="h-3 w-3 text-amber-500" />
+                    ) : (
+                      <Clock className="h-3 w-3 text-gray-400" />
+                    )}
+                    <span className={cn(
+                      "font-medium",
+                      executionDetails?.outputStatus === 'valid' && "text-green-600",
+                      executionDetails?.outputStatus === 'error' && "text-red-600",
+                      executionDetails?.outputStatus === 'empty' && "text-amber-600",
+                      (!executionDetails || executionDetails.outputStatus === 'pending') && "text-gray-500",
+                    )}>
+                      输出
+                    </span>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p className="text-xs">
+                    {executionDetails?.outputStatus === 'valid' && "输出数据正常"}
+                    {executionDetails?.outputStatus === 'error' && (executionDetails?.outputError || "输出异常")}
+                    {executionDetails?.outputStatus === 'empty' && "输出为空"}
+                    {(!executionDetails || executionDetails.outputStatus === 'pending') && "等待输出"}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+
+            {/* 执行状态 */}
+            <div className="flex items-center gap-1">
+              {executionStatus === "running" && (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
+                  <span className="text-blue-600 font-medium">执行中</span>
+                </>
+              )}
+              {executionStatus === "completed" && (
+                <>
+                  <CheckCircle2 className="h-3 w-3 text-green-500" />
+                  <span className="text-green-600 font-medium">完成</span>
+                </>
+              )}
+              {executionStatus === "failed" && (
+                <>
+                  <XCircle className="h-3 w-3 text-red-500" />
+                  <span className="text-red-600 font-medium">失败</span>
+                </>
+              )}
+              {executionStatus === "pending" && (
+                <>
+                  <Clock className="h-3 w-3 text-gray-400" />
+                  <span className="text-gray-500 font-medium">等待触发</span>
+                </>
+              )}
+              {executionStatus === "skipped" && (
+                <>
+                  <AlertCircle className="h-3 w-3 text-gray-400" />
+                  <span className="text-gray-500 font-medium">已跳过</span>
+                </>
+              )}
+              {!hasExecutionStatus && executionDetails && !executionDetails.triggered && (
+                <>
+                  <Clock className="h-3 w-3 text-gray-400" />
+                  <span className="text-gray-500 font-medium">未触发</span>
+                </>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="absolute -right-1.5 top-1/2 -translate-y-1/2 px-2 py-4 opacity-0 transition-opacity duration-300 group-hover:opacity-100 z-50">
           <Handle

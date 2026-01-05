@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db'
+import { Prisma } from '@prisma/client'
 import { encryptApiKey, safeDecryptApiKey } from '@/lib/crypto'
 import { refreshAccessToken } from './oauth/utils'
 import { isOAuthProviderId, type OAuthProviderId } from './oauth/providers'
@@ -40,7 +41,7 @@ export async function upsertIntegrationCredential(params: {
       expiresAt: params.expiresAt ?? null,
       scope: params.scope ?? null,
       externalAccountId: params.externalAccountId ?? null,
-      metadata: (params.metadata ?? null) as Record<string, unknown> | null,
+      metadata: params.metadata ? (params.metadata as Prisma.InputJsonValue) : Prisma.DbNull,
     },
     update: {
       userId: params.userId,
@@ -49,7 +50,7 @@ export async function upsertIntegrationCredential(params: {
       expiresAt: params.expiresAt ?? null,
       scope: params.scope ?? null,
       externalAccountId: params.externalAccountId ?? null,
-      metadata: (params.metadata ?? null) as Record<string, unknown> | null,
+      metadata: params.metadata ? (params.metadata as Prisma.InputJsonValue) : Prisma.DbNull,
     },
   })
 }

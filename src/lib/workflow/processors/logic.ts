@@ -39,24 +39,10 @@ export class LogicNodeProcessor implements NodeProcessor {
         }
         break
 
-      case 'split':
-        data = {
-          ...data,
-          ...this.executeSplit(config),
-        }
-        break
-
       case 'merge':
         data = {
           ...data,
           ...this.executeMerge(config, context),
-        }
-        break
-
-      case 'switch':
-        data = {
-          ...data,
-          ...this.executeSwitch(config, context),
         }
         break
 
@@ -239,20 +225,6 @@ export class LogicNodeProcessor implements NodeProcessor {
   }
 
   /**
-   * 并行拆分模式
-   *
-   * 语义：激活所有分支。当前处理器只返回配置，实际"并行"在引擎层实现。
-   */
-  private executeSplit(config: LogicNodeConfigData): Record<string, unknown> {
-    const branches = config.branches || []
-
-    return {
-      branches,
-      activeBranchIds: branches.map((b) => b.id),
-    }
-  }
-
-  /**
    * 结果合并模式
    *
    * 语义：聚合多个上游节点的输出数据。
@@ -283,41 +255,6 @@ export class LogicNodeProcessor implements NodeProcessor {
       mergeFromNodeIds: mergeFromNodeIds.length > 0 ? mergeFromNodeIds : undefined,
       merged,
       mergeStrategy: config.mergeStrategy || 'all',
-    }
-  }
-
-  /**
-   * Switch 模式
-   *
-   * 语义：基于某个变量值选择一个分支。
-   * 当前实现：从已有 nodeOutputs/globalVariables 中尝试解析 switchInput，并返回其值。
-   * 实际"路由"仍由引擎调度层结合边结构完成。
-   */
-  private executeSwitch(
-    config: LogicNodeConfigData,
-    context: ExecutionContext
-  ): Record<string, unknown> {
-    const inputPath = config.switchInput || ''
-    const branches = config.branches || []
-
-    const resolvedInput = inputPath
-      ? this.resolveVariablePath(inputPath, context)
-      : undefined
-
-    let matchedBranchId: string | null = null
-    for (const branch of branches) {
-      if (branch.label === String(resolvedInput)) {
-        matchedBranchId = branch.id
-        break
-      }
-    }
-
-    return {
-      switchInput: inputPath,
-      inputValue: resolvedInput,
-      branches,
-      matchedBranchId,
-      matchedTargetNodeId: branches.find(b => b.id === matchedBranchId)?.targetNodeId || null,
     }
   }
 

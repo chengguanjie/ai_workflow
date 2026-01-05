@@ -464,9 +464,23 @@ function checkVariableReferences(
 }
 
 // 检测字符串是否包含占位符（如 {{请配置}}）
+// 注意：变量引用格式 {{节点名.字段名}} 不是占位符，而是合法的动态引用
 function containsPlaceholder(value: unknown): boolean {
   if (typeof value !== 'string') return false;
-  return /\{\{[^}]+\}\}/.test(value);
+  // 匹配 {{...}} 格式
+  const matches = value.match(/\{\{([^}]+)\}\}/g);
+  if (!matches) return false;
+  
+  // 检查是否有非变量引用的占位符
+  // 变量引用格式：{{节点名.字段名}} 或 {{nodeId.fieldName}}，包含点号
+  for (const match of matches) {
+    const content = match.slice(2, -2).trim(); // 去掉 {{ 和 }}
+    // 如果不包含点号，说明是占位符而非变量引用
+    if (!content.includes('.')) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // 检查工具配置

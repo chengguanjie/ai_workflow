@@ -18,23 +18,9 @@ import type {
   EmbeddingResponse
 } from '../types'
 import { getModelModality } from '../types'
-import { fetchWithTimeout } from '@/lib/http/fetch-with-timeout'
+import { fetchWithTimeout, formatNetworkError, isRetryableNetworkError } from '@/lib/http/fetch-with-timeout'
 
 const DEFAULT_SHENSUAN_BASE_URL = process.env.SHENSUAN_BASE_URL || 'https://router.shengsuanyun.com/api/v1'
-
-function getNetworkTroubleshootingHint(message: string): string {
-  const lower = message.toLowerCase()
-  if (lower.includes('client network socket disconnected before secure tls connection was established')) {
-    return '提示：这通常是网络/代理/IPv6 解析导致的 TLS 握手失败；可尝试切换网络、配置代理环境变量，或在启动前设置 `NODE_OPTIONS=--dns-result-order=ipv4first`。'
-  }
-  if (lower.includes('enotfound') || lower.includes('eai_again')) {
-    return '提示：域名解析失败，请检查网络、DNS 或代理设置。'
-  }
-  if (lower.includes('econnrefused') || lower.includes('econnreset') || lower.includes('etimedout')) {
-    return '提示：连接失败/超时，请检查网络、防火墙或代理设置。'
-  }
-  return ''
-}
 
 export class ShensuanProvider implements AIProvider {
   name = 'shensuan'
@@ -70,10 +56,13 @@ export class ShensuanProvider implements AIProvider {
         stream: false,
       }),
       timeoutMs: 90_000,
+      retries: 2,
+      retryDelay: 2000,
     })
 
     if (!response.ok) {
       const error = await response.text()
+      console.error(`[Shensuan] API 错误: status=${response.status}, model=${request.model}, error=${error}`)
       throw new Error(`Shensuan API error: ${response.status} - ${error}`)
     }
 
@@ -123,6 +112,8 @@ export class ShensuanProvider implements AIProvider {
         Authorization: `Bearer ${apiKey}`,
       },
       timeoutMs: 30_000,
+      retries: 4,
+      retryDelay: 2000,
     })
 
     if (!response.ok) {
@@ -167,6 +158,7 @@ export class ShensuanProvider implements AIProvider {
         response_format: options.responseFormat || 'json',
       }),
       timeoutMs: 120_000,
+      retries: 2,
     })
 
     if (!response.ok) {
@@ -210,6 +202,7 @@ export class ShensuanProvider implements AIProvider {
         response_format: options.responseFormat || 'json',
       }),
       timeoutMs: 120_000,
+      retries: 2,
     })
 
     if (!response.ok) {
@@ -274,13 +267,12 @@ export class ShensuanProvider implements AIProvider {
           style: request.style,
           response_format: request.responseFormat || 'url',
         }),
-        timeoutMs: 120_000, // 图片生成可能需要较长时间
+        timeoutMs: 120_000,
+        retries: 2,
       })
     } catch (fetchError) {
       console.error('[Shensuan] 图片生成网络请求失败:', fetchError)
-      const errorMsg = fetchError instanceof Error ? fetchError.message : '网络请求失败'
-      const hint = getNetworkTroubleshootingHint(errorMsg)
-      throw new Error(`图片生成请求失败: ${errorMsg}。端点: ${endpoint}${hint ? `\n${hint}` : ''}`)
+      throw formatNetworkError(fetchError, `图片生成请求失败 (端点: ${endpoint})`)
     }
 
     if (!response.ok) {
@@ -414,11 +406,11 @@ export class ShensuanProvider implements AIProvider {
         },
         body: JSON.stringify(requestBody),
         timeoutMs: 60_000,
+        retries: 2,
       })
     } catch (fetchError) {
       console.error('[Shensuan] 图片生成请求失败:', fetchError)
-      const errorMessage = fetchError instanceof Error ? fetchError.message : '未知错误'
-      throw new Error(`图片生成请求失败: ${errorMessage}。请检查网络连接和 API 配置。URL: ${url}`)
+      throw formatNetworkError(fetchError, `图片生成请求失败 (URL: ${url})`)
     }
 
     if (!submitResponse.ok) {
@@ -427,17 +419,29 @@ export class ShensuanProvider implements AIProvider {
     }
 
     const submitData = await submitResponse.json()
-    console.log('[Shensuan] 图片任务已提交:', JSON.stringify(submitData).slice(0, 200))
+    console.log('[Shensuan] 图片任务已提交:', JSON.stringify(submitData).slice(0, 500))
 
-    // 获取任务 ID
-    const taskId = submitData.id || submitData.task_id
+    // 获取任务 ID - 胜算云格式：{ code, data: { request_id, task_id, status } }
+    const taskId = submitData.id 
+      || submitData.task_id 
+      || submitData.data?.request_id 
+      || submitData.data?.task_id
+
     if (!taskId) {
-      // 如果是同步返回结果
-      if (submitData.data || submitData.images || submitData.output) {
+      // 检查是否是同步返回的结果（某些模型可能直接返回）
+      if (submitData.data?.data?.images || submitData.data?.images || submitData.output || submitData.images) {
         return this.parseTaskImageResponse(submitData, request.model)
       }
-      throw new Error('图片生成未返回任务 ID 或结果')
+      throw new Error('图片生成未返回任务 ID 或结果。原始响应: ' + JSON.stringify(submitData).slice(0, 300))
     }
+
+    // 检查任务状态，如果已完成则直接返回
+    const initialStatus = (submitData.data?.status || submitData.status || '').toLowerCase()
+    if (initialStatus === 'completed' || initialStatus === 'succeeded' || initialStatus === 'success') {
+      return this.parseTaskImageResponse(submitData, request.model)
+    }
+
+    console.log('[Shensuan] 任务已提交，ID:', taskId, '状态:', initialStatus)
 
     // 轮询等待任务完成
     return this.waitForTaskImageCompletion(taskId, apiKey, baseUrl, request.model)
@@ -468,13 +472,15 @@ export class ShensuanProvider implements AIProvider {
 
     switch (modelType) {
       case 'gemini': {
-        // Gemini: aspect_ratio, size (1K/2K), response_modalities
+        // Gemini: aspect_ratio, size (1K/2K), response_modalities, images (参考图)
         const { aspectRatio, size } = this.parseImageSizeForGemini(request.size || '1024x1024')
         return {
           ...base,
           aspect_ratio: aspectRatio,
           size: size,
           response_modalities: ['IMAGE'],
+          // 如果有参考图片（图生图）
+          ...(request.referenceImages?.length ? { images: request.referenceImages } : {}),
         }
       }
 
@@ -530,12 +536,14 @@ export class ShensuanProvider implements AIProvider {
     const startTime = Date.now()
 
     while (Date.now() - startTime < maxWaitTime) {
-      const statusResponse = await fetchWithTimeout(`${baseUrl}/tasks/${taskId}`, {
+      // 胜算云使用 /tasks/generations/{id} 端点
+      const statusResponse = await fetchWithTimeout(`${baseUrl}/tasks/generations/${taskId}`, {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${apiKey}`,
         },
         timeoutMs: 30_000,
+        retries: 1,
       })
 
       if (!statusResponse.ok) {
@@ -544,16 +552,20 @@ export class ShensuanProvider implements AIProvider {
       }
 
       const statusData = await statusResponse.json()
-      console.log('[Shensuan] 图片任务状态:', statusData.status)
-
-      const status = statusData.status?.toLowerCase()
+      
+      // 胜算云格式可能是 statusData.data.status 而非 statusData.status
+      const status = (statusData.data?.status || statusData.status || '').toLowerCase()
+      const progress = statusData.data?.progress || statusData.progress || ''
+      
+      console.log('[Shensuan] 图片任务状态:', status, '进度:', progress)
 
       if (status === 'completed' || status === 'succeeded' || status === 'success') {
         return this.parseTaskImageResponse(statusData, model)
       }
 
       if (status === 'failed' || status === 'error') {
-        throw new Error(`图片生成失败: ${statusData.error || statusData.message || '未知错误'}`)
+        const errorMsg = statusData.data?.fail_reason || statusData.error || statusData.message || '未知错误'
+        throw new Error(`图片生成失败: ${errorMsg}`)
       }
 
       // 等待后继续轮询
@@ -570,33 +582,88 @@ export class ShensuanProvider implements AIProvider {
     data: Record<string, unknown>,
     model: string
   ): ImageGenerationResponse {
+    // 调试日志：打印原始响应
+    console.log('[Shensuan] 原始图片任务响应:', JSON.stringify(data, null, 2).slice(0, 1500))
+
     let images: Array<{ url?: string; b64_json?: string; revisedPrompt?: string }> = []
 
-    // 格式1: { data: [{ url: ... }] }
-    if (Array.isArray(data.data)) {
+    // 0. 胜算云嵌套格式：{ code, data: { request_id, status, data: { images: [...] } } }
+    if (data.data && typeof data.data === 'object' && !Array.isArray(data.data)) {
+      const outerData = data.data as Record<string, unknown>
+      
+      // 检查双层嵌套：data.data.data.images
+      if (outerData.data && typeof outerData.data === 'object') {
+        const innerData = outerData.data as Record<string, unknown>
+        
+        if (Array.isArray(innerData.images)) {
+          images = (innerData.images as Array<string | { url?: string; image_url?: string }>).map(img => ({
+            url: typeof img === 'string' ? img : (img.url || img.image_url),
+          }))
+        } else if (Array.isArray(innerData.image_urls)) {
+          images = (innerData.image_urls as string[]).map(url => ({ url }))
+        } else if (typeof innerData.image_url === 'string') {
+          images = [{ url: innerData.image_url }]
+        }
+      }
+      
+      // 检查单层嵌套：data.data.images
+      if (images.length === 0 && Array.isArray(outerData.images)) {
+        images = (outerData.images as Array<string | { url?: string; image_url?: string }>).map(img => ({
+          url: typeof img === 'string' ? img : (img.url || img.image_url),
+        }))
+      }
+      
+      // 检查单层嵌套：data.data.image_urls
+      if (images.length === 0 && Array.isArray(outerData.image_urls)) {
+        images = (outerData.image_urls as string[]).map(url => ({ url }))
+      }
+      
+      // 检查单层嵌套：data.data.output
+      if (images.length === 0 && outerData.output && typeof outerData.output === 'object') {
+        const output = outerData.output as Record<string, unknown>
+        if (Array.isArray(output.images)) {
+          images = (output.images as Array<string | { url?: string; image_url?: string }>).map(img => ({
+            url: typeof img === 'string' ? img : (img.url || img.image_url),
+          }))
+        } else if (Array.isArray(output.image_urls)) {
+          images = (output.image_urls as string[]).map(url => ({ url }))
+        }
+      }
+    }
+
+    // 1. 尝试从 data.data 解析 (标准格式 - 数组)
+    if (images.length === 0 && Array.isArray(data.data)) {
       images = (data.data as Array<{ url?: string; b64_json?: string; revised_prompt?: string }>).map(img => ({
         url: img.url,
         b64_json: img.b64_json,
         revisedPrompt: img.revised_prompt,
       }))
     }
-    // 格式2: { images: [url1, url2, ...] } 或 { images: [{ url: ... }] }
-    else if (Array.isArray(data.images)) {
-      images = (data.images as Array<string | { url?: string }>).map(img => ({
-        url: typeof img === 'string' ? img : img.url,
-      }))
-    }
-    // 格式3: { output: { images: [...] } }
-    else if (data.output && typeof data.output === 'object') {
+    // 2. 尝试从 output 字段解析 (Doubao/Tasks API 常见格式)
+    if (images.length === 0 && data.output && typeof data.output === 'object') {
       const output = data.output as Record<string, unknown>
+      
+      // output.images 数组
       if (Array.isArray(output.images)) {
-        images = (output.images as Array<string | { url?: string }>).map(img => ({
-          url: typeof img === 'string' ? img : img.url,
+        images = (output.images as Array<string | { url?: string; image_url?: string }>).map(img => ({
+          url: typeof img === 'string' ? img : (img.url || img.image_url),
         }))
       }
+      // output.image_urls 数组 (Doubao 可能的格式)
+      else if (Array.isArray(output.image_urls)) {
+        images = (output.image_urls as string[]).map(url => ({ url }))
+      }
+      // output.image_url 字符串 (单图)
+      else if (typeof output.image_url === 'string') {
+        images = [{ url: output.image_url }]
+      }
+      // output.url 字符串
+      else if (typeof output.url === 'string') {
+        images = [{ url: output.url }]
+      }
     }
-    // 格式4: { result: { images: [...] } }
-    else if (data.result && typeof data.result === 'object') {
+    // 3. 尝试从 result 字段解析
+    if (images.length === 0 && data.result && typeof data.result === 'object') {
       const result = data.result as Record<string, unknown>
       if (Array.isArray(result.images)) {
         images = (result.images as Array<string | { url?: string }>).map(img => ({
@@ -604,11 +671,26 @@ export class ShensuanProvider implements AIProvider {
         }))
       }
     }
-    // 格式5: { results: [{ url: ... }] }
-    else if (Array.isArray(data.results)) {
+    // 4. 直接在根对象的 images 字段
+    if (images.length === 0 && Array.isArray(data.images)) {
+      images = (data.images as Array<string | { url?: string }>).map(img => ({
+        url: typeof img === 'string' ? img : img.url,
+      }))
+    }
+    // 5. 根对象的 results 数组
+    if (images.length === 0 && Array.isArray(data.results)) {
       images = (data.results as Array<{ url?: string; image_url?: string }>).map(item => ({
         url: item.url || item.image_url,
       }))
+    }
+
+    // 过滤掉没有 URL 的无效条目
+    images = images.filter(img => img.url || img.b64_json)
+
+    if (images.length === 0) {
+      const rawResponse = JSON.stringify(data, null, 2)
+      console.error('[Shensuan] 图片解析失败，原始响应:', rawResponse)
+      throw new Error(`图片生成成功但解析结果为空。请检查返回格式。原始响应: ${rawResponse.slice(0, 500)}...`)
     }
 
     console.log('[Shensuan] 图片生成完成，共', images.length, '张图片')
@@ -662,19 +744,27 @@ export class ShensuanProvider implements AIProvider {
 
   /**
    * 检查是否需要使用 Tasks API 的图片生成模型
-   * 注意：Gemini 模型暂时使用标准 /images/generations 端点
+   * Gemini/豆包/Qwen 图片模型统一使用 Tasks API
    */
   private isTasksAPIImageModel(modelId: string): boolean {
-    // 暂时只有豆包和通义使用 Tasks API
-    // Gemini 改用标准端点测试
-    const tasksAPIModels = [
-      'bytedance/doubao-seedream',
-      'doubao-seedream',
-      'ali/qwen-image',
-      'qwen-image',
-    ]
     const lower = modelId.toLowerCase()
-    return tasksAPIModels.some(m => lower.includes(m.toLowerCase()))
+    
+    // Gemini 图片模型（如 google/gemini-3-pro-image-preview）
+    if (lower.includes('gemini') && (lower.includes('image') || lower.includes('imagen'))) {
+      return true
+    }
+    
+    // 豆包图片模型
+    if (lower.includes('doubao') || lower.includes('seedream')) {
+      return true
+    }
+    
+    // 通义图片模型
+    if (lower.includes('qwen-image') || (lower.includes('ali/') && lower.includes('image'))) {
+      return true
+    }
+    
+    return false
   }
 
   /**
@@ -702,6 +792,7 @@ export class ShensuanProvider implements AIProvider {
         resolution: request.resolution,
       }),
       timeoutMs: 60_000,
+      retries: 2,
     })
 
     if (!response.ok) {
@@ -739,6 +830,7 @@ export class ShensuanProvider implements AIProvider {
         Authorization: `Bearer ${apiKey}`,
       },
       timeoutMs: 30_000,
+      retries: 1,
     })
 
     if (!response.ok) {
@@ -784,6 +876,7 @@ export class ShensuanProvider implements AIProvider {
         response_format: request.responseFormat || 'mp3',
       }),
       timeoutMs: 60_000,
+      retries: 2,
     })
 
     if (!response.ok) {
@@ -839,6 +932,7 @@ export class ShensuanProvider implements AIProvider {
         dimensions: request.dimensions,
       }),
       timeoutMs: 60_000,
+      retries: 2,
     })
 
     if (!response.ok) {

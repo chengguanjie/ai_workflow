@@ -5,6 +5,7 @@ import type {
   ToolExecutionContext,
 } from '../types'
 import { aiService } from '@/lib/ai'
+import { SHENSUAN_DEFAULT_MODELS } from '@/lib/ai/types'
 import type {
   ImageGenerationRequest,
   VideoGenerationRequest,
@@ -46,8 +47,23 @@ async function executeImageGeneration(
   }
 
   try {
+    // 智能模型选择：优先使用参数，若缺失或为文本模型，则回退到默认图片模型
+    let model = (args.model as string) || ''
+    const defaultModel = context.aiConfig.defaultModel || ''
+    
+    // 如果没有指定模型，或者指定的是文本模型（如 claude/gpt），尝试回退
+    if (!model || model.includes('claude') || model.includes('gpt-')) {
+      // 检查默认模型是否可用（非文本模型）
+      if (defaultModel && !defaultModel.includes('claude') && !defaultModel.includes('gpt-')) {
+        model = defaultModel
+      } else {
+        // 强制使用默认图片生成模型
+        model = SHENSUAN_DEFAULT_MODELS['image-gen']
+      }
+    }
+
     const request: ImageGenerationRequest = {
-      model: (args.model as string) || context.aiConfig.defaultModel || '',
+      model,
       prompt,
       negativePrompt: (args.negative_prompt as string) || undefined,
       n: (args.image_count as number) || 1,
@@ -126,8 +142,20 @@ async function executeVideoGeneration(
   }
 
   try {
+    // 智能模型选择：优先使用参数，若缺失或为文本模型，则回退到默认视频模型
+    let model = (args.model as string) || ''
+    const defaultModel = context.aiConfig.defaultModel || ''
+    
+    if (!model || model.includes('claude') || model.includes('gpt-')) {
+      if (defaultModel && !defaultModel.includes('claude') && !defaultModel.includes('gpt-')) {
+        model = defaultModel
+      } else {
+        model = SHENSUAN_DEFAULT_MODELS['video-gen']
+      }
+    }
+
     const request: VideoGenerationRequest = {
-      model: (args.model as string) || context.aiConfig.defaultModel || '',
+      model,
       prompt,
       image: (args.video_reference_image as string) || undefined,
       duration: (args.video_duration as number) || undefined,
@@ -210,8 +238,20 @@ async function executeTTS(
   }
 
   try {
+    // 智能模型选择：优先使用参数，若缺失或为文本模型，则回退到默认 TTS 模型
+    let model = (args.model as string) || ''
+    const defaultModel = context.aiConfig.defaultModel || ''
+    
+    if (!model || model.includes('claude') || model.includes('gpt-')) {
+      if (defaultModel && !defaultModel.includes('claude') && !defaultModel.includes('gpt-')) {
+        model = defaultModel
+      } else {
+        model = SHENSUAN_DEFAULT_MODELS['audio-tts']
+      }
+    }
+
     const request: TTSRequest = {
-      model: (args.model as string) || context.aiConfig.defaultModel || '',
+      model,
       input: prompt,
       voice: (args.voice as string) || undefined,
       responseFormat: (args.output_format as 'mp3' | 'wav' | 'opus' | 'aac') || 'mp3',
@@ -417,7 +457,7 @@ export class MultimodalToolExecutor implements ToolExecutor {
  */
 export class ImageGenerationToolExecutor implements ToolExecutor {
   name = 'image_gen_ai'
-  description = '图片生成工具：在当前节点的 AI 配置下生成图片'
+  description = '图片生成工具：根据用户提供的内容自动生成图片。收到图片生成请求时必须立即调用此工具，根据上下文生成合适的 prompt，不要询问额外信息。'
   category = 'custom'
 
   getDefinition(): ToolDefinition {

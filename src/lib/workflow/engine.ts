@@ -11,7 +11,7 @@ import type {
   ExecutionResult,
   NodeOutput,
 } from './types'
-import { getExecutionOrder, getParallelExecutionLayers, getPredecessorIds } from './utils'
+import { getExecutionOrder, getParallelExecutionLayers, getPredecessorIds, isOutputValid } from './utils'
 import { shouldExecuteNode, type LogicRoutingContext } from './engine/logic-routing'
 import { executionEvents } from './execution-events'
 import {
@@ -23,6 +23,7 @@ import {
 } from './checkpoint'
 import { createAnalyticsCollector, type AnalyticsCollector } from './analytics-collector'
 import { saveNodeLog as moduleSaveNodeLog } from './engine/logger'
+import { NodeDebugArtifactCollector } from './engine/debug-artifacts'
 import {
   executeNode as moduleExecuteNode,
   applyInitialInput as moduleApplyInput,
@@ -47,6 +48,23 @@ export class WorkflowEngine {
   private workflowHash: string
   private lastFailedNodeId: string | null = null
   private analyticsCollector: AnalyticsCollector | null = null
+  private debugCollector: NodeDebugArtifactCollector | null = null
+  private pendingPersistence: Promise<unknown>[] = []
+
+  private enqueuePersistence(promise: Promise<unknown>): void {
+    // Avoid unhandled rejections; we still await via flushPersistence().
+    this.pendingPersistence.push(
+      promise.catch((err) => {
+        console.warn('[WorkflowEngine] Persistence task failed:', err)
+      })
+    )
+  }
+
+  private async flushPersistence(): Promise<void> {
+    const pending = this.pendingPersistence.splice(0)
+    if (pending.length === 0) return
+    await Promise.allSettled(pending)
+  }
 
   private computeExecutionTotals(context: ExecutionContext): {
     totalTokens: number
@@ -169,6 +187,12 @@ export class WorkflowEngine {
       } as Prisma.ExecutionUncheckedCreateInput,
     })
 
+    // 节点调试过程持久化：以 OutputFile(JSON) 形式保存（本地 + DB 记录）
+    // 可通过环境变量关闭：PERSIST_NODE_DEBUG=false
+    if (process.env.PERSIST_NODE_DEBUG !== 'false') {
+      this.debugCollector = new NodeDebugArtifactCollector(execution.id, this.organizationId)
+    }
+
     const user = await prisma.user.findUnique({
       where: { id: this.userId },
       select: { departmentId: true },
@@ -233,6 +257,7 @@ export class WorkflowEngine {
       }
 
       if (result.paused) {
+        await this.flushPersistence()
         const duration = Date.now() - startTime
         const totals = this.computeExecutionTotals(context)
 
@@ -283,6 +308,7 @@ export class WorkflowEngine {
         },
       })
 
+      await this.flushPersistence()
       await clearCheckpoint(execution.id)
 
       executionEvents.executionComplete(execution.id)
@@ -323,6 +349,7 @@ export class WorkflowEngine {
         },
       })
 
+      await this.flushPersistence()
       executionEvents.executionError(execution.id, errorMessage)
 
       return {
@@ -358,7 +385,7 @@ export class WorkflowEngine {
     node: NodeConfig,
     result: NodeOutput
   ): Promise<void> {
-    await moduleSaveNodeLog(executionId, node, result)
+    this.enqueuePersistence(moduleSaveNodeLog(executionId, node, result))
   }
 
   private async executeSequential(
@@ -399,10 +426,18 @@ export class WorkflowEngine {
         continue
       }
 
-      executionEvents.nodeStart(executionId, node.id, node.name, node.type)
+      // 绑定当前节点日志收集器（processors 内部会调用 context.addLog）
+      if (this.debugCollector) {
+        context.addLog = this.debugCollector.createNodeScopedAddLog(node)
+      }
+
+      executionEvents.nodeStart(executionId, node.id, node.name, node.type, 'valid')
 
       const result = await this.executeNode(node, context)
       await this.saveNodeLog(executionId, node, result)
+      if (this.debugCollector) {
+        this.enqueuePersistence(this.debugCollector.persistNodeDebugFile(node, result))
+      }
 
       if (result.status === 'error') {
         this.lastFailedNodeId = node.id
@@ -418,12 +453,14 @@ export class WorkflowEngine {
             suggestions: analysis.suggestions,
             code: analysis.code,
             isRetryable: analysis.isRetryable
-          }
+          },
+          'output'
         )
         throw new Error(`节点 "${node.name}" 执行失败: ${result.error}`)
       }
 
       if (result.status === 'paused' && result.approvalRequestId) {
+        // PAUSED 也保留调试过程文件
         executionEvents.executionPaused(executionId, node.id, result.approvalRequestId)
         return {
           totalTokens,
@@ -451,7 +488,8 @@ export class WorkflowEngine {
         lastOutput = result.data || {}
       }
 
-      executionEvents.nodeComplete(executionId, node.id, node.name, node.type, result.data)
+      const outputStatus = isOutputValid(result.data) ? 'valid' : 'empty'
+      executionEvents.nodeComplete(executionId, node.id, node.name, node.type, result.data, outputStatus as 'valid' | 'empty')
       this.completedNodes.add(node.id)
     }
 
@@ -495,9 +533,17 @@ export class WorkflowEngine {
             }
           }
 
-          executionEvents.nodeStart(executionId, node.id, node.name, node.type)
-          const result = await this.executeNode(node, context)
+          executionEvents.nodeStart(executionId, node.id, node.name, node.type, 'valid')
+          // 并行执行时为每个节点使用独立的 addLog，避免日志串扰
+          const nodeContext: ExecutionContext = this.debugCollector
+            ? { ...context, addLog: this.debugCollector.createNodeScopedAddLog(node) }
+            : context
+
+          const result = await this.executeNode(node, nodeContext)
           await this.saveNodeLog(executionId, node, result)
+          if (this.debugCollector) {
+            this.enqueuePersistence(this.debugCollector.persistNodeDebugFile(node, result))
+          }
           return { node, result, skipped: false }
         })
       )
@@ -521,7 +567,7 @@ export class WorkflowEngine {
 
         if (result.status === 'error') {
           this.failedNodes.add(node.id)
-          executionEvents.nodeError(executionId, node.id, node.name, node.type, result.error || '未知错误')
+          executionEvents.nodeError(executionId, node.id, node.name, node.type, result.error || '未知错误', undefined, 'output')
 
           switch (this.parallelErrorStrategy) {
             case 'fail_fast':
@@ -548,7 +594,8 @@ export class WorkflowEngine {
           lastOutput = result.data || {}
         }
 
-        executionEvents.nodeComplete(executionId, node.id, node.name, node.type, result.data)
+        const outputStatus = isOutputValid(result.data) ? 'valid' : 'empty'
+        executionEvents.nodeComplete(executionId, node.id, node.name, node.type, result.data, outputStatus as 'valid' | 'empty')
         this.completedNodes.add(node.id)
       }
     }

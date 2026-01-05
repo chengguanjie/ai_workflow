@@ -106,6 +106,15 @@ class InMemoryQueue {
       duration?: number
       totalTokens?: number
       organizationId?: string
+      logs?: Array<{
+        nodeId: string
+        nodeName: string
+        nodeType: string
+        status: string
+        error?: string | null
+        startedAt: Date
+        completedAt?: Date | null
+      }>
     }
   }> {
     const task = this.tasks.get(taskId)
@@ -130,6 +139,18 @@ class InMemoryQueue {
         duration: true,
         totalTokens: true,
         organizationId: true,
+        logs: {
+          select: {
+            nodeId: true,
+            nodeName: true,
+            nodeType: true,
+            status: true,
+            error: true,
+            startedAt: true,
+            completedAt: true,
+          },
+          orderBy: { startedAt: 'asc' },
+        },
       },
     })
 
@@ -144,6 +165,7 @@ class InMemoryQueue {
           duration: execution.duration || undefined,
           totalTokens: execution.totalTokens,
           organizationId: execution.organizationId,
+          logs: execution.logs,
         }
         : undefined,
     }

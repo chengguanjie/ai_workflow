@@ -17,7 +17,7 @@ const LOG_SIZE_LIMITS = {
   MAX_TOTAL_TOKENS: 1500,     // 总token数限制
   MAX_STRING_LENGTH: 2000,    // 字符串最大长度
   MAX_ARRAY_LENGTH: 20,       // 数组最大长度
-  MAX_OBJECT_DEPTH: 3,        // 对象最大深度
+  MAX_OBJECT_DEPTH: 8,        // 对象最大深度（增加以支持工具调用结果）
 }
 
 /**

@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { useWorkflowStore } from "@/stores/workflow-store";
 import { toast } from "sonner";
+import type { EnhancedDebugResult } from "@/lib/workflow/debug-panel/types";
+import { isOutputValid } from "@/lib/workflow/utils";
 
 export interface DebugResult {
-  status: "success" | "error" | "skipped";
+  status: "success" | "error" | "skipped" | "paused";
   output: Record<string, unknown>;
   error?: string;
   duration: number;
@@ -13,6 +15,7 @@ export interface DebugResult {
     totalTokens: number;
   };
   logs?: string[];
+  approvalRequestId?: string;
 }
 
 export function useNodeDebug() {
@@ -22,6 +25,7 @@ export function useNodeDebug() {
     edges,
     updateNodeExecutionStatus,
     updateNodeExecutionResult,
+    updateNodeExecutionDetails,
     nodeExecutionResults,
   } = useWorkflowStore();
   const [isRunning, setIsRunning] = useState(false);
@@ -36,6 +40,12 @@ export function useNodeDebug() {
     // 清除之前的结果
     updateNodeExecutionResult(nodeId, null);
     updateNodeExecutionStatus(nodeId, "running");
+    // 初始化执行详情
+    updateNodeExecutionDetails(nodeId, {
+      triggered: true,
+      inputStatus: 'valid',
+      outputStatus: 'pending',
+    });
 
     try {
       const response = await fetch(
@@ -54,6 +64,10 @@ export function useNodeDebug() {
         // 存储结果到 store
         updateNodeExecutionResult(nodeId, result);
         updateNodeExecutionStatus(nodeId, "completed");
+        // 更新执行详情
+        updateNodeExecutionDetails(nodeId, {
+          outputStatus: isOutputValid(result.output) ? 'valid' : 'empty',
+        });
         // toast.success('执行成功')
       } else {
         const errorMsg = data.error?.message || "调试失败";
@@ -67,6 +81,11 @@ export function useNodeDebug() {
         // 存储错误结果到 store
         updateNodeExecutionResult(nodeId, errorResult);
         updateNodeExecutionStatus(nodeId, "failed");
+        // 更新执行详情
+        updateNodeExecutionDetails(nodeId, {
+          outputStatus: 'error',
+          outputError: errorMsg,
+        });
         toast.error(errorMsg);
       }
     } catch (error) {
@@ -81,6 +100,11 @@ export function useNodeDebug() {
       // 存储错误结果到 store
       updateNodeExecutionResult(nodeId, errorResult);
       updateNodeExecutionStatus(nodeId, "failed");
+      // 更新执行详情
+      updateNodeExecutionDetails(nodeId, {
+        outputStatus: 'error',
+        outputError: errorMsg,
+      });
       toast.error(errorMsg);
     } finally {
       setIsRunning(false);
@@ -104,7 +128,7 @@ export function useNodeDebug() {
   };
 
   // 获取指定节点的执行结果
-  const getNodeResult = (nodeId: string): DebugResult | null => {
+  const getNodeResult = (nodeId: string): EnhancedDebugResult | null => {
     return nodeExecutionResults[nodeId] || null;
   };
 

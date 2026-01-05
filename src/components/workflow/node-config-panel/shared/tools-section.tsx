@@ -40,6 +40,8 @@ import {
 import { cn } from "@/lib/utils";
 import { ClaudeSkillDialog, type ClaudeSkill } from "./claude-skill-dialog";
 import { AIGenerateButton } from "./ai-generate-button";
+import { VariableInput } from "./variable-input";
+import { VariableTextarea } from "./variable-textarea";
 import { useWorkflowStore } from "@/stores/workflow-store";
 import { SHENSUAN_MODELS, SHENSUAN_DEFAULT_MODELS } from "@/lib/ai/types";
 
@@ -561,6 +563,7 @@ function getDefaultConfig(type: ToolType): Record<string, unknown> {
         code: "",
         timeoutMs: 2000,
         maxOutputSize: 32000,
+        model: SHENSUAN_DEFAULT_MODELS.code,
       };
     case "image-gen-ai":
       return {
@@ -759,9 +762,36 @@ function CodeExecutionConfig({
 }) {
   const language = (config.language as string) || "javascript";
   const code = (config.code as string) || "";
+  
+  // AI 代码生成模型选项
+  const codeModels = SHENSUAN_MODELS.code as readonly string[];
+  const selectedCodeModel = (config.model as string) || SHENSUAN_DEFAULT_MODELS.code;
 
   return (
     <div className="space-y-3">
+      {/* AI 代码生成模型选择器 */}
+      <div className="space-y-1.5">
+        <Label className="text-xs">请选择模型</Label>
+        <Select
+          value={selectedCodeModel}
+          onValueChange={(value) => onConfigChange({ model: value })}
+        >
+          <SelectTrigger className="h-8 text-xs w-full">
+            <SelectValue placeholder="选择模型" />
+          </SelectTrigger>
+          <SelectContent>
+            {codeModels.map((model) => (
+              <SelectItem key={model} value={model}>
+                {model}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-[10px] text-muted-foreground">
+          选择 AI 模型来生成代码，生成后将在沙箱中执行
+        </p>
+      </div>
+
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label className="text-xs">语言</Label>
@@ -865,6 +895,7 @@ function MultimodalAiConfig({
   const promptTemplate = (config.promptTemplate as string) || "";
   const imageQuality = (config.imageQuality as string) || "standard";
   const imageStyle = (config.imageStyle as string) || "vivid";
+  const negativePrompt = (config.negativePrompt as string) || "";
   const videoResolution = (config.videoResolution as string) || "1080p";
   const videoReferenceImage = (config.videoReferenceImage as string) || "";
   const ttsSpeed =
@@ -872,13 +903,13 @@ function MultimodalAiConfig({
   const ttsEmotion = (config.ttsEmotion as string) || "";
 
   // 根据当前模态获取可选模型列表和默认模型
-  const modelOptions: string[] =
+  const modelOptions: readonly string[] =
     modality === "image"
-      ? (SHENSUAN_MODELS["image-gen"] as readonly string[])
+      ? SHENSUAN_MODELS["image-gen"]
       : modality === "video"
-        ? (SHENSUAN_MODELS["video-gen"] as readonly string[])
+        ? SHENSUAN_MODELS["video-gen"]
         : modality === "audio_tts"
-          ? (SHENSUAN_MODELS["audio-tts"] as readonly string[])
+          ? SHENSUAN_MODELS["audio-tts"]
           : [];
 
   const defaultModel =
@@ -975,6 +1006,31 @@ function MultimodalAiConfig({
 
   return (
     <div className="space-y-3">
+      {/* 模型选择器 - 放在提示词之前 */}
+      <div className="space-y-1.5">
+        <Label className="text-xs">请选择模型</Label>
+        <Select
+          value={selectedModel}
+          onValueChange={(value) => onConfigChange({ model: value })}
+        >
+          <SelectTrigger className="h-8 text-xs w-full">
+            <SelectValue placeholder="选择模型" />
+          </SelectTrigger>
+          <SelectContent>
+            {modelOptions.map((model) => (
+              <SelectItem key={model} value={model}>
+                {model}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-[10px] text-muted-foreground">
+          {modality === "image" && "选择图片生成模型（Gemini/豆包/通义）"}
+          {modality === "video" && "选择视频生成模型（Sora/Veo/Kling）"}
+          {modality === "audio_tts" && "选择语音合成模型"}
+        </p>
+      </div>
+
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
           <Label className="text-xs">输入提示词</Label>
@@ -988,12 +1044,11 @@ function MultimodalAiConfig({
             className="h-6"
           />
         </div>
-        <Textarea
+        <VariableTextarea
           value={promptTemplate}
-          onChange={(e) => onConfigChange({ promptTemplate: e.target.value })}
-          rows={3}
-          className="text-xs"
-          placeholder="请输入给多模态模型的完整提示词，可同时描述希望出现和不希望出现的内容。例如：根据文章内容生成配图提示词（包含风格、画面细节和需要规避的元素）。支持使用 {{变量}} 引用节点输出或用户输入。"
+          onChange={(value) => onConfigChange({ promptTemplate: value })}
+          minHeight="72px"
+          placeholder="请输入给多模态模型的完整提示词，支持使用 {{变量}} 引用节点输出或用户输入"
         />
       </div>
 
@@ -1136,13 +1191,13 @@ function MultimodalAiConfig({
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">参考图片 URL（可选）</Label>
-              <Input
+              <VariableInput
                 value={videoReferenceImage}
-                onChange={(e) =>
-                  onConfigChange({ videoReferenceImage: e.target.value })
+                onChange={(value) =>
+                  onConfigChange({ videoReferenceImage: value })
                 }
-                className="h-8 text-xs"
-                placeholder="用于图生视频，例如上游图片节点的 URL"
+                placeholder="用于图生视频，支持 {{引用}} 上游图片"
+                type="url"
               />
             </div>
           </div>
@@ -1261,11 +1316,11 @@ function HttpRequestConfig({
         </div>
         <div className="flex-1">
           <Label className="text-xs mb-1.5 block">请求 URL</Label>
-          <Input
+          <VariableInput
             value={(config.url as string) || ""}
-            onChange={(e) => onConfigChange({ url: e.target.value })}
-            className="h-8 text-xs"
-            placeholder="https://api.example.com/endpoint"
+            onChange={(value) => onConfigChange({ url: value })}
+            placeholder="https://api.example.com 或 {{节点名.字段名}}"
+            type="url"
           />
         </div>
       </div>
@@ -1287,23 +1342,25 @@ function HttpRequestConfig({
         {headers.length > 0 ? (
           <div className="space-y-1.5">
             {headers.map((header, index) => (
-              <div key={index} className="flex gap-1.5">
+              <div key={index} className="flex gap-1.5 items-center">
                 <Input
                   value={header.key}
                   onChange={(e) => updateHeader(index, "key", e.target.value)}
-                  className="h-7 text-xs flex-1"
+                  className="h-7 text-xs w-28"
                   placeholder="Header Key"
                 />
-                <Input
-                  value={header.value}
-                  onChange={(e) => updateHeader(index, "value", e.target.value)}
-                  className="h-7 text-xs flex-1"
-                  placeholder="Header Value"
-                />
+                <div className="flex-1">
+                  <VariableInput
+                    value={header.value}
+                    onChange={(value) => updateHeader(index, "value", value)}
+                    placeholder="Header Value 或 {{引用}}"
+                    className="[&_input]:h-7"
+                  />
+                </div>
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7"
+                  className="h-7 w-7 flex-shrink-0"
                   onClick={() => removeHeader(index)}
                 >
                   <X className="h-3 w-3" />
@@ -1337,11 +1394,12 @@ function HttpRequestConfig({
                 </SelectContent>
               </Select>
             </div>
-            <Textarea
+            <VariableTextarea
               value={(config.body as string) || ""}
-              onChange={(e) => onConfigChange({ body: e.target.value })}
-              className="min-h-[80px] text-xs font-mono resize-y"
-              placeholder='{"key": "value"}'
+              onChange={(value) => onConfigChange({ body: value })}
+              placeholder='{"key": "value"} 或使用 {{引用}} 插入变量'
+              minHeight="80px"
+              className="font-mono"
             />
           </div>
         )}
@@ -1449,22 +1507,23 @@ function FeishuBitableConfig({
 
       <div className="space-y-1.5">
         <Label className="text-xs">字段映射（JSON）</Label>
-        <Textarea
+        <VariableTextarea
           value={
             typeof config.fields === "string"
               ? config.fields
               : JSON.stringify(config.fields || [], null, 2)
           }
-          onChange={(e) => {
+          onChange={(value) => {
             try {
-              const parsed = JSON.parse(e.target.value);
+              const parsed = JSON.parse(value);
               onConfigChange({ fields: parsed });
             } catch {
-              onConfigChange({ fields: e.target.value });
+              onConfigChange({ fields: value });
             }
           }}
-          className="min-h-[60px] text-xs font-mono resize-y"
-          placeholder='[{"name": "字段名", "value": "{{变量}}"}]'
+          minHeight="60px"
+          placeholder='[{"name": "字段名", "value": "{{引用}}"}]'
+          className="font-mono"
         />
       </div>
     </div>
@@ -1787,11 +1846,12 @@ function NotificationConfig({
       {/* Webhook URL */}
       <div className="space-y-1.5">
         <Label className="text-xs">Webhook URL</Label>
-        <Input
+        <VariableInput
           value={(config.webhookUrl as string) || ""}
-          onChange={(e) => onConfigChange({ webhookUrl: e.target.value })}
-          className="h-8 text-xs font-mono"
-          placeholder={`粘贴${platformLabels[platform]}群机器人 Webhook 地址`}
+          onChange={(value) => onConfigChange({ webhookUrl: value })}
+          placeholder={`粘贴${platformLabels[platform]} Webhook 或 {{引用}}`}
+          type="url"
+          className="font-mono"
         />
         <p className="text-[10px] text-muted-foreground">
           在{platformLabels[platform]}群中添加机器人后获取
@@ -1825,11 +1885,10 @@ function NotificationConfig({
         (config.messageType as string) === "news") && (
           <div className="space-y-1.5">
             <Label className="text-xs">消息标题</Label>
-            <Input
+            <VariableInput
               value={(config.title as string) || ""}
-              onChange={(e) => onConfigChange({ title: e.target.value })}
-              className="h-8 text-xs"
-              placeholder="输入消息标题，支持 {{变量}} 引用"
+              onChange={(value) => onConfigChange({ title: value })}
+              placeholder="输入消息标题，支持 {{引用}}"
             />
           </div>
         )}
@@ -1837,11 +1896,11 @@ function NotificationConfig({
       {/* 消息内容 */}
       <div className="space-y-1.5">
         <Label className="text-xs">消息内容</Label>
-        <Textarea
+        <VariableTextarea
           value={(config.content as string) || ""}
-          onChange={(e) => onConfigChange({ content: e.target.value })}
-          className="min-h-[80px] text-xs resize-y"
-          placeholder={`输入消息内容，支持 {{变量}} 引用上游节点数据\n\n示例：\n任务已完成！\n处理结果：{{AI处理.result}}`}
+          onChange={(value) => onConfigChange({ content: value })}
+          minHeight="80px"
+          placeholder="输入消息内容，使用 @ 按钮插入变量引用"
         />
         <p className="text-[10px] text-muted-foreground">
           使用 {"{{节点名.字段名}}"} 引用其他节点的输出数据

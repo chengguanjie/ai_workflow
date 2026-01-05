@@ -125,6 +125,7 @@ import { SaveStatusIndicator } from "@/components/workflow/save-status-indicator
 import { nodeTypes } from "@/components/workflow/nodes";
 import AnimatedEdge from "@/components/workflow/animated-edge";
 import { useWorkflowSave } from "@/hooks/use-workflow-save";
+import { useExecutionStream, type ExecutionProgressEvent } from "@/hooks/use-execution-stream";
 
 const edgeTypes = {
   default: AnimatedEdge,
@@ -134,6 +135,11 @@ function WorkflowEditor() {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition, setViewport: setReactFlowViewport } =
     useReactFlow();
+
+  // 使用 ref 稳定 setReactFlowViewport 引用，避免 HMR 时 useEffect 依赖数组大小变化
+  const setReactFlowViewportRef = useRef(setReactFlowViewport);
+  setReactFlowViewportRef.current = setReactFlowViewport;
+
   const params = useParams();
   const workflowId = params.id as string;
 
@@ -220,12 +226,20 @@ function WorkflowEditor() {
     getSelectedNodeIds,
     autoLayout,
     updateNodeExecutionStatus,
+    updateNodeExecutionResult,
+    updateNodeExecutionDetails,
     clearNodeExecutionStatus,
+    clearNodeExecutionDetails,
     openDebugPanel,
     undo,
     redo,
     canUndo,
     canRedo,
+    activeExecutionId,
+    activeTaskId,
+    clearActiveExecution,
+    setActiveExecution,
+    setLatestExecutionId,
   } = useWorkflowStore();
 
   // 加载工作流数据
@@ -233,9 +247,13 @@ function WorkflowEditor() {
     const loadWorkflow = async () => {
       try {
         const response = await fetch(`/api/workflows/${workflowId}`);
+        
         if (!response.ok) {
-          throw new Error("加载工作流失败");
+          const errorData = await response.json().catch(() => ({}));
+          const message = errorData.message || errorData.error || `HTTP ${response.status}: 加载工作流失败`;
+          throw new Error(message);
         }
+        
         const result = await response.json();
         const workflow = result.data;
 
@@ -261,18 +279,161 @@ function WorkflowEditor() {
               savedViewport.y !== 0 ||
               savedViewport.zoom !== 1)
           ) {
-            setReactFlowViewport(savedViewport);
+            setReactFlowViewportRef.current(savedViewport);
           }
         }, 50);
+
+        // 恢复最近一次执行的节点状态
+        if (workflow.latestExecution?.nodeStatuses) {
+          setLatestExecutionId(workflow.latestExecution.id || null);
+          clearNodeExecutionStatus();
+          clearNodeExecutionDetails();
+          const nodeStatuses = workflow.latestExecution.nodeStatuses as Record<string, { status: string; error?: string; hasOutput: boolean; output?: unknown }>;
+          for (const [nodeId, statusInfo] of Object.entries(nodeStatuses)) {
+            // 映射数据库状态到前端状态
+            const statusMap: Record<string, 'pending' | 'running' | 'completed' | 'failed' | 'skipped'> = {
+              'PENDING': 'pending',
+              'RUNNING': 'running',
+              'COMPLETED': 'completed',
+              'FAILED': 'failed',
+              'CANCELLED': 'skipped',
+            };
+            const mappedStatus = statusMap[statusInfo.status] || 'pending';
+            updateNodeExecutionStatus(nodeId, mappedStatus);
+            updateNodeExecutionDetails(nodeId, {
+              triggered: true,
+              inputStatus: 'valid',
+              outputStatus: statusInfo.status === 'FAILED' ? 'error' : statusInfo.hasOutput ? 'valid' : 'empty',
+              outputError: statusInfo.error,
+            });
+            // 恢复节点执行结果（输出数据）
+            if (statusInfo.output !== undefined) {
+              updateNodeExecutionResult(nodeId, {
+                status: statusInfo.status === 'COMPLETED' ? 'success' : 'error',
+                output: statusInfo.output as Record<string, unknown>,
+                error: statusInfo.error,
+                duration: 0,
+              });
+            }
+          }
+        } else {
+          setLatestExecutionId(null);
+        }
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "加载工作流失败");
+        if (error instanceof TypeError && error.message.includes('fetch')) {
+          toast.error("网络连接失败，请检查网络后重试");
+        } else {
+          toast.error(error instanceof Error ? error.message : "加载工作流失败");
+        }
       } finally {
         setIsLoading(false);
       }
     };
 
     loadWorkflow();
-  }, [workflowId, setWorkflow, setServerVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workflowId, setWorkflow, setServerVersion, clearNodeExecutionStatus, clearNodeExecutionDetails, updateNodeExecutionStatus, updateNodeExecutionDetails, updateNodeExecutionResult]);
+
+  // 后台执行事件订阅 - 实时更新节点执行状态
+  const { connect: connectExecution, disconnect: disconnectExecution } = useExecutionStream({
+    onEvent: useCallback((event: ExecutionProgressEvent) => {
+      if (event.nodeId) {
+        if (event.type === 'node_start') {
+          updateNodeExecutionStatus(event.nodeId, 'running');
+        } else if (event.type === 'node_complete') {
+          updateNodeExecutionStatus(event.nodeId, 'completed');
+        } else if (event.type === 'node_error') {
+          updateNodeExecutionStatus(event.nodeId, 'failed');
+        }
+      }
+    }, [updateNodeExecutionStatus]),
+    onComplete: useCallback(() => {
+      clearActiveExecution();
+      if (!showExecutionPanel) toast.success('工作流执行完成');
+    }, [clearActiveExecution, showExecutionPanel]),
+    onError: useCallback((error: string) => {
+      clearActiveExecution();
+      if (!showExecutionPanel) toast.error(error || '工作流执行失败');
+    }, [clearActiveExecution, showExecutionPanel]),
+    enabled: true,
+  });
+
+  // 当有后台执行任务时，自动订阅执行事件
+  useEffect(() => {
+    if (activeExecutionId) {
+      connectExecution(activeExecutionId);
+    }
+    return () => {
+      disconnectExecution();
+    };
+  }, [activeExecutionId, connectExecution, disconnectExecution]);
+
+  // 基于 taskId 轮询任务状态，实时更新节点执行进度
+  useEffect(() => {
+    // 执行面板打开时由面板负责监控，避免重复轮询触发 429
+    if (!activeTaskId || showExecutionPanel) return;
+
+    let isCancelled = false;
+    const pollInterval = setInterval(async () => {
+      if (isCancelled) return;
+
+      try {
+        const response = await fetch(`/api/tasks/${activeTaskId}`);
+        if (!response.ok) {
+          if (response.status === 429) return;
+          if (response.status === 404) {
+            clearActiveExecution();
+          }
+          return;
+        }
+
+        const responseData = await response.json();
+        // API 返回格式: { success: true, data: { taskId, status, execution, ... } }
+        const data = responseData.data || responseData;
+        
+        // 如果获取到 executionId，更新 store 以便 SSE 订阅
+        if (data.execution?.id && !activeExecutionId) {
+          setActiveExecution(data.execution.id, activeTaskId);
+        }
+
+        // 从执行日志中提取节点状态
+        if (data.execution?.logs && Array.isArray(data.execution.logs)) {
+          for (const log of data.execution.logs) {
+            if (!log.nodeId) continue;
+            
+            const statusMap: Record<string, 'pending' | 'running' | 'completed' | 'failed' | 'skipped'> = {
+              'PENDING': 'pending',
+              'RUNNING': 'running',
+              'COMPLETED': 'completed',
+              'FAILED': 'failed',
+              'CANCELLED': 'skipped',
+            };
+            const mappedStatus = statusMap[log.status] || 'running';
+            updateNodeExecutionStatus(log.nodeId, mappedStatus);
+          }
+        }
+
+        // 检查执行是否完成
+        if (data.status === 'completed' || data.status === 'failed') {
+          clearActiveExecution();
+          if (!showExecutionPanel) {
+            if (data.status === 'completed') {
+              toast.success('工作流执行完成');
+            } else if (data.execution?.error) {
+              toast.error(data.execution.error);
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('[TaskPolling] Error:', error);
+      }
+    }, 2000);
+
+    return () => {
+      isCancelled = true;
+      clearInterval(pollInterval);
+    };
+  }, [activeTaskId, activeExecutionId, updateNodeExecutionStatus, clearActiveExecution, setActiveExecution, showExecutionPanel]);
 
   // 手动保存处理
   const handleSave = useCallback(async () => {
@@ -325,8 +486,8 @@ function WorkflowEditor() {
       selectNode(node.id);
 
       const nodeType = node.data?.type?.toLowerCase();
-      // 对于 input 和 process 节点，额外打开调试面板（配置面板保持隐藏）
-      if (nodeType === "input" || nodeType === "process") {
+      // 对于 input、process 和 logic 节点，额外打开调试面板（配置面板保持隐藏）
+      if (nodeType === "input" || nodeType === "process" || nodeType === "logic") {
         openDebugPanel(node.id);
       }
       // 其他类型（code / output 等）：仅依赖 selectedNodeId 来控制 NodeConfigPanel 展开
@@ -975,14 +1136,14 @@ function WorkflowEditor() {
           {/* 右侧配置面板/调试面板 - Zen Mode hidden */}
           {!isZenMode && selectedNodeId && (
             <div className="relative flex">
-              {/* 配置面板与调试面板互斥：非 input/process 节点显示配置面板，否则显示调试面板 */}
+              {/* 配置面板与调试面板互斥：非 input/process/logic 节点显示配置面板，否则显示调试面板 */}
               {(() => {
                 const selectedNode = nodes.find((n) => n.id === selectedNodeId);
                 const nodeType = (
                   selectedNode?.data as { type?: string }
                 )?.type?.toLowerCase();
-                // input 和 process 节点使用调试面板，其他节点（如 logic）使用配置面板
-                if (nodeType === "input" || nodeType === "process") {
+                // input、process 和 logic 节点使用调试面板，其他节点使用配置面板
+                if (nodeType === "input" || nodeType === "process" || nodeType === "logic") {
                   return <NodeDebugPanel />;
                 }
                 return (
@@ -1050,11 +1211,7 @@ function WorkflowEditor() {
         isOpen={showExecutionPanel}
         onClose={() => {
           setShowExecutionPanel(false);
-          clearNodeExecutionStatus();
         }}
-        onNodeStatusChange={(nodeId, status) =>
-          updateNodeExecutionStatus(nodeId, status)
-        }
       />
 
       <ExecutionHistoryPanel

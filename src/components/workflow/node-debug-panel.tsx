@@ -115,6 +115,8 @@ export function NodeDebugPanel() {
     nodes,
     edges,
     id: workflowId,
+    activeExecutionId,
+    latestExecutionId,
     updateNode,
     nodeExecutionResults,
     updateNodeExecutionResult,
@@ -138,6 +140,55 @@ export function NodeDebugPanel() {
     debugNodeId && nodeExecutionResults
       ? nodeExecutionResults[debugNodeId] || null
       : null;
+
+  // 默认优先展示“当前执行”，否则展示“最近一次执行”的持久化调试过程
+  const executionIdForHistory = activeExecutionId || latestExecutionId;
+  useEffect(() => {
+    if (!debugNodeId) return;
+    if (!executionIdForHistory) return;
+    const existing = nodeExecutionResults?.[debugNodeId];
+    if (existing?.logs && existing.logs.length > 0) return;
+
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const filesResp = await fetch(`/api/executions/${executionIdForHistory}/files`);
+        if (!filesResp.ok) return;
+        const filesJson = await filesResp.json();
+        const files: Array<{ fileName: string; url: string; nodeId: string }> = filesJson?.data?.files || filesJson?.files || [];
+
+        const debugFileName = `__debug__${debugNodeId}.json`;
+        const debugFile = files.find((f) => f.nodeId === debugNodeId && f.fileName === debugFileName);
+        if (!debugFile?.url) return;
+
+        const fileResp = await fetch(debugFile.url);
+        if (!fileResp.ok) return;
+        const text = await fileResp.text();
+        const payload = JSON.parse(text) as { legacyLogs?: string[]; status?: string; duration?: number; tokenUsage?: any; error?: string };
+
+        if (cancelled) return;
+
+        const merged = {
+          status: (payload.status as any) || existing?.status || "success",
+          output: existing?.output || {},
+          error: payload.error || existing?.error,
+          duration: typeof payload.duration === "number" ? payload.duration : existing?.duration || 0,
+          tokenUsage: payload.tokenUsage || existing?.tokenUsage,
+          logs: Array.isArray(payload.legacyLogs) ? payload.legacyLogs : existing?.logs,
+        };
+
+        updateNodeExecutionResult(debugNodeId, merged as any);
+      } catch {
+        // ignore: persisted logs are best-effort
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeExecutionId, debugNodeId, executionIdForHistory, latestExecutionId, nodeExecutionResults, updateNodeExecutionResult]);
 
   // Config State (for Process Nodes)
   const [providers, setProviders] = useState<AIProviderConfig[]>([]);
@@ -320,11 +371,38 @@ export function NodeDebugPanel() {
 
     if (debugNodeId) {
       const defaultInputs: Record<string, Record<string, unknown>> = {};
-      
+
+      // 辅助函数：从 INPUT 节点配置中提取字段值
+      const getInputNodeFieldValues = (node: typeof predecessorNodes[0]): Record<string, unknown> | null => {
+        if (!node) return null;
+        const nodeType = (node.data.type as string)?.toUpperCase();
+        if (nodeType !== 'INPUT') return null;
+
+        const nodeConfig = node.data.config as { fields?: Array<{ name: string; value?: unknown }> } | undefined;
+        const fields = nodeConfig?.fields;
+        if (!fields || !Array.isArray(fields)) return null;
+
+        const result: Record<string, unknown> = {};
+        for (const field of fields) {
+          if (field.name) {
+            result[field.name] = field.value ?? `[请填写: ${field.name}]`;
+          }
+        }
+        return Object.keys(result).length > 0 ? result : null;
+      };
+
       // 1. 处理直接上游节点
       for (const predNode of predecessorNodes) {
         if (predNode) {
           const predNodeName = predNode.data.name as string;
+
+          // 首先检查是否是 INPUT 类型节点，直接使用其配置的字段值
+          const inputFieldValues = getInputNodeFieldValues(predNode);
+          if (inputFieldValues) {
+            defaultInputs[predNodeName] = inputFieldValues;
+            continue;
+          }
+
           // 检查上游节点是否有已保存的执行结果
           const predNodeResult = nodeExecutionResults?.[predNode.id];
           if (predNodeResult?.status === "success" && predNodeResult.output) {
@@ -366,20 +444,26 @@ export function NodeDebugPanel() {
           // 在 nodes 中查找匹配的节点
           const matchedNode = nodes.find((n) => n.data.name === nodeName);
           if (matchedNode) {
-            // 检查是否有已保存的执行结果
-            const matchedNodeResult = nodeExecutionResults?.[matchedNode.id];
-            if (matchedNodeResult?.status === "success" && matchedNodeResult.output) {
-              defaultInputs[nodeName] = matchedNodeResult.output;
+            // 首先检查是否是 INPUT 类型节点，直接使用其配置的字段值
+            const inputFieldValues = getInputNodeFieldValues(matchedNode);
+            if (inputFieldValues) {
+              defaultInputs[nodeName] = inputFieldValues;
             } else {
-              // 创建包含引用字段的占位符对象
-              const placeholderObj: Record<string, unknown> = {};
-              if (fieldPath) {
-                const topField = fieldPath.split('.')[0];
-                placeholderObj[topField] = `[请填写: ${topField}]`;
+              // 检查是否有已保存的执行结果
+              const matchedNodeResult = nodeExecutionResults?.[matchedNode.id];
+              if (matchedNodeResult?.status === "success" && matchedNodeResult.output) {
+                defaultInputs[nodeName] = matchedNodeResult.output;
               } else {
-                placeholderObj.result = `[数据来自: ${nodeName}]`;
+                // 创建包含引用字段的占位符对象
+                const placeholderObj: Record<string, unknown> = {};
+                if (fieldPath) {
+                  const topField = fieldPath.split('.')[0];
+                  placeholderObj[topField] = `[请填写: ${topField}]`;
+                } else {
+                  placeholderObj.result = `[数据来自: ${nodeName}]`;
+                }
+                defaultInputs[nodeName] = placeholderObj;
               }
-              defaultInputs[nodeName] = placeholderObj;
             }
           } else {
             // 节点不在工作流中，但在提示词中被引用，创建占位符

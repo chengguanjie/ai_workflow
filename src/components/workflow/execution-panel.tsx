@@ -144,6 +144,7 @@ export function ExecutionPanel({
   const [taskId, setTaskId] = useState<string | null>(null);
   const [showFeedbackDialog, setShowFeedbackDialog] = useState(false);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const pollInFlightRef = useRef(false);
 
   // 实时监控模式状态
   const [monitorStatus, setMonitorStatus] = useState<
@@ -162,7 +163,21 @@ export function ExecutionPanel({
     Promise.resolve(),
   );
 
-  const { nodes } = useWorkflowStore();
+  const {
+    nodes,
+    edges,
+    setActiveExecution,
+    clearNodeExecutionStatus,
+    updateNodeExecutionStatus,
+  } = useWorkflowStore();
+
+  const emitNodeStatus = useCallback(
+    (nodeId: string, status: NodeExecutionStatus) => {
+      updateNodeExecutionStatus(nodeId, status);
+      onNodeStatusChange?.(nodeId, status);
+    },
+    [onNodeStatusChange, updateNodeExecutionStatus],
+  );
 
   // 字段类型对应的 accept 属性
   const FIELD_TYPE_ACCEPT: Record<string, string> = {
@@ -378,11 +393,11 @@ export function ExecutionPanel({
         }
         return newMap;
       });
-      if (update.status && onNodeStatusChange) {
-        onNodeStatusChange(nodeId, update.status);
+      if (update.status) {
+        emitNodeStatus(nodeId, update.status);
       }
     },
-    [onNodeStatusChange],
+    [emitNodeStatus],
   );
 
   // 处理 SSE 事件
@@ -454,6 +469,8 @@ export function ExecutionPanel({
   const pollTaskStatusMonitor = useCallback(async () => {
     const tid = taskIdRef.current;
     if (!tid) return;
+    if (pollInFlightRef.current) return;
+    pollInFlightRef.current = true;
 
     try {
       const response = await fetch(`/api/tasks/${tid}`);
@@ -470,12 +487,13 @@ export function ExecutionPanel({
       }
 
       if (!response.ok) {
-        // 静默处理非 404 的错误，避免频繁提示
-        console.warn("获取任务状态失败，状态码:", response.status);
+        // 避免因限流/偶发错误刷屏
         return;
       }
 
-      const data = await response.json();
+      const responseData = await response.json();
+      // API 返回格式: { success: true, data: { ... } }
+      const data = responseData.data || responseData;
 
       // 如果获取到 executionId，尝试连接 SSE 或轮询执行详情
       if (data.execution?.id) {
@@ -612,6 +630,8 @@ export function ExecutionPanel({
       if (error instanceof Error && error.message !== "Failed to fetch") {
         console.warn("Poll task status warning:", error.message);
       }
+    } finally {
+      pollInFlightRef.current = false;
     }
   }, [updateNodeStatus, connectSSE, disconnectSSE, isConnected]);
 
@@ -622,6 +642,8 @@ export function ExecutionPanel({
 
   // 轮询任务状态（普通模式）
   const pollTaskStatus = useCallback(async (id: string) => {
+    if (pollInFlightRef.current) return;
+    pollInFlightRef.current = true;
     try {
       const response = await fetch(`/api/tasks/${id}`);
 
@@ -643,10 +665,13 @@ export function ExecutionPanel({
       }
 
       if (!response.ok) {
-        throw new Error("获取任务状态失败");
+        // 429 等非致命错误不刷屏，保持轮询即可
+        return;
       }
 
-      const data = await response.json();
+      const responseData = await response.json();
+      // API 返回格式: { success: true, data: { ... } }
+      const data = responseData.data || responseData;
 
       if (data.status === "completed" || data.status === "failed") {
         // 任务完成，停止轮询
@@ -695,17 +720,43 @@ export function ExecutionPanel({
           toast.error(errorMsg || "工作流执行失败");
         }
       }
-    } catch (error) {
-      console.error("Poll task status error:", error);
+    } catch (_error) {
+      // 静默处理轮询错误，避免刷屏
+    } finally {
+      pollInFlightRef.current = false;
     }
   }, []);
 
   // 执行工作流
   const handleExecute = useCallback(async () => {
+    // 防止重复启动轮询导致请求叠加
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
     setIsExecuting(true);
     setResult(null);
     setTaskId(null);
     setExecutionError(null);
+
+    // 重置画布节点状态，并给用户即时反馈
+    clearNodeExecutionStatus();
+    nodes.forEach((node) => {
+      emitNodeStatus(node.id, "pending");
+    });
+    const incomingCount = new Map<string, number>();
+    edges.forEach((edge) => {
+      incomingCount.set(edge.target, (incomingCount.get(edge.target) || 0) + 1);
+    });
+    const optimisticFirstNode =
+      nodes.find((n) => n.data?.type === "INPUT") ||
+      nodes.find(
+        (n) => (incomingCount.get(n.id) || 0) === 0 && n.data?.type !== "GROUP",
+      ) ||
+      nodes[0];
+    if (optimisticFirstNode) {
+      emitNodeStatus(optimisticFirstNode.id, "running");
+    }
 
     // 监控模式：重置节点状态
     if (executionMode === "monitor") {
@@ -752,6 +803,7 @@ export function ExecutionPanel({
           "执行失败";
         setExecutionError(errorMsg);
         setIsExecuting(false);
+        clearNodeExecutionStatus();
         if (executionMode === "monitor") {
           setMonitorStatus("failed");
         }
@@ -763,11 +815,13 @@ export function ExecutionPanel({
         // 监控模式：开始轮询（SSE 会在获取到 executionId 后接管）
         taskIdRef.current = data.taskId;
         setTaskId(data.taskId);
+        setActiveExecution("", data.taskId);
         toast.info("任务已提交，正在执行中...");
-        pollingRef.current = setInterval(pollTaskStatusMonitor, 1000);
+        pollingRef.current = setInterval(pollTaskStatusMonitor, 2000);
       } else if (asyncMode && data.taskId) {
         // 普通模式异步：开始轮询
         setTaskId(data.taskId);
+        setActiveExecution("", data.taskId);
         toast.info("任务已提交，正在执行中...");
         pollingRef.current = setInterval(() => {
           pollTaskStatus(data.taskId);
@@ -792,6 +846,7 @@ export function ExecutionPanel({
       const errorMsg = error instanceof Error ? error.message : "执行失败";
       setExecutionError(errorMsg);
       setIsExecuting(false);
+      clearNodeExecutionStatus();
       if (executionMode === "monitor") {
         setMonitorStatus("failed");
       }
@@ -806,6 +861,10 @@ export function ExecutionPanel({
     pollTaskStatusMonitor,
     disconnectSSE,
     nodes,
+    edges,
+    setActiveExecution,
+    clearNodeExecutionStatus,
+    emitNodeStatus,
   ]);
 
   // 停止执行（监控模式）
@@ -823,6 +882,16 @@ export function ExecutionPanel({
     setCurrentNodeId(null);
     toast.info("执行已取消");
   }, [disconnectSSE]);
+
+  // 关闭面板时停止轮询/断开 SSE（不影响后台任务继续执行）
+  useEffect(() => {
+    if (isOpen) return;
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+    disconnectSSE();
+  }, [isOpen, disconnectSSE]);
 
   // 格式化文件大小
   const formatFileSize = (bytes: number): string => {
@@ -1531,6 +1600,9 @@ export function ExecutionPanel({
               <Button
                 variant="secondary"
                 onClick={() => {
+                  if (executionIdRef.current) {
+                    setActiveExecution(executionIdRef.current, taskId);
+                  }
                   toast.info("任务将在后台继续执行，您可以在执行历史中查看进度");
                   onClose();
                 }}

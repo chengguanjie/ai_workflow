@@ -351,6 +351,7 @@ function safeJSONParse(jsonStr: string): { success: boolean; data: unknown; erro
 function cleanAIResponse(content: string) {
   let cleanContent = content.trim();
   let nodeActions: any[] = [];
+  let parseError: string | undefined;
 
   // 1. 尝试提取 json:actions
   const jsonActionsMatch = cleanContent.match(
@@ -367,6 +368,7 @@ function cleanAIResponse(content: string) {
         nodeActions.length,
       );
     } else {
+      parseError = parseResult.error;
       console.error("[CreateWorkflow] Failed to parse json:actions:", parseResult.error);
       console.error("[CreateWorkflow] json:actions content:", jsonActionsMatch[1]?.slice(0, 500));
     }
@@ -395,6 +397,7 @@ function cleanAIResponse(content: string) {
           );
         }
       } else {
+        parseError = parseResult.error;
         console.error("[CreateWorkflow] Failed to parse json block:", parseResult.error);
         console.error("[CreateWorkflow] json block content:", simpleJsonMatch[1]?.slice(0, 500));
       }
@@ -421,6 +424,8 @@ function cleanAIResponse(content: string) {
             nodeActions.length,
           );
         }
+      } else {
+        parseError = parseResult.error;
       }
     }
   }
@@ -444,11 +449,30 @@ function cleanAIResponse(content: string) {
         );
       }
     } else {
+      parseError = parseResult.error;
       console.log("[CreateWorkflow] Content is not valid JSON after all repair attempts");
     }
   }
 
-  return { cleanContent, nodeActions };
+  // 5. 尝试从非代码块的 JSON 对象提取
+  if (nodeActions.length === 0) {
+    const jsonObjectMatch = cleanContent.match(/\{[\s\S]*"nodeActions"[\s\S]*\}/);
+    if (jsonObjectMatch) {
+      const parseResult = safeJSONParse(jsonObjectMatch[0]);
+      if (parseResult.success) {
+        const parsed = parseResult.data as Record<string, unknown>;
+        if (parsed.nodeActions && Array.isArray(parsed.nodeActions)) {
+          nodeActions = parsed.nodeActions;
+          console.log(
+            "[CreateWorkflow] Parsed embedded JSON object, nodeActions count:",
+            nodeActions.length,
+          );
+        }
+      }
+    }
+  }
+
+  return { cleanContent, nodeActions, parseError };
 }
 
 // 为节点配置添加默认值
@@ -773,15 +797,53 @@ ${prompt}
         response.content?.slice(0, 500),
       );
 
-      const { cleanContent, nodeActions } = cleanAIResponse(response.content);
+      const { cleanContent: _cleanContent, nodeActions, parseError } = cleanAIResponse(response.content);
 
       if (nodeActions.length === 0) {
         console.error("[CreateWorkflow] No nodeActions found in AI response");
         console.error("[CreateWorkflow] Full AI response:", response.content);
-        return ApiResponse.error(
-          "AI 未能生成有效的工作流配置，请重试或使用更详细的描述",
-          400,
-        );
+        console.error("[CreateWorkflow] Parse error:", parseError);
+        
+        // 尝试创建一个基础的工作流作为回退方案
+        const fallbackNodes = [
+          {
+            action: "add",
+            nodeType: "INPUT",
+            nodeName: "用户输入",
+            config: {
+              fields: [
+                {
+                  id: "field_1",
+                  name: "输入内容",
+                  fieldType: "text",
+                  required: true,
+                  placeholder: "请输入您的内容",
+                  description: "用户输入的内容"
+                }
+              ]
+            }
+          },
+          {
+            action: "add",
+            nodeType: "PROCESS",
+            nodeName: "AI 处理",
+            config: {
+              systemPrompt: `你是一个专业的AI助手。根据以下用户需求提供帮助：\n\n${prompt}\n\n请根据用户的输入提供准确、有帮助的回答。`,
+              userPrompt: "{{用户输入.输入内容}}",
+              temperature: 0.7,
+              aiConfigId: defaultProviderId,
+            }
+          },
+          {
+            action: "connect",
+            source: "new_1",
+            target: "new_2"
+          }
+        ];
+        
+        // 使用回退工作流
+        nodeActions.push(...fallbackNodes);
+        console.log("[CreateWorkflow] Using fallback workflow with basic nodes");
       }
 
       // 3. 验证生成的 Actions

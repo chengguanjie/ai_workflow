@@ -122,13 +122,18 @@ export function CreateWorkflowDialog() {
         body: JSON.stringify(payload),
       });
 
+      const result = await response.json();
+
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error?.message || error.message || "创建失败");
+        const errorMessage = result.error?.message || result.message || "创建失败";
+        throw new Error(errorMessage);
       }
 
-      const result = await response.json();
       const workflowId = result.data?.id || result.id;
+
+      if (!workflowId) {
+        throw new Error("创建成功但未返回工作流 ID，请刷新页面查看");
+      }
 
       toast.success(
         selectedTemplateId
@@ -136,12 +141,10 @@ export function CreateWorkflowDialog() {
           : "工作流创建成功，正在跳转..."
       );
       setOpen(false);
-
-      if (workflowId) {
-        router.push(`/workflows/${workflowId}`);
-      }
+      router.push(`/workflows/${workflowId}`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "创建失败");
+      console.error("[CreateWorkflow] Error:", error);
+      toast.error(error instanceof Error ? error.message : "创建失败，请重试");
     } finally {
       setIsCreating(false);
     }
@@ -158,22 +161,25 @@ export function CreateWorkflowDialog() {
         body: JSON.stringify({ templateId }),
       });
 
+      const result = await response.json();
+
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error?.message || error.message || "创建失败");
+        const errorMessage = result.error?.message || result.message || "创建失败";
+        throw new Error(errorMessage);
       }
 
-      const result = await response.json();
       const workflowId = result.data?.id || result.id;
+
+      if (!workflowId) {
+        throw new Error("创建成功但未返回工作流 ID，请刷新页面查看");
+      }
 
       toast.success("已基于模板创建工作流");
       setOpen(false);
-
-      if (workflowId) {
-        router.push(`/workflows/${workflowId}`);
-      }
+      router.push(`/workflows/${workflowId}`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "创建失败");
+      console.error("[CreateWorkflow] Template error:", error);
+      toast.error(error instanceof Error ? error.message : "创建失败，请重试");
     } finally {
       setIsCreating(false);
       setSelectedTemplateId(null);

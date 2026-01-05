@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { name, expiresIn, scopes = ['workflow:execute'] } = body
+    const { name, expiresIn, scopes = ['workflows', 'executions'] } = body
 
     if (!name?.trim()) {
       return ApiResponse.error('请输入 Token 名称', 400)
@@ -98,6 +98,15 @@ export async function POST(request: NextRequest) {
       },
     })
 
+    console.log('Created API Token:', { 
+      id: apiToken.id, 
+      name: apiToken.name, 
+      token: apiToken.token,
+      tokenLength: apiToken.token?.length,
+      generatedToken: token,
+      generatedTokenLength: token.length
+    })
+
     // 记录审计日志
     await logApiTokenChange(
       session.user.id,
@@ -113,10 +122,11 @@ export async function POST(request: NextRequest) {
     )
 
     // 返回完整 Token（仅此一次）
+    // 直接使用生成的 token 变量，而不是从数据库返回的值
     return ApiResponse.success({
       id: apiToken.id,
       name: apiToken.name,
-      token: apiToken.token, // 完整 token，仅此一次显示
+      token: token, // 使用生成的 token，确保返回完整值
       prefix: apiToken.prefix,
       expiresAt: apiToken.expiresAt,
       scopes: apiToken.scopes,

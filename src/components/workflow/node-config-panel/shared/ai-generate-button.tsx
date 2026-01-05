@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { Sparkles, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -14,20 +14,31 @@ import { useWorkflowStore } from '@/stores/workflow-store'
 import { AIGeneratePreviewDialog } from './ai-generate-preview-dialog'
 
 interface AIGenerateButtonProps {
-  /** 字段类型标识 */
   fieldType: string
-  /** 当前文本框内容 */
   currentContent: string
-  /** 确认使用生成内容后的回调 */
   onConfirm: (content: string) => void
-  /** 可用的节点引用列表（可选，会自动从工作流中获取） */
   availableReferences?: string[]
-  /** 字段显示名称（用于弹窗标题） */
   fieldLabel?: string
-  /** 按钮大小 */
   size?: 'sm' | 'default'
-  /** 额外的类名 */
   className?: string
+}
+
+const ERROR_MESSAGES: Record<string, string> = {
+  NO_AI_CONFIG: '请先在设置中配置 AI 服务',
+  CONTEXT_LIMIT_EXCEEDED: '上下文过大，已自动精简，请重试',
+  GENERATION_FAILED: '生成失败，请稍后重试',
+}
+
+function estimateTokens(text: string): number {
+  if (!text) return 0
+  return Math.ceil(text.length / 3)
+}
+
+function formatTokenCount(tokens: number): string {
+  if (tokens >= 1000) {
+    return `~${(tokens / 1000).toFixed(1)}k`
+  }
+  return `~${tokens}`
 }
 
 export function AIGenerateButton({
@@ -47,60 +58,50 @@ export function AIGenerateButton({
 
   const { nodes, edges, name, description, selectedNodeId } = useWorkflowStore()
 
-  // 获取当前节点信息
   const currentNode = nodes.find(n => n.id === selectedNodeId)
   const currentNodeData = currentNode?.data as { name?: string; type?: string } | undefined
 
-  // 构建可用引用列表
+  const directPredecessorIds = useMemo(() => {
+    if (!selectedNodeId) return new Set<string>()
+    const ids = new Set<string>()
+    edges.forEach(edge => {
+      if (edge.target === selectedNodeId) {
+        ids.add(edge.source)
+      }
+    })
+    return ids
+  }, [edges, selectedNodeId])
+
   const buildAvailableReferences = useCallback(() => {
     if (propReferences) return propReferences
 
     const references: string[] = []
+    const maxReferences = 20
 
-    // 找到当前节点的前置节点
-    const predecessorIds = new Set<string>()
-
-    // 递归获取所有前置节点
-    const getPredecessors = (nodeId: string) => {
-      const incoming = edges.filter(e => e.target === nodeId)
-      incoming.forEach(edge => {
-        if (!predecessorIds.has(edge.source)) {
-          predecessorIds.add(edge.source)
-          getPredecessors(edge.source)
-        }
-      })
-    }
-
-    if (selectedNodeId) {
-      getPredecessors(selectedNodeId)
-    }
-
-    // 为每个前置节点生成引用
-    nodes.forEach(node => {
-      if (!predecessorIds.has(node.id)) return
+    for (const node of nodes) {
+      if (!directPredecessorIds.has(node.id)) continue
+      if (references.length >= maxReferences) break
 
       const nodeData = node.data as { name?: string; type?: string; config?: Record<string, unknown> }
       const nodeName = nodeData?.name || node.id
       const nodeType = nodeData?.type?.toUpperCase()
 
       if (nodeType === 'INPUT') {
-        // 输入节点：列出所有字段
         const fields = nodeData?.config?.fields as Array<{ name: string }> | undefined
         if (fields) {
-          fields.forEach(field => {
+          for (const field of fields.slice(0, 5)) {
             references.push(`- {{${nodeName}.${field.name}}}`)
-          })
+            if (references.length >= maxReferences) break
+          }
         }
       } else {
-        // 其他节点：输出整个节点
         references.push(`- {{${nodeName}}}`)
       }
-    })
+    }
 
     return references
-  }, [nodes, edges, selectedNodeId, propReferences])
+  }, [nodes, directPredecessorIds, propReferences])
 
-  // 构建工作流上下文
   const buildWorkflowContext = useCallback(() => {
     const workflowNodes = nodes.map(node => {
       const nodeData = node.data as { id: string; name?: string; type?: string; config?: Record<string, unknown> }
@@ -122,7 +123,49 @@ export function AIGenerateButton({
     }
   }, [nodes, name, description, selectedNodeId, currentNodeData])
 
-  // 调用 AI 生成
+  const estimatedTokens = useMemo(() => {
+    let total = 0
+    total += estimateTokens(name || '')
+    total += estimateTokens(description || '')
+    
+    const currentNodeIndex = nodes.findIndex(n => n.id === selectedNodeId)
+    const predecessorNodes = nodes.slice(0, Math.max(0, currentNodeIndex))
+    
+    predecessorNodes.forEach(node => {
+      const nodeData = node.data as { name?: string; type?: string; config?: Record<string, unknown> }
+      total += estimateTokens(nodeData?.name || '')
+      total += 20
+      
+      if (nodeData?.type?.toUpperCase() === 'PROCESS') {
+        const sp = nodeData?.config?.systemPrompt
+        const up = nodeData?.config?.userPrompt
+        if (sp) total += Math.min(estimateTokens(String(sp)), 35)
+        if (up) total += Math.min(estimateTokens(String(up)), 35)
+      }
+    })
+    
+    total += estimateTokens(currentContent || '')
+    total += 500
+    
+    return total
+  }, [nodes, selectedNodeId, name, description, currentContent])
+
+  const contextStatus = useMemo(() => {
+    if (estimatedTokens < 2000) return 'normal'
+    if (estimatedTokens < 4000) return 'medium'
+    return 'large'
+  }, [estimatedTokens])
+
+  const tooltipText = useMemo(() => {
+    const action = currentContent?.trim() ? 'AI 优化内容' : 'AI 生成内容'
+    const tokenInfo = formatTokenCount(estimatedTokens)
+    
+    if (contextStatus === 'large') {
+      return `${action}（${tokenInfo} tokens，将自动精简）`
+    }
+    return `${action}（${tokenInfo} tokens）`
+  }, [currentContent, estimatedTokens, contextStatus])
+
   const generateContent = useCallback(async () => {
     setIsLoading(true)
     setError(null)
@@ -139,12 +182,14 @@ export function AIGenerateButton({
         }),
       })
 
+      const resData = await response.json()
+      
       if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error || '生成失败')
+        const errorCode = resData.error?.details?.code || 'GENERATION_FAILED'
+        const errorMessage = ERROR_MESSAGES[errorCode] || resData.error?.message || '生成失败'
+        throw new Error(errorMessage)
       }
 
-      const resData = await response.json()
       const data = resData.success ? resData.data : {}
       setGeneratedContent(data.content || '')
       setIsOptimization(data.isOptimization || false)
@@ -157,17 +202,14 @@ export function AIGenerateButton({
     }
   }, [fieldType, currentContent, buildWorkflowContext, buildAvailableReferences])
 
-  // 处理按钮点击
   const handleClick = () => {
     generateContent()
   }
 
-  // 处理重新生成
   const handleRegenerate = () => {
     generateContent()
   }
 
-  // 处理确认
   const handleConfirm = (content: string) => {
     onConfirm(content)
     setIsDialogOpen(false)
@@ -186,6 +228,7 @@ export function AIGenerateButton({
                 "h-6 px-1.5 text-xs gap-1 text-muted-foreground hover:text-primary",
                 "transition-colors",
                 isLoading && "pointer-events-none",
+                contextStatus === 'large' && "text-amber-500 hover:text-amber-600",
                 className
               )}
               onClick={handleClick}
@@ -200,7 +243,7 @@ export function AIGenerateButton({
             </Button>
           </TooltipTrigger>
           <TooltipContent side="top">
-            <p>{currentContent?.trim() ? 'AI 优化内容' : 'AI 生成内容'}</p>
+            <p>{tooltipText}</p>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>

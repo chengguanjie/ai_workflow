@@ -20,7 +20,9 @@ export const SHENSUAN_MODELS = {
   // 文本模型
   text: [
     'anthropic/claude-opus-4.5',
+    'anthropic/claude-sonnet-4.5',
     'anthropic/claude-sonnet-4.5:thinking',
+    'anthropic/claude-haiku-4.5',
     'anthropic/claude-haiku-4.5:thinking',
     'google/gemini-3-pro-preview',
     'google/gemini-3-flash',
@@ -33,7 +35,9 @@ export const SHENSUAN_MODELS = {
   // 代码模型（与文本模型相同）
   code: [
     'anthropic/claude-opus-4.5',
+    'anthropic/claude-sonnet-4.5',
     'anthropic/claude-sonnet-4.5:thinking',
+    'anthropic/claude-haiku-4.5',
     'anthropic/claude-haiku-4.5:thinking',
     'google/gemini-3-pro-preview',
     'google/gemini-3-flash',
@@ -85,7 +89,7 @@ export const SHENSUAN_MODELS = {
  * 各模态的默认模型
  */
 export const SHENSUAN_DEFAULT_MODELS: Record<ModelModality, string> = {
-  text: 'anthropic/claude-sonnet-4.5:thinking',
+  text: 'anthropic/claude-sonnet-4.5',
   code: 'anthropic/claude-opus-4.5',
   'image-gen': 'google/gemini-3-pro-image-preview',
   'video-gen': 'google/veo3.1-fast-preview',

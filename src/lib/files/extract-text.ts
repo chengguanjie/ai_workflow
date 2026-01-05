@@ -1,6 +1,6 @@
 import mammoth from 'mammoth'
 import ExcelJS from 'exceljs'
-import XLSX from 'xlsx'
+import * as XLSX from 'xlsx'
 
 export type ExtractedText = {
   kind: 'text'

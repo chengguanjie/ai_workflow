@@ -18,6 +18,18 @@ export interface AnthropicChatRequest extends ChatRequest {
 export class AnthropicProvider implements AIProvider {
   name = 'anthropic'
 
+  /**
+   * 检测是否为 thinking 模型（需要 extended thinking 配置）
+   */
+  private isThinkingModel(model: string): boolean {
+    const lower = model.toLowerCase()
+    // Claude thinking 模型使用 :thinking 后缀
+    if (lower.includes(':thinking')) return true
+    // DeepSeek thinking 模型使用 -think 后缀或 reasoner 关键字
+    if (lower.includes('deepseek') && (lower.includes('-think') || lower.includes('reasoner'))) return true
+    return false
+  }
+
   async chat(request: ChatRequest, apiKey: string, baseUrl?: string): Promise<ChatResponse> {
     const response = await this.chatWithTools(request as AnthropicChatRequest, apiKey, baseUrl)
     return {
@@ -53,6 +65,19 @@ export class AnthropicProvider implements AIProvider {
       temperature: request.temperature ?? 0.7,
     }
 
+    // Claude thinking 模型需要额外的 thinking 配置
+    if (this.isThinkingModel(request.model)) {
+      const budgetTokens = Math.min((request.maxTokens || 8000) * 2, 16000)
+      requestBody.thinking = {
+        type: 'enabled',
+        budget_tokens: budgetTokens
+      }
+      console.log('[Anthropic] 检测到 thinking 模型，添加 thinking 配置:', {
+        model: request.model,
+        budget_tokens: budgetTokens
+      })
+    }
+
     // 添加工具配置
     if (request.tools && request.tools.length > 0) {
       requestBody.tools = request.tools
@@ -77,7 +102,9 @@ export class AnthropicProvider implements AIProvider {
         'anthropic-version': ANTHROPIC_VERSION,
       },
       body: JSON.stringify(requestBody),
-      timeoutMs: 120_000,  // 增加到 120 秒
+      timeoutMs: 120_000,
+      retries: 2,
+      retryDelay: 2000,
     })
 
     console.log(`[Anthropic] 收到响应: ${response.status}, 耗时 ${Date.now() - startTime}ms`)

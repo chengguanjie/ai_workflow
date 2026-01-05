@@ -47,6 +47,13 @@ export interface RateLimitMiddlewareConfig {
 const DEFAULT_MIDDLEWARE_CONFIG: RateLimitMiddlewareConfig = {
   enabled: true,
   endpoints: [
+    // Task/execution polling - relaxed rate limiting (180/min)
+    // These endpoints are frequently polled by the UI during workflow runs.
+    {
+      pattern: /^\/api\/(tasks|executions)(\/|$)/,
+      config: { windowMs: 60000, maxRequests: 180 },
+      name: 'polling',
+    },
     // Auth endpoints - strict rate limiting (5/min)
     {
       pattern: /^\/api\/auth\/(register|change-password)/,

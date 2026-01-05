@@ -68,7 +68,7 @@ function getNodeOutputFields(
 }
 
 interface NodeExecutionResult {
-  status: "success" | "error" | "skipped";
+  status: "success" | "error" | "skipped" | "paused";
   output: Record<string, unknown>;
   error?: string;
   duration: number;

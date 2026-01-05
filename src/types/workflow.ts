@@ -344,12 +344,10 @@ export interface OutputNodeConfig extends BaseNodeConfig {
 
 /**
  * 逻辑节点模式：
- * - condition: 条件判断，按表达式匹配后续分支
- * - split: 并行拆分，激活所有后续分支
- * - merge: 结果合并，聚合多个上游结果
- * - switch: 按变量取值做分支选择
+ * - condition: 条件判断，根据表达式决定激活哪些后续分支
+ * - merge: 合并处理，等待所有上游节点完成后汇总结果传递给下游
  */
-export type LogicNodeMode = 'condition' | 'split' | 'merge' | 'switch'
+export type LogicNodeMode = 'condition' | 'merge'
 
 /**
  * 通用逻辑分支描述

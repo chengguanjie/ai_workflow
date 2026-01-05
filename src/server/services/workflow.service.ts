@@ -7,12 +7,13 @@
  * Requirements: 3.1, 4.1, 4.2, 4.3
  */
 
-import { prisma } from '@/lib/db'
+import { prisma, withRetry } from '@/lib/db'
 import { NotFoundError, ValidationError, ConflictError } from '@/lib/errors'
-import { Prisma } from '@prisma/client'
+import { Prisma, executions_status } from '@prisma/client'
 import type { Workflow, TriggerType } from '@prisma/client'
 import type { WorkflowConfig, NodeConfig } from '@/types/workflow'
 import { getAccessibleWorkflowIds } from '@/lib/permissions/workflow'
+import { isOutputValid } from '@/lib/workflow/utils'
 import crypto from 'crypto'
 
 /**
@@ -93,6 +94,26 @@ export interface PaginatedResult<T> {
     total: number
     totalPages: number
   }
+}
+
+/**
+ * Node execution status info for latest execution
+ */
+export interface NodeExecutionStatusInfo {
+  status: string
+  error?: string
+  hasOutput: boolean
+  output?: unknown
+}
+
+/**
+ * Latest execution info returned with workflow
+ */
+export interface LatestExecutionInfo {
+  id: string
+  status: string
+  createdAt: string
+  nodeStatuses: Record<string, NodeExecutionStatusInfo>
 }
 
 /**
@@ -203,29 +224,95 @@ export class WorkflowService {
    * 
    * @param id - Workflow ID
    * @param organizationId - Organization ID for access control
-   * @returns Workflow with creator info or null if not found
+   * @returns Workflow with creator info and latest execution status, or null if not found
    * 
    * Requirements: 3.1
    */
-  async getById(id: string, organizationId: string): Promise<Workflow | null> {
-    const workflow = await prisma.workflow.findFirst({
-      where: {
-        id,
-        organizationId,
-        deletedAt: null,
-      },
-      include: {
-        creator: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
+  async getById(id: string, organizationId: string): Promise<(Workflow & { latestExecution?: LatestExecutionInfo }) | null> {
+    const workflow = await withRetry(
+      () =>
+        prisma.workflow.findFirst({
+          where: {
+            id,
+            organizationId,
+            deletedAt: null,
           },
-        },
-      },
-    })
+          include: {
+            creator: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+        }),
+      { operationName: '查询工作流详情' },
+    )
 
-    return workflow
+    if (!workflow) {
+      return null
+    }
+
+    // 查询最近一次执行记录及其节点日志
+    console.log('[getById] Querying latestExecution for workflowId:', id)
+    let latestExecution: Awaited<ReturnType<typeof prisma.execution.findFirst>> = null
+    try {
+      latestExecution = await withRetry(
+        () =>
+          prisma.execution.findFirst({
+            where: {
+              workflowId: id,
+              status: { in: ['COMPLETED', 'FAILED', 'PAUSED'] as executions_status[] },
+            },
+            orderBy: { createdAt: 'desc' },
+            include: {
+              logs: {
+                select: {
+                  nodeId: true,
+                  status: true,
+                  error: true,
+                  output: true,
+                },
+              },
+            },
+          }),
+        { operationName: '查询工作流最近执行信息' },
+      )
+    } catch (error) {
+      console.warn('[getById] Querying latestExecution failed, returning workflow without it:', error)
+      return workflow
+    }
+
+    console.log('[getById] latestExecution found:', !!latestExecution, latestExecution?.id)
+    if (latestExecution) {
+      console.log('[getById] latestExecution.logs count:', latestExecution.logs.length)
+    }
+
+    if (!latestExecution) {
+      return workflow
+    }
+
+    // 构建节点状态映射
+    const nodeStatuses: Record<string, NodeExecutionStatusInfo> = {}
+    for (const log of latestExecution.logs) {
+      nodeStatuses[log.nodeId] = {
+        status: log.status,
+        error: log.error || undefined,
+        hasOutput: isOutputValid(log.output as Record<string, unknown>),
+        output: log.output,
+      }
+    }
+
+    return {
+      ...workflow,
+      latestExecution: {
+        id: latestExecution.id,
+        status: latestExecution.status,
+        createdAt: latestExecution.createdAt.toISOString(),
+        nodeStatuses,
+      },
+    }
   }
 
   /**

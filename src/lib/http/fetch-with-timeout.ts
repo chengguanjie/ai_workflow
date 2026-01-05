@@ -1,5 +1,7 @@
 export type FetchWithTimeoutInit = RequestInit & {
   timeoutMs?: number
+  retries?: number
+  retryDelay?: number
 }
 
 let didPreferIpv4First = false
@@ -25,11 +27,78 @@ function isTlsHandshakeEarlyDisconnect(error: unknown): boolean {
   return message.includes('client network socket disconnected before secure tls connection was established')
 }
 
+export function isRetryableNetworkError(error: unknown): boolean {
+  const message = (getErrorMessage(error) + ' ' + (getErrorCauseMessage(error) || '')).toLowerCase()
+  
+  const retryablePatterns = [
+    'econnreset',
+    'econnrefused',
+    'etimedout',
+    'enotfound',
+    'eai_again',
+    'connect timeout',
+    'connection timeout',
+    'connecttimeouterror',
+    'socket hang up',
+    'network socket disconnected',
+    'fetch failed',
+    'network error',
+    'dns lookup',
+    'attempted addresses',
+    'connection refused',
+    'network is unreachable',
+    'host is unreachable',
+  ]
+  
+  return retryablePatterns.some(pattern => message.includes(pattern))
+}
+
+export function getNetworkErrorHint(error: unknown): string {
+  const message = getErrorMessage(error)
+  const cause = getErrorCauseMessage(error)
+  const lower = (message + ' ' + (cause || '')).toLowerCase()
+  
+  let hint = ''
+  
+  if (lower.includes('connect timeout') || lower.includes('etimedout') || lower.includes('connecttimeouterror') || lower.includes('attempted addresses')) {
+    hint = '连接超时，可能是网络不稳定或服务器节点暂时不可用，请重试'
+  } else if (lower.includes('econnrefused')) {
+    hint = '连接被拒绝，服务器可能未启动或端口被阻止'
+  } else if (lower.includes('econnreset')) {
+    hint = '连接被重置，网络不稳定或被防火墙中断'
+  } else if (lower.includes('enotfound') || lower.includes('dns')) {
+    hint = '域名解析失败，请检查网络或 DNS 设置'
+  } else if (lower.includes('socket hang up')) {
+    hint = '连接意外断开，网络不稳定'
+  } else if (lower.includes('tls') || lower.includes('ssl') || lower.includes('certificate')) {
+    hint = 'TLS/SSL 握手失败，可能是证书问题或代理干扰'
+  }
+  
+  return hint
+}
+
+export function formatNetworkError(error: unknown, context?: string): Error {
+  const message = getErrorMessage(error)
+  const cause = getErrorCauseMessage(error)
+  const hint = getNetworkErrorHint(error)
+  
+  let fullMessage = context ? `${context}: ` : ''
+  fullMessage += cause ? `${message}: ${cause}` : message
+  
+  if (hint) {
+    fullMessage += `\n\n可能原因: ${hint}\n\n建议操作:\n- 检查网络连接是否正常\n- 如使用代理/VPN，请确认配置正确\n- 稍后重试`
+  }
+  
+  const formatted = new Error(fullMessage)
+  if (error instanceof Error) {
+    formatted.stack = error.stack
+  }
+  return formatted
+}
+
 async function preferIpv4FirstOnce(): Promise<void> {
   if (didPreferIpv4First) return
-  // 仅在服务端运行
   if (typeof window !== 'undefined') return
-  // 使用 eval 阻止 webpack 静态分析
   try {
     // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
     const dns = await (new Function('return import("node:dns")'))() as typeof import('node:dns')
@@ -66,11 +135,21 @@ function mergeAbortSignals(signals: Array<AbortSignal | null | undefined>): Abor
   return controller.signal
 }
 
+async function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
 export async function fetchWithTimeout(
   input: RequestInfo | URL,
   init: FetchWithTimeoutInit = {}
 ): Promise<Response> {
-  const { timeoutMs = 60_000, signal, ...rest } = init
+  const { 
+    timeoutMs = 60_000, 
+    retries = 2,
+    retryDelay = 1500,
+    signal, 
+    ...rest 
+  } = init
 
   const attemptFetch = async (): Promise<Response> => {
     if (!timeoutMs || timeoutMs <= 0) {
@@ -87,7 +166,6 @@ export async function fetchWithTimeout(
       if (timeoutController.signal.aborted && !signal?.aborted) {
         throw new Error(`请求超时（${timeoutMs}ms）`)
       }
-      // 提取更详细的错误信息
       if (error instanceof Error) {
         const cause = (error as Error & { cause?: Error }).cause
         if (cause) {
@@ -100,14 +178,32 @@ export async function fetchWithTimeout(
     }
   }
 
-  try {
-    return await attemptFetch()
-  } catch (error) {
-    // 某些网络环境下（IPv6/解析顺序问题）会出现 TLS 握手前断开；尝试切到 ipv4first 并重试一次
-    if (isTlsHandshakeEarlyDisconnect(error) && !didPreferIpv4First) {
-      await preferIpv4FirstOnce()
+  const executeWithRetry = async (attempt: number): Promise<Response> => {
+    try {
       return await attemptFetch()
+    } catch (error) {
+      if (isTlsHandshakeEarlyDisconnect(error) && !didPreferIpv4First) {
+        await preferIpv4FirstOnce()
+        return await attemptFetch()
+      }
+
+      if (signal?.aborted) {
+        throw error
+      }
+
+      const isRetryable = isRetryableNetworkError(error)
+      const hasRetriesLeft = attempt < retries
+
+      if (isRetryable && hasRetriesLeft) {
+        const delay = retryDelay * Math.pow(1.5, attempt)
+        console.log(`[fetchWithTimeout] 网络错误，${delay}ms 后重试 (${attempt + 1}/${retries}):`, getErrorMessage(error))
+        await sleep(delay)
+        return executeWithRetry(attempt + 1)
+      }
+
+      throw error
     }
-    throw error
   }
+
+  return executeWithRetry(0)
 }

@@ -242,7 +242,7 @@ ${JSON.stringify(testResult, null, 2)}
 
       // 验证生成的 nodeActions
       if (optimization.nodeActions && Array.isArray(optimization.nodeActions)) {
-        const validation = validateWorkflowActions(optimization.nodeActions)
+        const validation = validateWorkflowActions(optimization.nodeActions as Parameters<typeof validateWorkflowActions>[0])
         if (!validation.valid) {
           optimization.summary += `\n\n[系统警告] 生成的优化操作存在隐患: ${validation.errors.join('; ')}`
           // 可以选择过滤掉危险操作，或者只是标记

@@ -60,6 +60,59 @@ export function parseVariableReferences(text: string): VariableReference[] {
 }
 
 /**
+ * 从文本中提取所有引用的节点名称
+ * 支持 {{节点名.xxx}} 和 {{节点名}} 两种格式
+ * 返回去重后的节点名数组
+ */
+export function extractReferencedNodeNames(text: string): string[] {
+  const nodeNames = new Set<string>()
+
+  // 匹配完整格式 {{节点名.字段名}}
+  let match
+  const fullPattern = /\{\{([^.}]+)\.([^}]+)\}\}/g
+  while ((match = fullPattern.exec(text)) !== null) {
+    nodeNames.add(match[1].trim())
+  }
+
+  // 匹配简化格式 {{节点名}}
+  const simplePattern = /\{\{([^.{}]+)\}\}/g
+  while ((match = simplePattern.exec(text)) !== null) {
+    nodeNames.add(match[1].trim())
+  }
+
+  return Array.from(nodeNames)
+}
+
+/**
+ * 从文本中提取所有变量引用的详细信息
+ * 返回包含节点名和字段路径的数组
+ */
+export function extractVariableReferences(text: string): Array<{ nodeName: string; fieldPath: string | null }> {
+  const references: Array<{ nodeName: string; fieldPath: string | null }> = []
+
+  // 匹配完整格式 {{节点名.字段名}}
+  let match
+  const fullPattern = /\{\{([^.}]+)\.([^}]+)\}\}/g
+  while ((match = fullPattern.exec(text)) !== null) {
+    references.push({
+      nodeName: match[1].trim(),
+      fieldPath: match[2].trim(),
+    })
+  }
+
+  // 匹配简化格式 {{节点名}}
+  const simplePattern = /\{\{([^.{}]+)\}\}/g
+  while ((match = simplePattern.exec(text)) !== null) {
+    references.push({
+      nodeName: match[1].trim(),
+      fieldPath: null,
+    })
+  }
+
+  return references
+}
+
+/**
  * 从节点输出中获取默认值
  * 优先级：result > 结果 > 第一个字段 > 整个对象
  */
@@ -827,4 +880,66 @@ export function createContentPartsFromText(
 
   // 5. 合并
   return mergeTextParts(parts)
+}
+
+/**
+ * 检查节点输出是否有效（非空、非null、非undefined、非空字符串）
+ * 用于判断节点输出状态是 'valid' 还是 'empty'
+ */
+export function isOutputValid(data: Record<string, unknown> | undefined | null): boolean {
+  if (!data || Object.keys(data).length === 0) {
+    return false
+  }
+
+  const values = Object.values(data)
+  return values.some(value => {
+    if (value === null || value === undefined) return false
+    if (typeof value === 'string' && value.trim() === '') return false
+    if (Array.isArray(value) && value.length === 0) return false
+    if (typeof value === 'object' && Object.keys(value as object).length === 0) return false
+    return true
+  })
+}
+
+/**
+ * 递归替换对象中所有字符串字段的变量引用
+ * 用于工具配置中的变量替换
+ *
+ * @param config 工具配置对象
+ * @param context 执行上下文
+ * @returns 替换后的配置对象（深拷贝）
+ */
+export function replaceVariablesInConfig<T extends Record<string, unknown>>(
+  config: T,
+  context: ExecutionContext
+): T {
+  const result = {} as T
+
+  for (const [key, value] of Object.entries(config)) {
+    if (typeof value === 'string') {
+      // 字符串：替换变量
+      result[key as keyof T] = replaceVariables(value, context) as T[keyof T]
+    } else if (Array.isArray(value)) {
+      // 数组：递归处理每个元素
+      result[key as keyof T] = value.map(item => {
+        if (typeof item === 'string') {
+          return replaceVariables(item, context)
+        } else if (typeof item === 'object' && item !== null) {
+          return replaceVariablesInConfig(item as Record<string, unknown>, context)
+        }
+        return item
+      }) as T[keyof T]
+    } else if (typeof value === 'object' && value !== null) {
+      // 对象：递归处理
+      result[key as keyof T] = replaceVariablesInConfig(
+        value as Record<string, unknown>,
+        context
+      ) as T[keyof T]
+    } else {
+      // 其他类型（number、boolean、null、undefined等）：保持原样
+      result[key as keyof T] = value as T[keyof T]
+    }
+  }
+
+  return result
 }

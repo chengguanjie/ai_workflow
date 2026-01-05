@@ -30,6 +30,14 @@ export interface ExecutionProgressEvent {
     code?: string
     isRetryable?: boolean
   }
+  /** 输入状态 */
+  inputStatus?: 'pending' | 'valid' | 'invalid' | 'missing'
+  /** 输出状态 */
+  outputStatus?: 'pending' | 'valid' | 'error' | 'empty'
+  /** 输入错误信息 */
+  inputError?: string
+  /** 输出错误信息 */
+  outputError?: string
 }
 
 export interface UseExecutionStreamOptions {

@@ -235,8 +235,8 @@ function WorkflowEditor() {
       selectNode(node.id);
 
       const nodeType = node.data?.type?.toLowerCase();
-      // input / process 节点：打开调试面板
-      if (nodeType === "input" || nodeType === "process") {
+      // input / process / logic 节点：打开调试面板
+      if (nodeType === "input" || nodeType === "process" || nodeType === "logic") {
         openDebugPanel(node.id);
       }
       // code / output 等其他节点：通过 selectedNodeId 让右侧配置面板自动展开
@@ -256,8 +256,8 @@ function WorkflowEditor() {
     const nodeType = (
       selectedNode?.data as { type?: string }
     )?.type?.toLowerCase();
-    // input 和 process 节点不显示配置面板，只用调试面板
-    return nodeType !== "input" && nodeType !== "process";
+    // input、process 和 logic 节点不显示配置面板，只用调试面板
+    return nodeType !== "input" && nodeType !== "process" && nodeType !== "logic";
   }, [selectedNodeId, nodes]);
 
   return (

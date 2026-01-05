@@ -15,7 +15,7 @@ import type {
   ClaudeTool,
   ToolExecutionContext,
 } from '@/lib/ai/function-calling/types'
-import { replaceVariables, createContentPartsFromText } from '../utils'
+import { replaceVariables, createContentPartsFromText, replaceVariablesInConfig } from '../utils'
 import { prisma } from '@/lib/db'
 import { safeDecryptApiKey } from '@/lib/crypto'
 import { getRelevantContext } from '@/lib/knowledge/search'
@@ -23,6 +23,7 @@ import { OpenAIProvider } from '@/lib/ai/providers/openai'
 import { AnthropicProvider } from '@/lib/ai/providers/anthropic'
 import { ensureImportedFilesFromContext } from '../imported-files'
 import { buildRagQuery } from '../rag'
+import { isRetryableNetworkError, getNetworkErrorHint } from '@/lib/http/fetch-with-timeout'
 import {
   functionCallingService,
   toolRegistry,
@@ -203,10 +204,27 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
       if (openaiTools.length > 0 || claudeTools.length > 0) {
         const toolListText = toolDescriptions.map(t => `- ${t.name}: ${t.description}`).join('\n')
 
-        // 生成用户预配置的工具参数说明
-        const toolConfigText = this.buildToolConfigInstructions(uiTools)
+        // 替换工具配置中的变量引用（如 {{用户输入.原文链接}} -> 实际值）
+        const resolvedUITools = uiTools.map(tool => ({
+          ...tool,
+          config: tool.config ? replaceVariablesInConfig(tool.config, context) : tool.config
+        }))
 
-        systemPrompt = `${systemPrompt}\n\n## 可用工具\n${toolListText}${toolConfigText}\n\n当需要执行上述操作时，请调用相应的工具。`
+        // 生成用户预配置的工具参数说明（使用替换后的配置）
+        const toolConfigText = this.buildToolConfigInstructions(resolvedUITools)
+
+        // 增强的工具调用提示词
+        systemPrompt = `${systemPrompt}
+
+## 可用工具
+${toolListText}${toolConfigText}
+
+## 重要指令
+你必须使用上述工具来完成任务。请直接根据已有信息调用工具执行任务，不要询问用户补充信息。
+- 如果是图片生成任务，立即调用 image_gen_ai 工具，根据内容生成合适的 prompt
+- 如果是视频生成任务，立即调用 video_gen_ai 工具
+- 如果是音频生成任务，立即调用 audio_gen_ai 工具
+- 即使信息看起来不完整，也应该基于现有内容创造性地生成合适的参数`
         context.addLog?.('info', `已启用 ${toolDescriptions.length} 个工具`, 'TOOLS', {
           tools: toolDescriptions.map(t => t.name)
         })
@@ -227,11 +245,18 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
 
       const maxRounds = processNode.config?.maxToolCallRounds ?? 5 // default increased
 
+      // 如果启用了生成类工具（图片/视频/音频），自动使用 required 模式确保工具被调用
+      const generativeTools = ['image_gen_ai', 'video_gen_ai', 'audio_gen_ai']
+      const hasGenerativeTool = finalEnabledTools?.some(t => generativeTools.includes(t)) ?? false
+      const effectiveToolChoice = hasGenerativeTool 
+        ? 'required' as const
+        : (processNode.config?.toolChoice || 'auto') as 'auto' | 'none' | 'required'
+
       // 7. 执行带工具的 AI 调用
       context.addLog?.('step', '开始执行 AI 处理 (带工具支持)...', 'EXECUTE', {
         model,
         maxRounds,
-        toolChoice: processNode.config?.toolChoice || 'auto'
+        toolChoice: effectiveToolChoice
       })
 
       const useClaudeAPI = this.isClaudeFormat(aiConfig.provider, model)
@@ -256,7 +281,7 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
         messages,
         openaiTools,
         claudeTools,
-        processNode.config?.toolChoice || 'auto',
+        effectiveToolChoice,
         processNode.config?.temperature ?? 0.7,
         processNode.config?.maxTokens ?? 2048,
         maxRounds,
@@ -279,33 +304,55 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
 
       let outputType: OutputType | undefined
 
-      // 尝试从最近一次成功的工具调用中提取结构化结果（如图片/视频/音频）
+      // 聚合所有成功的工具调用结果（图片/视频/音频）
       if (result.toolCallHistory.length > 0) {
-        const lastSuccessful = [...result.toolCallHistory]
-          .reverse()
-          .find(item => item.result?.success && item.result.result && typeof item.result.result === 'object')
+        const allImages: Array<{ url?: string; b64?: string; revisedPrompt?: string }> = []
+        const allVideos: Array<{ url?: string; duration?: number; format?: string }> = []
+        let lastAudio: Record<string, unknown> | undefined
+        let lastAudioText: string | undefined
+        let lastTaskId: string | undefined
 
-        if (lastSuccessful && lastSuccessful.result.result && typeof lastSuccessful.result.result === 'object') {
-          const toolResult = lastSuccessful.result.result as Record<string, unknown>
+        for (const item of result.toolCallHistory) {
+          if (!item.result?.success || !item.result.result || typeof item.result.result !== 'object') {
+            continue
+          }
+
+          const toolResult = item.result.result as Record<string, unknown>
           const type = toolResult._type as string | undefined
 
           if (type === 'image-gen' && Array.isArray(toolResult.images)) {
-            // 直接将图片数组展开到顶层，便于前端预览与下游节点引用
-            data.images = toolResult.images
-            outputType = 'image'
+            allImages.push(...(toolResult.images as Array<{ url?: string; b64?: string; revisedPrompt?: string }>))
           } else if (type === 'video-gen' && Array.isArray(toolResult.videos)) {
-            data.videos = toolResult.videos
+            allVideos.push(...(toolResult.videos as Array<{ url?: string; duration?: number; format?: string }>))
             if (toolResult.taskId) {
-              data.taskId = toolResult.taskId
+              lastTaskId = toolResult.taskId as string
             }
-            outputType = 'video'
           } else if (type === 'audio-tts' && toolResult.audio) {
-            data.audio = toolResult.audio
+            lastAudio = toolResult.audio as Record<string, unknown>
             if (toolResult.text) {
-              data.text = toolResult.text
+              lastAudioText = toolResult.text as string
             }
-            outputType = 'audio'
           }
+        }
+
+        // 按优先级设置输出类型和数据
+        if (allImages.length > 0) {
+          data.images = allImages
+          outputType = 'image'
+        }
+        if (allVideos.length > 0) {
+          data.videos = allVideos
+          if (lastTaskId) {
+            data.taskId = lastTaskId
+          }
+          if (!outputType) outputType = 'video'
+        }
+        if (lastAudio) {
+          data.audio = lastAudio
+          if (lastAudioText) {
+            data.text = lastAudioText
+          }
+          if (!outputType) outputType = 'audio'
         }
       }
 
@@ -328,13 +375,26 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
         },
       }
     } catch (error) {
+      let errorMessage = error instanceof Error ? error.message : 'AI 处理失败'
+      
+      if (isRetryableNetworkError(error)) {
+        const hint = getNetworkErrorHint(error)
+        context.addLog?.('error', `网络连接错误: ${errorMessage}`, 'NETWORK_ERROR', {
+          hint,
+          suggestion: '请检查网络连接，或稍后重试'
+        })
+        if (hint) {
+          errorMessage = `${errorMessage}\n\n可能原因: ${hint}\n\n建议: 检查网络连接是否正常，如使用代理请确认配置正确，稍后重试`
+        }
+      }
+      
       return {
         nodeId: node.id,
         nodeName: node.name,
         nodeType: node.type,
         status: 'error',
         data: {},
-        error: error instanceof Error ? error.message : 'AI 处理失败',
+        error: errorMessage,
         startedAt,
         completedAt: new Date(),
         duration: Date.now() - startedAt.getTime(),
@@ -395,6 +455,49 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
             `请优先复用以下参数调用此工具：\n${params.join('\n')}\n` +
             `注意：飞书鉴权 token 不在此处提供，运行环境需配置 FEISHU_TENANT_ACCESS_TOKEN。`
           )
+        }
+      }
+
+      // 图片生成工具预设参数
+      if (tool.type === 'image-gen-ai') {
+        const params: string[] = []
+        if (tool.config.model) params.push(`model: "${tool.config.model}"`)
+        if (tool.config.imageSize) params.push(`image_size: "${tool.config.imageSize}"`)
+        if (tool.config.imageQuality) params.push(`image_quality: "${tool.config.imageQuality}"`)
+        if (tool.config.imageStyle) params.push(`image_style: "${tool.config.imageStyle}"`)
+        if (tool.config.negativePrompt) params.push(`negative_prompt: "${tool.config.negativePrompt}"`)
+        
+        const imageCount = (tool.config.imageCount as number) || 1
+        if (params.length > 0 || imageCount > 0) {
+          instructions.push(
+            `\n### 工具 "${tool.name}" (${executorName}) 的预设参数：\n` +
+            `**重要**：只调用此工具 ${imageCount} 次，每次生成 1 张图片，总共生成 ${imageCount} 张图片。\n` +
+            `请务必使用以下参数调用此工具，不要自行更改模型或尺寸：\n${params.join('\n')}`
+          )
+        }
+      }
+
+      // 视频生成工具预设参数
+      if (tool.type === 'video-gen-ai') {
+        const params: string[] = []
+        if (tool.config.model) params.push(`model: "${tool.config.model}"`)
+        if (tool.config.videoDuration) params.push(`video_duration: ${tool.config.videoDuration}`)
+        if (tool.config.videoAspectRatio) params.push(`video_aspect_ratio: "${tool.config.videoAspectRatio}"`)
+        if (tool.config.videoResolution) params.push(`video_resolution: "${tool.config.videoResolution}"`)
+        if (params.length > 0) {
+          instructions.push(`\n### 工具 "${tool.name}" (${executorName}) 的预设参数：\n请务必使用以下参数调用此工具：\n${params.join('\n')}`)
+        }
+      }
+
+      // 语音生成工具预设参数
+      if (tool.type === 'audio-tts-ai') {
+        const params: string[] = []
+        if (tool.config.model) params.push(`model: "${tool.config.model}"`)
+        if (tool.config.ttsVoice) params.push(`voice: "${tool.config.ttsVoice}"`)
+        if (tool.config.ttsSpeed) params.push(`tts_speed: ${tool.config.ttsSpeed}`)
+        if (tool.config.ttsFormat) params.push(`output_format: "${tool.config.ttsFormat}"`)
+        if (params.length > 0) {
+          instructions.push(`\n### 工具 "${tool.name}" (${executorName}) 的预设参数：\n请务必使用以下参数调用此工具：\n${params.join('\n')}`)
         }
       }
 
@@ -528,6 +631,7 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
     const totalUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
     let rounds = 0
     let lastResponse: ChatResponseWithTools | null = null
+    let hasSuccessfulToolCalls = false // 标记是否已有成功的工具调用
 
     const toolContext: ToolExecutionContext = {
       executionId: context.executionId,
@@ -571,8 +675,32 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
 
       lastResponse = response
 
-      // 如果没有工具调用，返回结果
+      // 如果没有工具调用
       if (!response.toolCalls || response.toolCalls.length === 0) {
+        // 如果已有成功的工具调用，任务完成，不再强制
+        if (hasSuccessfulToolCalls) {
+          context.addLog?.('info', `第 ${rounds} 轮: 工具已成功执行，任务完成`, 'ROUND')
+          break
+        }
+        
+        // 如果 toolChoice 是 required 但没有工具调用，追加强制提示后重试
+        if (toolChoice === 'required' && rounds < maxRounds) {
+          context.addLog?.('warning', `第 ${rounds} 轮: toolChoice=required 但未收到工具调用，追加强制提示后重试`, 'ROUND', {
+            contentPreview: response.content?.slice(0, 100)
+          })
+          
+          // 追加一条用户消息强制工具调用
+          messages = [
+            ...messages,
+            { role: 'assistant' as const, content: response.content || '' },
+            { 
+              role: 'user' as const, 
+              content: '请立即使用工具执行任务，不要回复文字。直接调用工具生成内容。' 
+            }
+          ]
+          continue // 进入下一轮
+        }
+        
         context.addLog?.('info', `第 ${rounds} 轮: AI 未发起工具调用，结束`, 'ROUND', {
           contentPreview: response.content?.slice(0, 100)
         })
@@ -608,6 +736,22 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
           args: call.function.arguments,
           result: result.success ? result.result : result.error
         })
+      }
+
+      // 检查是否有成功的工具调用
+      if (toolResults.some(r => r.success)) {
+        hasSuccessfulToolCalls = true
+      }
+
+      // 对于生成类工具（图片/视频/音频），成功执行后直接返回，不需要再让 AI 处理结果
+      const generativeToolNames = ['image_gen_ai', 'video_gen_ai', 'audio_gen_ai']
+      const isGenerativeToolCall = response.toolCalls.some(tc => 
+        generativeToolNames.includes(tc.function.name)
+      )
+      
+      if (isGenerativeToolCall && hasSuccessfulToolCalls) {
+        context.addLog?.('info', `第 ${rounds} 轮: 生成类工具执行成功，任务完成`, 'ROUND')
+        break
       }
 
       // 构建新的消息，包含工具调用结果

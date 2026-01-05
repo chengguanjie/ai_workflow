@@ -1,21 +1,96 @@
 import { create } from 'zustand'
 
-export interface QuestionOption {
+export interface NodeResultData {
+  nodeId: string
+  nodeName: string
+  nodeType: string
+  status: 'success' | 'error' | 'pending' | 'running'
+  error?: string
+  output?: Record<string, unknown>
+  duration?: number
+  promptTokens?: number
+  completionTokens?: number
+}
+
+export interface TestResultData {
+  success: boolean
+  executionId?: string
+  status?: string
+  duration?: number
+  totalTokens?: number
+  error?: string
+  output?: Record<string, unknown>
+  nodeResults?: NodeResultData[]
+  analysis?: string
+  missingInputs?: string[]
+}
+
+export type TaskPhase = 
+  | 'idle'
+  | 'requirement_confirmation'
+  | 'creating'
+  | 'test_data_selection'
+  | 'testing'
+  | 'planning'
+  | 'node_selection'
+  | 'node_config'
+  | 'node_diagnosis'
+  | 'request_node_config'
+  | 'completed'
+
+export interface TaskStep {
+  id: string
+  name: string
+  status: 'pending' | 'in_progress' | 'completed' | 'error'
+  description?: string
+}
+
+export interface RequirementConfirmation {
+  workflowName: string
+  goal: string
+  inputFields: Array<{ name: string; type: string; required: boolean; description?: string }>
+  processSteps: Array<{ name: string; description: string }>
+}
+
+export interface InteractiveOption {
   id: string
   label: string
   description?: string
+  icon?: string
   allowInput?: boolean
 }
 
-export interface Question {
+export interface InteractiveQuestion {
   id: string
   question: string
-  options: QuestionOption[]
+  type: 'single' | 'multiple' | 'text'
+  options?: InteractiveOption[]
+  required?: boolean
 }
 
-export interface QuestionOptions {
-  phase: string
-  questions: Question[]
+export interface NodeSelectionInfo {
+  nodeId: string
+  nodeName: string
+  nodeType: string
+  configSummary?: string
+}
+
+export interface DiagnosisProblem {
+  type: 'prompt' | 'config' | 'connection' | 'tool' | 'other'
+  issue: string
+  severity: 'high' | 'medium' | 'low'
+}
+
+export interface DiagnosisResult {
+  nodeName: string
+  nodeId: string
+  problems: DiagnosisProblem[]
+  summary: string
+}
+
+export interface DiagnosisSuggestion {
+  description: string
+  priority: 'high' | 'medium' | 'low'
 }
 
 export interface AIMessage {
@@ -24,37 +99,16 @@ export interface AIMessage {
   content: string
   timestamp: number
   nodeActions?: NodeAction[]
-  testResult?: TestResult
-  optimizationSuggestion?: OptimizationSuggestion
-  aesReport?: AESReport
-  questionOptions?: QuestionOptions
-  messageType?: 'normal' | 'requirement' | 'workflow_generated' | 'test_result' | 'optimization' | 'aes_evaluation'
-}
-
-export interface AESReport {
-  scores: {
-    L: number
-    A: number
-    C: number
-    P: number
-    R: number
-    total: number
-  }
-  targetMatching?: number
-  executionAnalysis?: {
-    status: 'success' | 'failed'
-    durationAnalysis?: string
-    errorAnalysis?: string
-    outputQuality?: string
-  }
-  report: string
-  diagnosis: Array<{
-    dimension: string
-    issue: string
-    severity: string
-    suggestion: string
-  }>
-  needOptimization: boolean
+  testResult?: TestResultData
+  pendingFix?: boolean
+  fixStatus?: 'pending' | 'applied' | 'rejected'
+  phase?: TaskPhase
+  requirementConfirmation?: RequirementConfirmation
+  interactiveQuestions?: InteractiveQuestion[]
+  nodeSelection?: NodeSelectionInfo[]
+  layoutPreview?: NodeAction[]
+  diagnosis?: DiagnosisResult
+  suggestions?: DiagnosisSuggestion[]
 }
 
 export interface NodeAction {
@@ -70,68 +124,6 @@ export interface NodeAction {
   targetHandle?: string | null
 }
 
-export interface TestResult {
-  success: boolean
-  executionId?: string
-  duration?: number
-  output?: Record<string, unknown>
-  error?: string
-  nodeResults?: Array<{
-    nodeId: string
-    nodeName: string
-    status: 'success' | 'error' | 'skipped'
-    error?: string
-    output?: unknown
-  }>
-  analysis?: string
-}
-
-export interface OptimizationSuggestion {
-  issues: Array<{
-    nodeId: string
-    nodeName: string
-    issue: string
-    suggestion: string
-    priority: 'high' | 'medium' | 'low'
-  }>
-  proposedActions?: NodeAction[]
-  summary: string
-}
-
-export interface RequirementAnalysis {
-  understood: boolean
-  summary: string
-  clarifications?: string[]
-  suggestedWorkflow?: {
-    name: string
-    description: string
-    nodeTypes: string[]
-    dataFlow: string
-  }
-}
-
-export type ConversationPhase =
-  | 'requirement_gathering'
-  | 'requirement_clarification'
-  | 'workflow_design'
-  | 'workflow_generation'
-  | 'testing'
-  | 'optimization'
-  | 'completed'
-
-export interface AutoOptimizationState {
-  isRunning: boolean
-  currentIteration: number
-  maxIterations: number
-  targetCriteria: string
-  history: Array<{
-    iteration: number
-    testResult: TestResult
-    optimization?: OptimizationSuggestion
-    applied: boolean
-  }>
-}
-
 export interface Conversation {
   id: string
   title: string
@@ -139,51 +131,6 @@ export interface Conversation {
   messages: AIMessage[]
   createdAt: number
   updatedAt: number
-  phase: ConversationPhase
-  requirementAnalysis?: RequirementAnalysis
-  autoOptimization?: AutoOptimizationState
-}
-
-// 面板模式
-export type PanelMode = 'chat' | 'create' | 'diagnose' | 'optimize' | 'refine' | 'test'
-
-// 诊断问题
-export interface DiagnosisIssue {
-  nodeId: string
-  nodeName: string
-  severity: 'error' | 'warning' | 'info'
-  category: 'connection' | 'config' | 'variable' | 'tool' | 'knowledge' | 'performance'
-  issue: string
-  suggestion: string
-  autoFixable: boolean
-  fixAction?: NodeAction
-}
-
-// 诊断结果
-export interface DiagnosisResult {
-  issues: DiagnosisIssue[]
-  summary: string
-  score: number
-}
-
-// 创建工作流草稿
-export interface CreateWorkflowDraft {
-  prompt: string
-  detailedPrompt: string
-  recommendations: Array<{
-    id: string
-    name: string
-    description: string
-    score: number
-    reason?: string
-  }>
-  step: 'input' | 'confirm'
-}
-
-// 测试结果类型（增强版，包含输入数据）
-export interface SharedTestResult extends TestResult {
-  testInput?: Record<string, unknown>
-  timestamp?: number
 }
 
 interface AIAssistantState {
@@ -195,78 +142,60 @@ interface AIAssistantState {
   isLoading: boolean
   selectedModel: string
   availableModels: { id: string; name: string; provider: string; configId: string }[]
-  currentPhase: ConversationPhase
-  autoOptimization: AutoOptimizationState | null
-  isAutoMode: boolean
-  testInput: Record<string, unknown>
 
-  // 面板位置和大小
   panelPosition: { x: number; y: number } | null
   panelSize: { width: number; height: number }
   isMinimized: boolean
 
-  // 模式切换
-  mode: PanelMode
+  currentPhase: TaskPhase
+  taskProgress: number
+  taskSteps: TaskStep[]
+  pendingConfirmation: RequirementConfirmation | null
+  testDataMode: 'real' | 'simulated' | null
 
-  // 创建工作流草稿
-  createWorkflowDraft: CreateWorkflowDraft
-
-  // 诊断结果
-  diagnosisResult: DiagnosisResult | null
-  isDiagnosing: boolean
-
-  // 共享的测试结果和AES报告（跨页面共享）
-  sharedTestResult: SharedTestResult | null
-  sharedAESReport: AESReport | null
+  currentExecutionId: string | null
+  testingNodes: NodeResultData[]
+  isTestRunning: boolean
 
   openPanel: () => void
   closePanel: () => void
   togglePanel: () => void
   toggleHistory: () => void
 
-  // 面板控制方法
   setPanelPosition: (pos: { x: number; y: number } | null) => void
   setPanelSize: (size: { width: number; height: number }) => void
   toggleMinimize: () => void
-  setMode: (mode: PanelMode) => void
 
-  // 创建工作流方法
-  setCreateWorkflowDraft: (draft: Partial<CreateWorkflowDraft>) => void
-  resetCreateWorkflowDraft: () => void
-
-  // 诊断方法
-  setDiagnosisResult: (result: DiagnosisResult | null) => void
-  setIsDiagnosing: (loading: boolean) => void
-  clearDiagnosis: () => void
-
-  // 共享测试结果和AES报告方法
-  setSharedTestResult: (result: SharedTestResult | null) => void
-  setSharedAESReport: (report: AESReport | null) => void
-  clearSharedResults: () => void
-
+  loadConversations: (workflowId: string) => Promise<void>
   createConversation: (workflowId: string) => string
+  createConversationAsync: (workflowId: string) => Promise<string>
   selectConversation: (conversationId: string) => void
   deleteConversation: (conversationId: string) => void
-  setConversations: (conversations: Conversation[]) => void
-  updateConversationTitle: (conversationId: string, title: string) => void
+  deleteConversationAsync: (conversationId: string) => Promise<void>
 
   addMessage: (message: Omit<AIMessage, 'id' | 'timestamp'>) => void
+  addMessageAsync: (message: Omit<AIMessage, 'id' | 'timestamp'>) => Promise<void>
+  updateMessageFixStatus: (messageId: string, status: 'applied' | 'rejected') => void
   clearMessages: () => void
+  clearMessagesAsync: () => Promise<void>
   setLoading: (loading: boolean) => void
 
   setSelectedModel: (modelId: string) => void
   setAvailableModels: (models: { id: string; name: string; provider: string; configId: string }[]) => void
 
-  setPhase: (phase: ConversationPhase) => void
-  setRequirementAnalysis: (analysis: RequirementAnalysis) => void
-  startAutoOptimization: (targetCriteria: string, maxIterations?: number) => void
-  stopAutoOptimization: () => void
-  addOptimizationIteration: (testResult: TestResult, optimization?: OptimizationSuggestion, applied?: boolean) => void
-  setAutoMode: (enabled: boolean) => void
-  setTestInput: (input: Record<string, unknown>) => void
+  setCurrentPhase: (phase: TaskPhase) => void
+  setTaskProgress: (progress: number) => void
+  setTaskSteps: (steps: TaskStep[]) => void
+  updateTaskStep: (stepId: string, status: TaskStep['status']) => void
+  setPendingConfirmation: (confirmation: RequirementConfirmation | null) => void
+  setTestDataMode: (mode: 'real' | 'simulated' | null) => void
+  resetTaskState: () => void
 
-  autoApply: boolean
-  setAutoApply: (enabled: boolean) => void
+  setCurrentExecutionId: (id: string | null) => void
+  setTestingNodes: (nodes: NodeResultData[]) => void
+  updateTestingNode: (nodeId: string, data: Partial<NodeResultData>) => void
+  setTestRunning: (running: boolean) => void
+  clearTestState: () => void
 }
 
 function generateTitle(messages: AIMessage[]): string {
@@ -278,13 +207,6 @@ function generateTitle(messages: AIMessage[]): string {
   return '新对话'
 }
 
-const defaultCreateWorkflowDraft: CreateWorkflowDraft = {
-  prompt: '',
-  detailedPrompt: '',
-  recommendations: [],
-  step: 'input',
-}
-
 export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
   isOpen: false,
   showHistory: false,
@@ -294,56 +216,77 @@ export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
   isLoading: false,
   selectedModel: '',
   availableModels: [],
-  currentPhase: 'requirement_gathering',
-  autoOptimization: null,
-  isAutoMode: false,
-  testInput: {},
 
-  // 面板位置和大小初始值
-  panelPosition: null, // null表示使用默认位置
+  panelPosition: null,
   panelSize: { width: 420, height: 700 },
   isMinimized: false,
 
-  // 模式初始值
-  mode: 'chat',
+  currentPhase: 'idle' as TaskPhase,
+  taskProgress: 0,
+  taskSteps: [],
+  pendingConfirmation: null,
+  testDataMode: null,
 
-  // 创建工作流草稿初始值
-  createWorkflowDraft: { ...defaultCreateWorkflowDraft },
-
-  // 诊断初始值
-  diagnosisResult: null,
-  isDiagnosing: false,
-
-  // 共享测试结果初始值
-  sharedTestResult: null,
-  sharedAESReport: null,
+  currentExecutionId: null,
+  testingNodes: [],
+  isTestRunning: false,
 
   openPanel: () => set({ isOpen: true }),
   closePanel: () => set({ isOpen: false }),
   togglePanel: () => set((state) => ({ isOpen: !state.isOpen })),
   toggleHistory: () => set((state) => ({ showHistory: !state.showHistory })),
 
-  // 面板控制方法
   setPanelPosition: (pos) => set({ panelPosition: pos }),
   setPanelSize: (size) => set({ panelSize: size }),
   toggleMinimize: () => set((state) => ({ isMinimized: !state.isMinimized })),
-  setMode: (mode) => set({ mode }),
 
-  // 创建工作流方法
-  setCreateWorkflowDraft: (draft) => set((state) => ({
-    createWorkflowDraft: { ...state.createWorkflowDraft, ...draft },
+  setCurrentPhase: (phase) => set({ currentPhase: phase }),
+  setTaskProgress: (progress) => set({ taskProgress: progress }),
+  setTaskSteps: (steps) => set({ taskSteps: steps }),
+  updateTaskStep: (stepId, status) => set((state) => ({
+    taskSteps: state.taskSteps.map(step =>
+      step.id === stepId ? { ...step, status } : step
+    )
   })),
-  resetCreateWorkflowDraft: () => set({ createWorkflowDraft: { ...defaultCreateWorkflowDraft } }),
+  setPendingConfirmation: (confirmation) => set({ pendingConfirmation: confirmation }),
+  setTestDataMode: (mode) => set({ testDataMode: mode }),
+  resetTaskState: () => set({
+    currentPhase: 'idle',
+    taskProgress: 0,
+    taskSteps: [],
+    pendingConfirmation: null,
+    testDataMode: null,
+  }),
 
-  // 诊断方法
-  setDiagnosisResult: (result) => set({ diagnosisResult: result }),
-  setIsDiagnosing: (loading) => set({ isDiagnosing: loading }),
-  clearDiagnosis: () => set({ diagnosisResult: null, isDiagnosing: false }),
+  setCurrentExecutionId: (id) => set({ currentExecutionId: id }),
+  setTestingNodes: (nodes) => set({ testingNodes: nodes }),
+  updateTestingNode: (nodeId, data) => set((state) => ({
+    testingNodes: state.testingNodes.map(node =>
+      node.nodeId === nodeId ? { ...node, ...data } : node
+    )
+  })),
+  setTestRunning: (running) => set({ isTestRunning: running }),
+  clearTestState: () => set({
+    currentExecutionId: null,
+    testingNodes: [],
+    isTestRunning: false,
+  }),
 
-  // 共享测试结果方法
-  setSharedTestResult: (result) => set({ sharedTestResult: result }),
-  setSharedAESReport: (report) => set({ sharedAESReport: report }),
-  clearSharedResults: () => set({ sharedTestResult: null, sharedAESReport: null }),
+  loadConversations: async (workflowId: string) => {
+    try {
+      const response = await fetch(`/api/ai-assistant/conversations?workflowId=${workflowId}`)
+      if (!response.ok) {
+        console.error('加载对话失败:', response.statusText)
+        return
+      }
+      const result = await response.json()
+      if (result.success && result.data) {
+        set({ conversations: result.data })
+      }
+    } catch (error) {
+      console.error('加载对话异常:', error)
+    }
+  },
 
   createConversation: (workflowId: string) => {
     const id = `conv_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
@@ -354,7 +297,6 @@ export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
       messages: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      phase: 'requirement_gathering',
     }
 
     set((state) => ({
@@ -362,11 +304,50 @@ export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
       currentConversationId: id,
       messages: [],
       showHistory: false,
-      currentPhase: 'requirement_gathering',
-      autoOptimization: null,
     }))
 
     return id
+  },
+
+  createConversationAsync: async (workflowId: string) => {
+    try {
+      const response = await fetch('/api/ai-assistant/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workflowId }),
+      })
+      
+      if (!response.ok) {
+        console.error('创建对话失败:', response.statusText)
+        return get().createConversation(workflowId)
+      }
+      
+      const result = await response.json()
+      if (result.success && result.data) {
+        const newConversation: Conversation = {
+          id: result.data.id,
+          title: result.data.title,
+          workflowId: result.data.workflowId,
+          messages: [],
+          createdAt: result.data.createdAt,
+          updatedAt: result.data.updatedAt,
+        }
+        
+        set((state) => ({
+          conversations: [newConversation, ...state.conversations],
+          currentConversationId: newConversation.id,
+          messages: [],
+          showHistory: false,
+        }))
+        
+        return newConversation.id
+      }
+      
+      return get().createConversation(workflowId)
+    } catch (error) {
+      console.error('创建对话异常:', error)
+      return get().createConversation(workflowId)
+    }
   },
 
   selectConversation: (conversationId: string) => {
@@ -376,8 +357,6 @@ export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
         currentConversationId: conversationId,
         messages: conversation.messages,
         showHistory: false,
-        currentPhase: conversation.phase,
-        autoOptimization: conversation.autoOptimization || null,
       })
     }
   },
@@ -391,20 +370,20 @@ export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
         conversations: newConversations,
         currentConversationId: isCurrentDeleted ? null : state.currentConversationId,
         messages: isCurrentDeleted ? [] : state.messages,
-        currentPhase: isCurrentDeleted ? 'requirement_gathering' : state.currentPhase,
-        autoOptimization: isCurrentDeleted ? null : state.autoOptimization,
       }
     })
   },
 
-  setConversations: (conversations: Conversation[]) => set({ conversations }),
-
-  updateConversationTitle: (conversationId: string, title: string) => {
-    set((state) => ({
-      conversations: state.conversations.map(c =>
-        c.id === conversationId ? { ...c, title } : c
-      ),
-    }))
+  deleteConversationAsync: async (conversationId: string) => {
+    get().deleteConversation(conversationId)
+    
+    try {
+      await fetch(`/api/ai-assistant/conversations/${conversationId}`, {
+        method: 'DELETE',
+      })
+    } catch (error) {
+      console.error('删除对话异常:', error)
+    }
   },
 
   addMessage: (message) => set((state) => {
@@ -428,8 +407,6 @@ export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
             title,
             messages: newMessages,
             updatedAt: Date.now(),
-            phase: state.currentPhase,
-            autoOptimization: state.autoOptimization || undefined,
           }
         }
         return c
@@ -442,126 +419,128 @@ export const useAIAssistantStore = create<AIAssistantState>()((set, get) => ({
     }
   }),
 
+  addMessageAsync: async (message) => {
+    const state = get()
+    const conversationId = state.currentConversationId
+    
+    const newMessage: AIMessage = {
+      ...message,
+      id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+      timestamp: Date.now(),
+    }
+    
+    const newMessages = [...state.messages, newMessage]
+    
+    let updatedConversations = state.conversations
+    if (conversationId) {
+      updatedConversations = state.conversations.map(c => {
+        if (c.id === conversationId) {
+          const title = c.messages.length === 0 && message.role === 'user'
+            ? generateTitle([newMessage])
+            : c.title
+          return {
+            ...c,
+            title,
+            messages: newMessages,
+            updatedAt: Date.now(),
+          }
+        }
+        return c
+      })
+    }
+    
+    set({
+      messages: newMessages,
+      conversations: updatedConversations,
+    })
+    
+    if (conversationId) {
+      try {
+        await fetch(`/api/ai-assistant/conversations/${conversationId}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            role: message.role,
+            content: message.content,
+            phase: message.phase,
+            nodeActions: message.nodeActions,
+            testResult: message.testResult,
+            pendingFix: message.pendingFix,
+            fixStatus: message.fixStatus,
+            diagnosis: message.diagnosis,
+            suggestions: message.suggestions,
+            interactiveQuestions: message.interactiveQuestions,
+            nodeSelection: message.nodeSelection,
+            layoutPreview: message.layoutPreview,
+            requirementConfirmation: message.requirementConfirmation,
+          }),
+        })
+      } catch (error) {
+        console.error('保存消息异常:', error)
+      }
+    }
+  },
+
+  updateMessageFixStatus: (messageId: string, status: 'applied' | 'rejected') => set((state) => {
+    const updateMessages = (msgs: AIMessage[]) => msgs.map(m =>
+      m.id === messageId ? { ...m, fixStatus: status, pendingFix: false } : m
+    )
+
+    const newMessages = updateMessages(state.messages)
+    const updatedConversations = state.conversations.map(c => {
+      if (c.id === state.currentConversationId) {
+        return { ...c, messages: updateMessages(c.messages), updatedAt: Date.now() }
+      }
+      return c
+    })
+
+    return { messages: newMessages, conversations: updatedConversations }
+  }),
+
   clearMessages: () => set((state) => {
     if (state.currentConversationId) {
       return {
         messages: [],
-        currentPhase: 'requirement_gathering',
-        autoOptimization: null,
         conversations: state.conversations.map(c =>
           c.id === state.currentConversationId
-            ? { ...c, messages: [], title: '新对话', updatedAt: Date.now(), phase: 'requirement_gathering' as ConversationPhase, autoOptimization: undefined }
+            ? { ...c, messages: [], title: '新对话', updatedAt: Date.now() }
             : c
         ),
       }
     }
-    return { messages: [], currentPhase: 'requirement_gathering', autoOptimization: null }
+    return { messages: [] }
   }),
+
+  clearMessagesAsync: async () => {
+    const conversationId = get().currentConversationId
+    
+    set((state) => {
+      if (state.currentConversationId) {
+        return {
+          messages: [],
+          conversations: state.conversations.map(c =>
+            c.id === state.currentConversationId
+              ? { ...c, messages: [], title: '新对话', updatedAt: Date.now() }
+              : c
+          ),
+        }
+      }
+      return { messages: [] }
+    })
+    
+    if (conversationId) {
+      try {
+        await fetch(`/api/ai-assistant/conversations/${conversationId}/messages`, {
+          method: 'DELETE',
+        })
+      } catch (error) {
+        console.error('清空消息异常:', error)
+      }
+    }
+  },
 
   setLoading: (loading) => set({ isLoading: loading }),
 
   setSelectedModel: (modelId) => set({ selectedModel: modelId }),
   setAvailableModels: (models) => set({ availableModels: models }),
-
-  setPhase: (phase) => set((state) => {
-    const updatedConversations = state.currentConversationId
-      ? state.conversations.map(c =>
-        c.id === state.currentConversationId ? { ...c, phase, updatedAt: Date.now() } : c
-      )
-      : state.conversations
-
-    return { currentPhase: phase, conversations: updatedConversations }
-  }),
-
-  setRequirementAnalysis: (analysis) => set((state) => {
-    if (!state.currentConversationId) return state
-
-    return {
-      conversations: state.conversations.map(c =>
-        c.id === state.currentConversationId
-          ? { ...c, requirementAnalysis: analysis, updatedAt: Date.now() }
-          : c
-      ),
-    }
-  }),
-
-  startAutoOptimization: (targetCriteria, maxIterations = 5) => set((state) => {
-    const autoOptimization: AutoOptimizationState = {
-      isRunning: true,
-      currentIteration: 0,
-      maxIterations,
-      targetCriteria,
-      history: [],
-    }
-
-    const updatedConversations = state.currentConversationId
-      ? state.conversations.map(c =>
-        c.id === state.currentConversationId
-          ? { ...c, autoOptimization, updatedAt: Date.now() }
-          : c
-      )
-      : state.conversations
-
-    return {
-      autoOptimization,
-      currentPhase: 'optimization',
-      conversations: updatedConversations,
-    }
-  }),
-
-  stopAutoOptimization: () => set((state) => {
-    if (!state.autoOptimization) return state
-
-    const stoppedOptimization = { ...state.autoOptimization, isRunning: false }
-
-    const updatedConversations = state.currentConversationId
-      ? state.conversations.map(c =>
-        c.id === state.currentConversationId
-          ? { ...c, autoOptimization: stoppedOptimization, updatedAt: Date.now() }
-          : c
-      )
-      : state.conversations
-
-    return {
-      autoOptimization: stoppedOptimization,
-      conversations: updatedConversations,
-    }
-  }),
-
-  addOptimizationIteration: (testResult, optimization, applied = false) => set((state) => {
-    if (!state.autoOptimization) return state
-
-    const newIteration = {
-      iteration: state.autoOptimization.currentIteration + 1,
-      testResult,
-      optimization,
-      applied,
-    }
-
-    const updatedOptimization: AutoOptimizationState = {
-      ...state.autoOptimization,
-      currentIteration: newIteration.iteration,
-      history: [...state.autoOptimization.history, newIteration],
-    }
-
-    const updatedConversations = state.currentConversationId
-      ? state.conversations.map(c =>
-        c.id === state.currentConversationId
-          ? { ...c, autoOptimization: updatedOptimization, updatedAt: Date.now() }
-          : c
-      )
-      : state.conversations
-
-    return {
-      autoOptimization: updatedOptimization,
-      conversations: updatedConversations,
-    }
-  }),
-
-  setAutoMode: (enabled) => set({ isAutoMode: enabled }),
-
-  setTestInput: (input) => set({ testInput: input }),
-
-  autoApply: true,
-  setAutoApply: (enabled) => set({ autoApply: enabled }),
 }))

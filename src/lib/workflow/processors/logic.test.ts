@@ -233,28 +233,6 @@ describe('LogicNodeProcessor - 条件判断功能', () => {
     expect(result.data.matchedConditionId).toBe('cond1')
   })
 
-  it('应该正确处理 split 模式', async () => {
-    const node: LogicNodeConfig = {
-      id: 'logic1',
-      type: 'LOGIC',
-      name: '并行拆分',
-      position: { x: 0, y: 0 },
-      config: {
-        mode: 'split',
-        branches: [
-          { id: 'branch1', label: '分支1', targetNodeId: 'target1' },
-          { id: 'branch2', label: '分支2', targetNodeId: 'target2' },
-        ],
-      },
-    }
-
-    const result = await processor.process(node, mockContext)
-
-    expect(result.status).toBe('success')
-    expect(result.data.mode).toBe('split')
-    expect(result.data.activeBranchIds).toEqual(['branch1', 'branch2'])
-  })
-
   it('应该正确处理 merge 模式', async () => {
     mockContext.nodeOutputs.set('node1', {
       nodeId: 'node1',
@@ -296,42 +274,5 @@ describe('LogicNodeProcessor - 条件判断功能', () => {
       node1: { result: 'data1' },
       node2: { result: 'data2' },
     })
-  })
-
-  it('应该正确处理 switch 模式', async () => {
-    mockContext.nodeOutputs.set('node1', {
-      nodeId: 'node1',
-      nodeName: '输入',
-      nodeType: 'INPUT',
-      status: 'success',
-      data: { type: '科技' },
-      startedAt: new Date(),
-      completedAt: new Date(),
-      duration: 0,
-    })
-
-    const node: LogicNodeConfig = {
-      id: 'logic1',
-      type: 'LOGIC',
-      name: '类型选择',
-      position: { x: 0, y: 0 },
-      config: {
-        mode: 'switch',
-        switchInput: '输入.type',
-        branches: [
-          { id: 'branch1', label: '科技', targetNodeId: 'tech' },
-          { id: 'branch2', label: '生活', targetNodeId: 'life' },
-          { id: 'branch3', label: '娱乐', targetNodeId: 'entertainment' },
-        ],
-      },
-    }
-
-    const result = await processor.process(node, mockContext)
-
-    expect(result.status).toBe('success')
-    expect(result.data.mode).toBe('switch')
-    expect(result.data.inputValue).toBe('科技')
-    expect(result.data.matchedBranchId).toBe('branch1')
-    expect(result.data.matchedTargetNodeId).toBe('tech')
   })
 })

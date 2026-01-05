@@ -81,7 +81,13 @@ export function ExecutionVisualizer({
   onClose,
   onNodeStatusChange,
 }: ExecutionVisualizerProps) {
-  const { nodes } = useWorkflowStore()
+  const { 
+    nodes,
+    updateNodeExecutionStatus,
+    updateNodeExecutionDetails,
+    initNodeExecutionDetails,
+    clearNodeExecutionStatus,
+  } = useWorkflowStore()
   const [state, setState] = useState<ExecutionVisualizerState>({
     isExecuting: false,
     status: 'idle',
@@ -95,6 +101,7 @@ export function ExecutionVisualizer({
   const [sseConnected, setSseConnected] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
   const pollingRef = useRef<NodeJS.Timeout | null>(null)
+  const pollInFlightRef = useRef(false)
   const taskIdRef = useRef<string | null>(null)
   const executionIdRef = useRef<string | null>(null)
   const pollTaskStatusRef = useRef<() => Promise<void>>(() => Promise.resolve())
@@ -187,11 +194,25 @@ export function ExecutionVisualizer({
             status: 'running',
             startedAt: event.timestamp,
           })
+          // 更新 store 中的执行状态和详情
+          updateNodeExecutionStatus(event.nodeId, 'running')
+          updateNodeExecutionDetails(event.nodeId, {
+            triggered: true,
+            inputStatus: event.inputStatus || 'valid',
+            inputError: event.inputError,
+            outputStatus: 'pending',  // 重置输出状态为等待中
+            outputError: undefined,   // 清除之前的错误信息
+          })
         } else if (event.type === 'node_complete') {
           updateNodeStatus(event.nodeId, {
             status: 'completed',
             completedAt: event.timestamp,
             output: event.output,
+          })
+          // 更新 store 中的执行状态和详情
+          updateNodeExecutionStatus(event.nodeId, 'completed')
+          updateNodeExecutionDetails(event.nodeId, {
+            outputStatus: event.outputStatus || 'valid',
           })
         } else if (event.type === 'node_error') {
           updateNodeStatus(event.nodeId, {
@@ -199,6 +220,14 @@ export function ExecutionVisualizer({
             completedAt: event.timestamp,
             error: event.error,
             errorDetail: event.errorDetail,
+          })
+          // 更新 store 中的执行状态和详情
+          updateNodeExecutionStatus(event.nodeId, 'failed')
+          updateNodeExecutionDetails(event.nodeId, {
+            inputStatus: event.inputStatus,
+            outputStatus: event.outputStatus,
+            inputError: event.inputError,
+            outputError: event.outputError,
           })
         }
       }
@@ -212,7 +241,7 @@ export function ExecutionVisualizer({
         }))
       }
     },
-    [updateNodeStatus]
+    [updateNodeStatus, updateNodeExecutionStatus, updateNodeExecutionDetails]
   )
 
   // 处理 SSE 完成
@@ -237,7 +266,8 @@ export function ExecutionVisualizer({
       console.warn('SSE error, falling back to polling:', error)
       if (taskIdRef.current && state.isExecuting) {
         // 启动轮询作为备用
-        pollingRef.current = setInterval(() => pollTaskStatusRef.current(), 1000)
+        if (pollingRef.current) clearInterval(pollingRef.current)
+        pollingRef.current = setInterval(() => pollTaskStatusRef.current(), 2000)
       }
       setSseConnected(false)
     },
@@ -261,6 +291,8 @@ export function ExecutionVisualizer({
   const pollTaskStatus = useCallback(async () => {
     const taskId = taskIdRef.current
     if (!taskId) return
+    if (pollInFlightRef.current) return
+    pollInFlightRef.current = true
 
     try {
       const response = await fetch(`/api/tasks/${taskId}`)
@@ -281,7 +313,8 @@ export function ExecutionVisualizer({
       }
 
       if (!response.ok) {
-        throw new Error('获取任务状态失败')
+        // 429 等非致命错误不刷屏，保持轮询即可
+        return
       }
 
       const data = await response.json()
@@ -358,6 +391,8 @@ export function ExecutionVisualizer({
       }
     } catch (error) {
       console.error('Poll task status error:', error)
+    } finally {
+      pollInFlightRef.current = false
     }
   }, [updateNodeStatus, useSSE, connectSSE])
 
@@ -370,6 +405,7 @@ export function ExecutionVisualizer({
   const handleExecute = useCallback(async () => {
     // 重置状态
     const nodeMap = new Map<string, NodeExecutionInfo>()
+    const nodeIds: string[] = []
     nodes.forEach((node) => {
       nodeMap.set(node.id, {
         nodeId: node.id,
@@ -377,6 +413,7 @@ export function ExecutionVisualizer({
         nodeType: String(node.data?.type || 'UNKNOWN'),
         status: 'pending',
       })
+      nodeIds.push(node.id)
     })
 
     setState({
@@ -384,6 +421,13 @@ export function ExecutionVisualizer({
       status: 'running',
       nodes: nodeMap,
       currentNodeId: null,
+    })
+
+    // 初始化 store 中的节点执行状态和详情
+    clearNodeExecutionStatus()
+    initNodeExecutionDetails(nodeIds)
+    nodeIds.forEach((nodeId) => {
+      updateNodeExecutionStatus(nodeId, 'pending')
     })
 
     // 重置引用
@@ -414,8 +458,8 @@ export function ExecutionVisualizer({
         taskIdRef.current = data.taskId
         toast.info('任务已提交，正在执行中...')
 
-        // 每 1 秒轮询一次
-        pollingRef.current = setInterval(pollTaskStatus, 1000)
+        // 轮询频率控制，避免触发默认限流
+        pollingRef.current = setInterval(pollTaskStatus, 2000)
       }
     } catch (error) {
       if ((error as Error).name === 'AbortError') {
@@ -430,7 +474,7 @@ export function ExecutionVisualizer({
       }))
       toast.error(error instanceof Error ? error.message : '执行失败')
     }
-  }, [workflowId, inputValues, nodes, pollTaskStatus, disconnectSSE])
+  }, [workflowId, inputValues, nodes, pollTaskStatus, disconnectSSE, clearNodeExecutionStatus, initNodeExecutionDetails, updateNodeExecutionStatus])
 
   // 停止执行
   const handleStop = useCallback(() => {

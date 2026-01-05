@@ -25,6 +25,14 @@ interface GroupNodeConfigData {
   childRelativePositions?: Record<string, { x: number; y: number }>;
 }
 
+export interface NodeExecutionDetails {
+  inputStatus: 'pending' | 'valid' | 'invalid' | 'missing';
+  outputStatus: 'pending' | 'valid' | 'error' | 'empty';
+  inputError?: string;
+  outputError?: string;
+  triggered: boolean;
+}
+
 function createThrottledStorage<T>(delay: number = 1000): PersistStorage<T> {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   let pendingValue: StorageValue<T> | null = null;
@@ -112,6 +120,15 @@ interface WorkflowState {
     import("@/lib/workflow/debug-panel/types").EnhancedDebugResult | null
   >;
 
+  // 节点执行详情（输入/输出状态）
+  nodeExecutionDetails: Record<string, NodeExecutionDetails>;
+
+  // 后台执行状态
+  activeExecutionId: string | null;
+  activeTaskId: string | null;
+  // 最近一次执行（用于默认展示）
+  latestExecutionId: string | null;
+
   // 操作方法
   setWorkflow: (
     config: WorkflowConfig & {
@@ -185,6 +202,19 @@ interface WorkflowState {
   clearNodeExecutionResult: (nodeId: string) => void;
   clearAllNodeExecutionResults: () => void;
 
+  // 节点执行详情操作
+  updateNodeExecutionDetails: (
+    nodeId: string,
+    details: Partial<NodeExecutionDetails>,
+  ) => void;
+  initNodeExecutionDetails: (nodeIds: string[]) => void;
+  clearNodeExecutionDetails: () => void;
+
+  // 后台执行操作
+  setActiveExecution: (executionId: string, taskId?: string) => void;
+  clearActiveExecution: () => void;
+  setLatestExecutionId: (executionId: string | null) => void;
+
   // 自动布局
   autoLayout: (direction?: "TB" | "LR") => void;
 
@@ -224,6 +254,10 @@ const initialState = {
     string,
     import("@/lib/workflow/debug-panel/types").EnhancedDebugResult | null
   >,
+  nodeExecutionDetails: {} as Record<string, NodeExecutionDetails>,
+  activeExecutionId: null as string | null,
+  activeTaskId: null as string | null,
+  latestExecutionId: null as string | null,
 };
 
 export const useWorkflowStore = create<WorkflowState>()(
@@ -1123,6 +1157,56 @@ export const useWorkflowStore = create<WorkflowState>()(
 
       clearAllNodeExecutionResults: () => {
         set({ nodeExecutionResults: {} });
+      },
+
+      // 节点执行详情操作
+      updateNodeExecutionDetails: (nodeId, details) => {
+        const current = get().nodeExecutionDetails[nodeId] || {
+          inputStatus: 'pending',
+          outputStatus: 'pending',
+          triggered: false,
+        };
+        set({
+          nodeExecutionDetails: {
+            ...get().nodeExecutionDetails,
+            [nodeId]: { ...current, ...details },
+          },
+        });
+      },
+
+      initNodeExecutionDetails: (nodeIds) => {
+        const details: Record<string, NodeExecutionDetails> = {};
+        nodeIds.forEach((nodeId) => {
+          details[nodeId] = {
+            inputStatus: 'pending',
+            outputStatus: 'pending',
+            triggered: false,
+          };
+        });
+        set({ nodeExecutionDetails: details });
+      },
+
+      clearNodeExecutionDetails: () => {
+        set({ nodeExecutionDetails: {} });
+      },
+
+      // 后台执行操作
+      setActiveExecution: (executionId, taskId) => {
+        set({
+          activeExecutionId: executionId,
+          activeTaskId: taskId || null,
+        });
+      },
+
+      clearActiveExecution: () => {
+        set({
+          activeExecutionId: null,
+          activeTaskId: null,
+        });
+      },
+
+      setLatestExecutionId: (executionId) => {
+        set({ latestExecutionId: executionId });
       },
 
       // 自动布局 - 使用 dagre 算法，确保节点不重叠

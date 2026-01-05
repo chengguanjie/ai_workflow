@@ -82,15 +82,18 @@ export default function ApiPage() {
       ])
 
       if (tokensRes.ok) {
-        const data = await tokensRes.json()
-        setTokens(data.tokens || [])
+        const result = await tokensRes.json()
+        // ApiResponse.success 返回 { success: true, data: { tokens: [...] } }
+        setTokens(result.data?.tokens || [])
       }
 
       if (workflowsRes.ok) {
         const data = await workflowsRes.json()
-        setWorkflows(data.workflows || [])
-        if (data.workflows?.length > 0) {
-          setSelectedWorkflow(data.workflows[0].id)
+        // workflows API 可能使用不同的响应格式，保持兼容
+        const workflows = data.data?.workflows || data.workflows || []
+        setWorkflows(workflows)
+        if (workflows.length > 0) {
+          setSelectedWorkflow(workflows[0].id)
         }
       }
     } catch (error) {
@@ -115,13 +118,14 @@ export default function ApiPage() {
         body: JSON.stringify(formData),
       })
 
+      const result = await res.json()
+      
       if (!res.ok) {
-        const error = await res.json()
-        throw new Error(error.error || '创建失败')
+        throw new Error(result.error?.message || '创建失败')
       }
 
-      const token = await res.json()
-      setNewToken(token)
+      // ApiResponse.success 返回 { success: true, data: {...} } 结构
+      setNewToken(result.data)
       setShowAddDialog(false)
       setShowTokenDialog(true)
       setFormData({ name: '', expiresIn: 'never' })
