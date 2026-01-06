@@ -388,6 +388,7 @@ describe('Property 5: 下载文件名生成', () => {
   it('*For any* 输出类型，生成的文件名应有正确的扩展名', () => {
     const extensionMap: Record<OutputType, string> = {
       'text': '.txt',
+      'markdown': '.md',
       'json': '.json',
       'html': '.html',
       'csv': '.csv',

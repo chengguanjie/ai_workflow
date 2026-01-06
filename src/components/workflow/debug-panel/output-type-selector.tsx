@@ -12,6 +12,7 @@ interface OutputTypeSelectorProps {
 
 const ALL_OUTPUT_TYPES: OutputType[] = [
   'text',
+  'markdown',
   'json',
   'html',
   'csv',

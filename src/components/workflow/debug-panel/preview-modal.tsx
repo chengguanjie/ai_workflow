@@ -139,6 +139,19 @@ export function PreviewModal({
           </div>
         )
 
+      case 'markdown':
+        // Markdown 预览：显示为带语法高亮的纯文本
+        return (
+          <div className="relative">
+            <pre className={cn(
+              "rounded-lg border bg-white p-4 text-sm overflow-auto max-h-[60vh] font-mono leading-relaxed whitespace-pre-wrap",
+              "scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent"
+            )}>
+              {typeof content === 'string' ? content : '无法显示内容'}
+            </pre>
+          </div>
+        )
+
       case 'text':
       case 'json':
       case 'html':

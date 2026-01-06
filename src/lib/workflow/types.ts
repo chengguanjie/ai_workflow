@@ -6,6 +6,47 @@ import type { NodeConfig, OutputFormat } from '@/types/workflow'
 import type { OutputType } from '@/lib/workflow/debug-panel/types'
 
 /**
+ * 循环迭代上下文
+ */
+export interface LoopIterationContext {
+  /** 循环节点 ID */
+  loopNodeId: string
+  /** 当前迭代索引（0-based） */
+  currentIndex: number
+  /** 总迭代次数（forEach 为数组长度，times 为固定次数，while 为当前迭代数） */
+  totalIterations?: number
+  /** forEach 模式：当前迭代的元素 */
+  currentItem?: unknown
+  /** forEach 模式：原始数组 */
+  iterableArray?: unknown[]
+  /** 是否为最后一次迭代 */
+  isLast?: boolean
+  /** 是否为第一次迭代 */
+  isFirst?: boolean
+  /** 累积结果 */
+  accumulatedResults: unknown[]
+  /** 循环开始时间 */
+  loopStartTime: Date
+  /** 嵌套层级（0 = 最外层） */
+  nestingLevel: number
+  /** 循环变量命名空间 */
+  loopNamespace: string
+  /** 父循环上下文（嵌套循环时） */
+  parentLoopContext?: LoopIterationContext
+}
+
+/**
+ * 循环变量（暴露给表达式引用）
+ */
+export interface LoopVariables {
+  item: unknown
+  index: number
+  isFirst: boolean
+  isLast: boolean
+  total: number
+}
+
+/**
  * 执行上下文
  */
 /**
@@ -47,6 +88,13 @@ export interface ExecutionContext {
 
   // 调试用的导入文件
   importedFiles?: Array<{ name: string; content: string; type: string }>
+
+  // ===== 循环相关 =====
+  /** 活跃的循环上下文栈（支持嵌套循环） */
+  activeLoops?: Map<string, LoopIterationContext>
+
+  /** 循环变量（暴露给表达式引用，按命名空间存储） */
+  loopVariables?: Record<string, LoopVariables>
 }
 
 /**

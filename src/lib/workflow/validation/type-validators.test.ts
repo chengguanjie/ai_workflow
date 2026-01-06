@@ -9,6 +9,7 @@ import * as fc from 'fast-check'
 import {
   jsonValidator,
   htmlValidator,
+  markdownValidator,
   csvValidator,
   registerValidator,
   getValidator,
@@ -223,6 +224,66 @@ describe('htmlValidator', () => {
 })
 
 // ============================================
+// Unit Tests for Markdown Validator
+// ============================================
+
+describe('markdownValidator', () => {
+  it('should validate simple markdown with headers', () => {
+    const md = '# Title\n\n## Section\n\nSome text here.'
+    const result = markdownValidator.validate(md)
+    expect(result.valid).toBe(true)
+  })
+
+  it('should validate markdown with bold and italic', () => {
+    const md = 'This is **bold** and *italic* text.'
+    const result = markdownValidator.validate(md)
+    expect(result.valid).toBe(true)
+  })
+
+  it('should validate markdown with links', () => {
+    const md = 'Check out [this link](https://example.com).'
+    const result = markdownValidator.validate(md)
+    expect(result.valid).toBe(true)
+  })
+
+  it('should validate markdown with code blocks', () => {
+    const md = '```javascript\nconst x = 1;\n```'
+    const result = markdownValidator.validate(md)
+    expect(result.valid).toBe(true)
+  })
+
+  it('should validate markdown with lists', () => {
+    const md = '- Item 1\n- Item 2\n- Item 3\n\n1. First\n2. Second'
+    const result = markdownValidator.validate(md)
+    expect(result.valid).toBe(true)
+  })
+
+  it('should validate markdown with tables', () => {
+    const md = '| Column 1 | Column 2 |\n|----------|----------|\n| Cell 1   | Cell 2   |'
+    const result = markdownValidator.validate(md)
+    expect(result.valid).toBe(true)
+  })
+
+  it('should validate plain text as valid markdown', () => {
+    // Plain text is valid markdown (just no special formatting)
+    const md = 'This is just plain text without any markdown syntax.'
+    const result = markdownValidator.validate(md)
+    expect(result.valid).toBe(true)
+  })
+
+  it('should reject empty content', () => {
+    const result = markdownValidator.validate('')
+    expect(result.valid).toBe(false)
+    expect(result.error).toContain('内容为空')
+  })
+
+  it('should reject whitespace-only content', () => {
+    const result = markdownValidator.validate('   ')
+    expect(result.valid).toBe(false)
+  })
+})
+
+// ============================================
 // Unit Tests for CSV Validator
 // ============================================
 
@@ -284,6 +345,7 @@ describe('Validator Registry', () => {
   it('should get registered validators', () => {
     expect(getValidator('json')).toBe(jsonValidator)
     expect(getValidator('html')).toBe(htmlValidator)
+    expect(getValidator('markdown')).toBe(markdownValidator)
     expect(getValidator('csv')).toBe(csvValidator)
   })
 

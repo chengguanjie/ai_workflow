@@ -14,6 +14,7 @@ import { ApiResponse } from '@/lib/api/api-response'
 import { handleError } from '@/lib/api/error-middleware'
 import { NotFoundError, ValidationError, AuthenticationError } from '@/lib/errors'
 import { prisma } from '@/lib/db'
+import { Prisma } from '@prisma/client'
 import { z } from 'zod'
 
 // 错误分类枚举
@@ -97,7 +98,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         isCorrect,
         errorReason: errorReason || null,
         errorCategory: errorCategory || null,
-        nodeOutput: nodeOutput || null,
+        nodeOutput: nodeOutput as Prisma.InputJsonValue | undefined,
         userId: session.user.id,
       },
     })

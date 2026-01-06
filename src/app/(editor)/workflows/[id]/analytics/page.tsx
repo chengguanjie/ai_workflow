@@ -27,6 +27,7 @@ import {
   TrendingUp,
   RefreshCw,
   DollarSign,
+  ClipboardCheck,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import dynamic from 'next/dynamic'
@@ -42,6 +43,15 @@ const EnhancedAnalytics = dynamic(() => import('./enhanced-page'), {
 
 // 导入图表组件
 const AnalyticsChart = dynamic(() => import('@/components/workflow/analytics/analytics-chart'), {
+  loading: () => (
+    <div className="flex items-center justify-center py-12">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  ),
+})
+
+// 导入测试反馈统计组件
+const TestFeedbackStatistics = dynamic(() => import('@/components/workflow/analytics/test-feedback-statistics'), {
   loading: () => (
     <div className="flex items-center justify-center py-12">
       <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -386,7 +396,7 @@ export default function WorkflowAnalyticsPage() {
       {/* 内容 */}
       <div className="container mx-auto px-6 py-6">
         <Tabs defaultValue="execution" className="space-y-6">
-          <TabsList className="grid w-full max-w-3xl grid-cols-4">
+          <TabsList className="grid w-full max-w-4xl grid-cols-5">
             <TabsTrigger value="execution" className="flex items-center gap-2">
               <BarChart3 className="h-4 w-4" />
               执行统计
@@ -394,6 +404,10 @@ export default function WorkflowAnalyticsPage() {
             <TabsTrigger value="nodes" className="flex items-center gap-2">
               <BarChart3 className="h-4 w-4" />
               节点分析
+            </TabsTrigger>
+            <TabsTrigger value="test-feedback" className="flex items-center gap-2">
+              <ClipboardCheck className="h-4 w-4" />
+              测试反馈
             </TabsTrigger>
             <TabsTrigger value="cost" className="flex items-center gap-2">
               <DollarSign className="h-4 w-4" />
@@ -787,6 +801,11 @@ export default function WorkflowAnalyticsPage() {
                 </CardContent>
               </Card>
             )}
+          </TabsContent>
+
+          {/* 测试反馈标签页 */}
+          <TabsContent value="test-feedback">
+            <TestFeedbackStatistics workflowId={workflowId} />
           </TabsContent>
 
           {/* 成本分析标签页 */}

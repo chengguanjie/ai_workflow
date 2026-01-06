@@ -256,7 +256,9 @@ export class WorkflowService {
 
     // 查询最近一次执行记录及其节点日志
     console.log('[getById] Querying latestExecution for workflowId:', id)
-    let latestExecution: Awaited<ReturnType<typeof prisma.execution.findFirst>> = null
+    let latestExecution: Awaited<ReturnType<typeof prisma.execution.findFirst>> & {
+      logs?: { nodeId: string; status: string; error: string | null; output: unknown }[]
+    } | null = null
     try {
       latestExecution = await withRetry(
         () =>
@@ -285,7 +287,7 @@ export class WorkflowService {
     }
 
     console.log('[getById] latestExecution found:', !!latestExecution, latestExecution?.id)
-    if (latestExecution) {
+    if (latestExecution?.logs) {
       console.log('[getById] latestExecution.logs count:', latestExecution.logs.length)
     }
 
@@ -295,7 +297,7 @@ export class WorkflowService {
 
     // 构建节点状态映射
     const nodeStatuses: Record<string, NodeExecutionStatusInfo> = {}
-    for (const log of latestExecution.logs) {
+    for (const log of latestExecution.logs || []) {
       nodeStatuses[log.nodeId] = {
         status: log.status,
         error: log.error || undefined,

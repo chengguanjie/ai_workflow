@@ -98,6 +98,7 @@ export const MODALITY_TO_OUTPUT_TYPE: Record<ModelModality, OutputType> = {
  */
 export type OutputType =
   | 'text'      // 纯文本
+  | 'markdown'  // Markdown
   | 'json'      // JSON
   | 'html'      // HTML
   | 'csv'       // CSV
@@ -114,6 +115,7 @@ export type OutputType =
  */
 export const OUTPUT_TYPE_LABELS: Record<OutputType, string> = {
   'text': '纯文本',
+  'markdown': 'Markdown',
   'json': 'JSON',
   'html': 'HTML',
   'csv': 'CSV',
@@ -131,6 +133,7 @@ export const OUTPUT_TYPE_LABELS: Record<OutputType, string> = {
  */
 export const OUTPUT_TYPE_MIME_MAP: Record<OutputType, string[]> = {
   'text': ['text/plain'],
+  'markdown': ['text/markdown', 'text/x-markdown'],
   'json': ['application/json'],
   'html': ['text/html'],
   'csv': ['text/csv', 'application/csv'],
@@ -148,6 +151,7 @@ export const OUTPUT_TYPE_MIME_MAP: Record<OutputType, string[]> = {
  */
 export const OUTPUT_TYPE_EXTENSION_MAP: Record<OutputType, string> = {
   'text': '.txt',
+  'markdown': '.md',
   'json': '.json',
   'html': '.html',
   'csv': '.csv',

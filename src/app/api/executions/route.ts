@@ -18,6 +18,8 @@ import { AuthenticationError } from '@/lib/errors'
  * Query params:
  *   workflowId - 工作流 ID（可选）
  *   status - 执行状态（可选）
+ *   statusIn - 多状态筛选，逗号分隔（可选）
+ *   executionType - 执行类型筛选：NORMAL 或 TEST（可选）
  *   startDate - 开始日期（可选，ISO 格式）
  *   endDate - 结束日期（可选，ISO 格式）
  *   limit - 每页数量（默认 20）
@@ -34,6 +36,7 @@ export async function GET(request: NextRequest) {
     const workflowId = searchParams.get('workflowId')
     const status = searchParams.get('status')
     const statusIn = searchParams.get('statusIn') // 支持多状态筛选，逗号分隔
+    const executionType = searchParams.get('executionType') // 执行类型筛选：NORMAL 或 TEST
     const startDate = searchParams.get('startDate')
     const endDate = searchParams.get('endDate')
     const limit = parseInt(searchParams.get('limit') || '20')
@@ -62,10 +65,18 @@ export async function GET(request: NextRequest) {
       statusFilter = { status: { in: statuses } }
     }
 
+    // 构建执行类型筛选条件
+    type ExecutionTypeValue = 'NORMAL' | 'TEST'
+    let executionTypeFilter: { executionType?: ExecutionTypeValue } = {}
+    if (executionType && (executionType === 'NORMAL' || executionType === 'TEST')) {
+      executionTypeFilter = { executionType: executionType as ExecutionTypeValue }
+    }
+
     const where = {
       organizationId: session.user.organizationId,
       ...(workflowId ? { workflowId } : {}),
       ...statusFilter,
+      ...executionTypeFilter,
       ...(Object.keys(dateFilter).length > 0 ? { createdAt: dateFilter } : {}),
     }
 
@@ -87,6 +98,8 @@ export async function GET(request: NextRequest) {
           error: true,
           createdAt: true,
           workflowId: true,
+          executionType: true,
+          isAIGeneratedInput: true,
           workflow: {
             select: {
               name: true,
@@ -117,6 +130,8 @@ export async function GET(request: NextRequest) {
         workflowId: e.workflowId,
         workflowName: e.workflow.name,
         outputFileCount: e._count.outputFiles,
+        executionType: e.executionType,
+        isAIGeneratedInput: e.isAIGeneratedInput,
       })),
       total,
       limit,

@@ -8,9 +8,10 @@
  * 自动根据 Redis 配置选择后端
  */
 
-import { executeWorkflow, ExecutionResult } from './engine'
+import { executeWorkflow, ExecutionResult, ExecutionOptions } from './engine'
 import { prisma } from '@/lib/db'
 import { bullmqManager, isRedisConfigured } from './bullmq-queue'
+import { ExecutionType } from '@prisma/client'
 
 /**
  * 执行模式类型
@@ -27,6 +28,8 @@ export interface QueueTask {
   userId: string
   input?: Record<string, unknown>
   mode?: ExecutionMode // 执行模式：production 使用已发布配置，draft 使用草稿配置
+  executionType?: ExecutionType // 执行类型：NORMAL 正常执行，TEST 测试执行
+  isAIGeneratedInput?: boolean // 是否为 AI 生成的测试数据
   status: 'pending' | 'running' | 'completed' | 'failed'
   result?: ExecutionResult
   error?: string
@@ -71,7 +74,11 @@ class InMemoryQueue {
     organizationId: string,
     userId: string,
     input?: Record<string, unknown>,
-    options?: { mode?: ExecutionMode }
+    options?: { 
+      mode?: ExecutionMode
+      executionType?: ExecutionType
+      isAIGeneratedInput?: boolean
+    }
   ): Promise<string> {
     const taskId = `task_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
 
@@ -82,6 +89,8 @@ class InMemoryQueue {
       userId,
       input,
       mode: options?.mode ?? 'production',
+      executionType: options?.executionType ?? 'NORMAL',
+      isAIGeneratedInput: options?.isAIGeneratedInput ?? false,
       status: 'pending',
       createdAt: new Date(),
     }
@@ -218,12 +227,18 @@ class InMemoryQueue {
         setTimeout(() => reject(new Error('任务执行超时')), this.config.taskTimeout)
       })
 
+      const options: ExecutionOptions = {
+        mode: task.mode ?? 'production',
+        executionType: task.executionType ?? 'NORMAL',
+        isAIGeneratedInput: task.isAIGeneratedInput ?? false,
+      }
+
       const resultPromise = executeWorkflow(
         task.workflowId,
         task.organizationId,
         task.userId,
         task.input,
-        { mode: task.mode ?? 'production' }
+        options
       )
 
       const result = await Promise.race([resultPromise, timeoutPromise])
@@ -347,6 +362,8 @@ class ExecutionQueue {
       priority?: number
       delay?: number
       mode?: ExecutionMode
+      executionType?: ExecutionType
+      isAIGeneratedInput?: boolean
     }
   ): Promise<string> {
     // 确保已初始化
@@ -358,7 +375,11 @@ class ExecutionQueue {
       return bullmqManager.enqueue(workflowId, organizationId, userId, input, options)
     }
 
-    return this.memoryQueue.enqueue(workflowId, organizationId, userId, input, { mode: options?.mode })
+    return this.memoryQueue.enqueue(workflowId, organizationId, userId, input, { 
+      mode: options?.mode,
+      executionType: options?.executionType,
+      isAIGeneratedInput: options?.isAIGeneratedInput,
+    })
   }
 
   /**

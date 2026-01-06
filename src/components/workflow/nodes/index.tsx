@@ -412,6 +412,12 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
         fg: "text-teal-700",
         label: "视频输出",
       },
+      markdown: {
+        icon: FileText,
+        bg: "bg-gray-100",
+        fg: "text-gray-700",
+        label: "Markdown",
+      },
     };
 
     const meta = map[outputType];

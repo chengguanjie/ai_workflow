@@ -300,6 +300,8 @@ export const workflowExecuteSchema = z.object({
   timeout: z.number().int().min(1).max(3600).optional(),
   async: z.boolean().optional(),
   mode: z.enum(["production", "draft"]).optional(),
+  executionType: z.enum(["NORMAL", "TEST"]).optional(),
+  isAIGeneratedInput: z.boolean().optional(),
 });
 
 // Inferred TypeScript types

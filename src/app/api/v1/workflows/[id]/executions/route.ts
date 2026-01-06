@@ -25,8 +25,10 @@ interface RouteParams {
 
 // Valid execution statuses
 type ExecutionStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
+type ExecutionTypeValue = 'NORMAL' | 'TEST'
 
 const VALID_STATUSES: ExecutionStatus[] = ['PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED']
+const VALID_EXECUTION_TYPES: ExecutionTypeValue[] = ['NORMAL', 'TEST']
 
 /**
  * GET /api/v1/workflows/[id]/executions
@@ -37,17 +39,19 @@ const VALID_STATUSES: ExecutionStatus[] = ['PENDING', 'RUNNING', 'COMPLETED', 'F
  * - page: Page number (default: 1)
  * - pageSize: Items per page (default: 20, max: 100)
  * - status: Filter by execution status (PENDING, RUNNING, COMPLETED, FAILED, CANCELLED)
+ * - executionType: Filter by execution type (NORMAL, TEST)
  * - startDate: Filter executions created after this date (ISO format)
  * - endDate: Filter executions created before this date (ISO format)
  *
  * Returns execution list with summary:
- * - id, status, duration, totalTokens, createdAt
+ * - id, status, duration, totalTokens, createdAt, executionType, isAIGeneratedInput
  *
  * Requirement 9.1: Return paginated list of executions
  * Requirement 9.2: Support filtering by status
  * Requirement 9.3: Support filtering by date range
  * Requirement 9.4: Return execution summary
  * Requirement 9.6: Require 'executions' scope
+ * Requirement 4.4: Support filtering by executionType
  */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
@@ -90,6 +94,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10))
     const pageSize = Math.min(100, Math.max(1, parseInt(searchParams.get('pageSize') || '20', 10)))
     const status = searchParams.get('status')
+    const executionType = searchParams.get('executionType')
     const startDate = searchParams.get('startDate')
     const endDate = searchParams.get('endDate')
 
@@ -109,6 +114,18 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         )
       }
       where.status = upperStatus
+    }
+
+    // Requirement 4.4: Filter by executionType
+    if (executionType) {
+      const upperType = executionType.toUpperCase() as ExecutionTypeValue
+      if (!VALID_EXECUTION_TYPES.includes(upperType)) {
+        return ApiResponse.error(
+          `无效的执行类型。有效值: ${VALID_EXECUTION_TYPES.join(', ')}`,
+          400
+        )
+      }
+      where.executionType = upperType
     }
 
     // Requirement 9.3: Filter by date range
@@ -147,6 +164,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           createdAt: true,
           startedAt: true,
           completedAt: true,
+          executionType: true,
+          isAIGeneratedInput: true,
         },
       }),
       prisma.execution.count({ where }),
@@ -165,6 +184,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         createdAt: e.createdAt.toISOString(),
         startedAt: e.startedAt?.toISOString() || null,
         completedAt: e.completedAt?.toISOString() || null,
+        executionType: e.executionType,
+        isAIGeneratedInput: e.isAIGeneratedInput,
       })),
       pagination: {
         page,

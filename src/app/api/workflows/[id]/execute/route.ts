@@ -10,9 +10,10 @@ import { validateRequestBody } from '@/lib/api/with-validation'
 import { ApiResponse, ApiSuccessResponse } from '@/lib/api/api-response'
 import { NotFoundError, TimeoutError } from '@/lib/errors'
 import { workflowExecuteSchema, WorkflowExecuteInput } from '@/lib/validations/workflow'
-import { executeWorkflow, ExecutionResult } from '@/lib/workflow/engine'
+import { executeWorkflow, ExecutionResult, ExecutionOptions } from '@/lib/workflow/engine'
 import { executionQueue } from '@/lib/workflow/queue'
 import { prisma } from '@/lib/db'
+import { ExecutionType } from '@prisma/client'
 
 /**
  * Async execution response type
@@ -69,7 +70,9 @@ async function executeWithTimeout(
   userId: string,
   input?: Record<string, unknown>,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
-  mode: ExecutionMode = 'production'
+  mode: ExecutionMode = 'production',
+  executionType: ExecutionType = 'NORMAL',
+  isAIGeneratedInput: boolean = false
 ) {
   const timeoutPromise = new Promise<never>((_, reject) => {
     setTimeout(() => {
@@ -77,8 +80,14 @@ async function executeWithTimeout(
     }, timeoutMs)
   })
 
+  const options: ExecutionOptions = {
+    mode,
+    executionType,
+    isAIGeneratedInput,
+  }
+
   const result = await Promise.race([
-    executeWorkflow(workflowId, organizationId, userId, input, { mode }),
+    executeWorkflow(workflowId, organizationId, userId, input, options),
     timeoutPromise,
   ])
 
@@ -131,7 +140,18 @@ export const POST = withAuth<ApiSuccessResponse<ExecutionResponse>>(async (reque
 
   // Validate request body
   const body = await validateRequestBody(request, workflowExecuteSchema)
-  const { input, async: asyncExecution, timeout, mode = 'production' } = body as WorkflowExecuteInput & { mode?: ExecutionMode }
+  const { 
+    input, 
+    async: asyncExecution, 
+    timeout, 
+    mode = 'production',
+    executionType = 'NORMAL',
+    isAIGeneratedInput = false,
+  } = body as WorkflowExecuteInput & { 
+    mode?: ExecutionMode
+    executionType?: ExecutionType
+    isAIGeneratedInput?: boolean
+  }
 
   // Verify workflow exists and user has access
   const workflow = await prisma.workflow.findFirst({
@@ -154,7 +174,7 @@ export const POST = withAuth<ApiSuccessResponse<ExecutionResponse>>(async (reque
       user.organizationId,
       user.id,
       input,
-      { mode }
+      { mode, executionType, isAIGeneratedInput }
     )
 
     return ApiResponse.success({
@@ -174,7 +194,9 @@ export const POST = withAuth<ApiSuccessResponse<ExecutionResponse>>(async (reque
     user.id,
     input,
     timeoutMs,
-    mode
+    mode,
+    executionType as ExecutionType,
+    isAIGeneratedInput
   )
 
   return ApiResponse.success({

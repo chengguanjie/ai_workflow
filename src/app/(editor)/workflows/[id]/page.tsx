@@ -40,8 +40,6 @@ import {
   MessageSquare,
   BookOpen,
   Share2,
-  Maximize2,
-  Minimize2,
   Menu,
   MonitorPlay,
   Undo2,
@@ -147,7 +145,6 @@ function WorkflowEditor() {
   const [showExecutionPanel, setShowExecutionPanel] = useState(false);
   const [showHistoryPanel, setShowHistoryPanel] = useState(false);
   const [showImportExportDialog, setShowImportExportDialog] = useState(false);
-  const [isZenMode, setIsZenMode] = useState(false); // Zen Mode State
   const [isPresentationMode, setIsPresentationMode] = useState(false); // Presentation Mode State
   const [presentationStep, setPresentationStep] = useState(0);
   const [presentationLevels, setPresentationLevels] = useState<string[][]>([]);
@@ -804,7 +801,6 @@ function WorkflowEditor() {
     setPresentationLevels(levels);
     setPresentationStep(0);
     setIsPresentationMode(true);
-    setIsZenMode(true); // 自动进入 Zen Mode
 
     // 聚焦到第一步的节点
     await new Promise((resolve) => setTimeout(resolve, 100)); // 等待状态更新
@@ -817,7 +813,6 @@ function WorkflowEditor() {
 
   const stopPresentation = useCallback(() => {
     setIsPresentationMode(false);
-    setIsZenMode(false); // 退出 Zen Mode
     setPresentationStep(0);
     setPresentationLevels([]);
   }, []);
@@ -862,9 +857,9 @@ function WorkflowEditor() {
 
   return (
     <div className="flex h-screen">
-      {/* 左侧工具栏 - Zen Mode hidden */}
+      {/* 左侧工具栏 */}
       <div
-        className={`${isZenMode ? "hidden" : "flex"} w-14 flex-col items-center border-r bg-background py-4 transition-all duration-300 gap-2`}
+        className="flex w-14 flex-col items-center border-r bg-background py-4 transition-all duration-300 gap-2"
       >
         <TooltipProvider delayDuration={100}>
           <Tooltip>
@@ -1035,22 +1030,6 @@ function WorkflowEditor() {
               }}
             />
 
-            {/* Zen Mode Toggle */}
-            <Button
-              variant={isZenMode ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => setIsZenMode(!isZenMode)}
-              className="gap-2"
-              title={isZenMode ? "退出专注模式" : "专注模式"}
-            >
-              {isZenMode ? (
-                <Minimize2 className="h-4 w-4" />
-              ) : (
-                <Maximize2 className="h-4 w-4" />
-              )}
-              {!isZenMode && "专注"}
-            </Button>
-
             {/* 统计分析按钮 */}
             <Link href={`/workflows/${workflowId}/analytics`}>
               <Button variant="outline" size="sm" className="gap-2">
@@ -1133,8 +1112,8 @@ function WorkflowEditor() {
             </ReactFlow>
           </div>
 
-          {/* 右侧配置面板/调试面板 - Zen Mode hidden */}
-          {!isZenMode && selectedNodeId && (
+          {/* 右侧配置面板/调试面板 */}
+          {selectedNodeId && (
             <div className="relative flex">
               {/* 配置面板与调试面板互斥：非 input/process/logic 节点显示配置面板，否则显示调试面板 */}
               {(() => {
@@ -1156,8 +1135,8 @@ function WorkflowEditor() {
           )}
         </div>
 
-        {/* 底部节点面板 - Zen Mode hidden */}
-        {!isZenMode && !isPresentationMode && (
+        {/* 底部节点面板 */}
+        {!isPresentationMode && (
           <div className="border-t bg-white z-10 transition-all duration-300">
             <NodePanel />
           </div>

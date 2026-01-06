@@ -176,12 +176,64 @@ export const htmlValidator: TypeValidator = {
 }
 
 // ============================================
+// Markdown Validator
+// ============================================
+
+/**
+ * Markdown 常见语法模式
+ */
+const MARKDOWN_PATTERNS = [
+  /^#{1,6}\s+.+$/m,           // 标题 (# Heading)
+  /\*\*.+?\*\*/,              // 粗体 (**bold**)
+  /\*.+?\*/,                  // 斜体 (*italic*)
+  /__.+?__/,                  // 粗体 (__bold__)
+  /_.+?_/,                    // 斜体 (_italic_)
+  /\[.+?\]\(.+?\)/,           // 链接 [text](url)
+  /!\[.*?\]\(.+?\)/,          // 图片 ![alt](url)
+  /^[-*+]\s+.+$/m,            // 无序列表
+  /^\d+\.\s+.+$/m,            // 有序列表
+  /^>\s+.+$/m,                // 引用块
+  /`[^`]+`/,                  // 行内代码
+  /^```[\s\S]*?```$/m,        // 代码块
+  /^\|.+\|$/m,                // 表格
+  /^---+$/m,                  // 分隔线
+  /^___+$/m,                  // 分隔线
+  /^\*\*\*+$/m,               // 分隔线
+]
+
+/**
+ * Markdown 验证器
+ *
+ * 验证内容是否包含有效的 Markdown 语法。
+ * 由于 Markdown 本质是纯文本的超集，验证相对宽松。
+ */
+export const markdownValidator: TypeValidator = {
+  type: 'markdown',
+  validate(content: string): TypeValidationResult {
+    if (!content || content.trim() === '') {
+      return {
+        valid: false,
+        error: '内容为空',
+      }
+    }
+
+    // Markdown 验证相对宽松，只要是文本就可以被视为有效的 Markdown
+    // 但我们可以检查是否包含常见的 Markdown 语法以提高置信度
+    const hasMarkdownSyntax = MARKDOWN_PATTERNS.some(pattern => pattern.test(content))
+
+    // 即使没有 Markdown 语法，纯文本也是有效的 Markdown
+    // 所以我们总是返回 valid: true
+    return { valid: true }
+  },
+}
+
+// ============================================
 // CSV Validator
 // ============================================
 
 /**
  * CSV 验证器
- * 
+ *
  * 验证内容是否符合 CSV 格式。
  * 支持逗号、分号、制表符作为分隔符。
  */
@@ -300,4 +352,5 @@ function parseCSVLine(line: string, delimiter: string): string[] {
 // 注册默认验证器
 registerValidator(jsonValidator)
 registerValidator(htmlValidator)
+registerValidator(markdownValidator)
 registerValidator(csvValidator)

@@ -444,4 +444,130 @@ describe('Node Feedback API - Property Tests', () => {
       { numRuns: 100 }
     )
   })
+
+  /**
+   * Property 4a: Query by nodeId returns only matching feedbacks
+   *
+   * Feature: workflow-test-mode, Property 4: 多维度查询正确性
+   * Validates: Requirements 4.5
+   */
+  it('Property 4a: query by nodeId returns only matching feedbacks', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.array(feedbackDataArb, { minLength: 2, maxLength: 10 }),
+        fc.uuid(),
+        async (feedbacksData, targetNodeId) => {
+          const executionId = mockExecution.id
+          const now = new Date()
+
+          // Assign the target nodeId to some feedbacks
+          const feedbacksWithTargetNode = feedbacksData.map((f, i) => ({
+            ...f,
+            nodeId: i % 2 === 0 ? targetNodeId : f.nodeId,
+          }))
+
+          // Create mock saved feedbacks - only those matching targetNodeId
+          const matchingFeedbacks = feedbacksWithTargetNode
+            .filter(f => f.nodeId === targetNodeId)
+            .map((f, i) => ({
+              id: `feedback-${i}`,
+              executionId,
+              nodeId: f.nodeId,
+              nodeName: f.nodeName,
+              nodeType: f.nodeType,
+              isCorrect: f.isCorrect,
+              errorReason: f.errorReason || null,
+              errorCategory: f.errorCategory || null,
+              nodeOutput: f.nodeOutput || null,
+              userId: mockSession.user.id,
+              createdAt: now,
+              updatedAt: now,
+            }))
+
+          vi.mocked(prisma.nodeTestFeedback.findMany).mockResolvedValue(matchingFeedbacks as never)
+
+          // Make GET request with nodeId filter
+          const request = new NextRequest(
+            `http://localhost/api/executions/${executionId}/node-feedback?nodeId=${targetNodeId}`,
+            {
+              method: 'GET',
+            }
+          )
+
+          const response = await GET(request, {
+            params: Promise.resolve({ id: executionId }),
+          })
+          const data = await response.json()
+
+          // Property 4a: All returned feedbacks must have the target nodeId
+          expect(response.status).toBe(200)
+          expect(data.success).toBe(true)
+
+          for (const feedback of data.data.feedbacks) {
+            expect(feedback.nodeId).toBe(targetNodeId)
+          }
+
+          return true
+        }
+      ),
+      { numRuns: 100 }
+    )
+  })
+
+  /**
+   * Property 4b: Query without filters returns all feedbacks
+   *
+   * Feature: workflow-test-mode, Property 4: 多维度查询正确性
+   * Validates: Requirements 4.5
+   */
+  it('Property 4b: query without filters returns all feedbacks for execution', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        feedbacksArrayArb,
+        async (feedbacksData) => {
+          const executionId = mockExecution.id
+          const now = new Date()
+
+          // Create mock saved feedbacks with different nodeIds
+          const savedFeedbacks = feedbacksData.map((f, i) => ({
+            id: `feedback-${i}`,
+            executionId,
+            nodeId: f.nodeId,
+            nodeName: f.nodeName,
+            nodeType: f.nodeType,
+            isCorrect: f.isCorrect,
+            errorReason: f.errorReason || null,
+            errorCategory: f.errorCategory || null,
+            nodeOutput: f.nodeOutput || null,
+            userId: mockSession.user.id,
+            createdAt: now,
+            updatedAt: now,
+          }))
+
+          vi.mocked(prisma.nodeTestFeedback.findMany).mockResolvedValue(savedFeedbacks as never)
+
+          // Make GET request without filters
+          const request = new NextRequest(
+            `http://localhost/api/executions/${executionId}/node-feedback`,
+            {
+              method: 'GET',
+            }
+          )
+
+          const response = await GET(request, {
+            params: Promise.resolve({ id: executionId }),
+          })
+          const data = await response.json()
+
+          // Property 4b: Count must match total feedbacks
+          expect(response.status).toBe(200)
+          expect(data.success).toBe(true)
+          expect(data.data.feedbacks.length).toBe(feedbacksData.length)
+
+          return true
+        }
+      ),
+      { numRuns: 100 }
+    )
+  })
 })

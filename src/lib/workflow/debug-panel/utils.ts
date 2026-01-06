@@ -97,9 +97,9 @@ export function guessOutputTypeFromPromptAndTools(options: {
     return 'excel'
   }
 
-  // Markdown / 富文本：仍然当作文本
+  // Markdown / 富文本
   if (/markdown|md格式|富文本/.test(prompt)) {
-    return 'text'
+    return 'markdown'
   }
 
   // 2. 如果提示词没有明确指定格式，再根据启用的工具做推断

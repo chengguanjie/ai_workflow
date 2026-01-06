@@ -191,6 +191,140 @@ function getDefaultOutputValue(nodeOutput: { data: Record<string, unknown> }): u
 }
 
 /**
+ * 替换循环变量
+ * 支持格式：{{loop.item}}、{{loop.index}}、{{loop.isFirst}}、{{loop.isLast}}、{{loop.total}}、{{loop.results}}
+ * 对于嵌套循环，支持自定义命名空间：{{loop1.item}}、{{innerLoop.index}} 等
+ */
+function replaceLoopVariables(
+  text: string,
+  context: ExecutionContext
+): string {
+  if (!context.loopVariables || Object.keys(context.loopVariables).length === 0) {
+    // 如果没有循环变量，尝试从 globalVariables 中获取（处理器已写入）
+    return replaceLoopVariablesFromGlobal(text, context)
+  }
+
+  let result = text
+
+  // 遍历所有循环命名空间
+  for (const [namespace, vars] of Object.entries(context.loopVariables)) {
+    // 替换 {{namespace.item}}
+    result = result.replace(
+      new RegExp(`\\{\\{${escapeRegex(namespace)}\\.item\\}\\}`, 'g'),
+      formatLoopValue(vars.item)
+    )
+
+    // 替换 {{namespace.index}}
+    result = result.replace(
+      new RegExp(`\\{\\{${escapeRegex(namespace)}\\.index\\}\\}`, 'g'),
+      String(vars.index)
+    )
+
+    // 替换 {{namespace.isFirst}}
+    result = result.replace(
+      new RegExp(`\\{\\{${escapeRegex(namespace)}\\.isFirst\\}\\}`, 'g'),
+      String(vars.isFirst)
+    )
+
+    // 替换 {{namespace.isLast}}
+    result = result.replace(
+      new RegExp(`\\{\\{${escapeRegex(namespace)}\\.isLast\\}\\}`, 'g'),
+      String(vars.isLast)
+    )
+
+    // 替换 {{namespace.total}}
+    result = result.replace(
+      new RegExp(`\\{\\{${escapeRegex(namespace)}\\.total\\}\\}`, 'g'),
+      String(vars.total)
+    )
+  }
+
+  return result
+}
+
+/**
+ * 从 globalVariables 中替换循环变量
+ * 处理器会将循环变量写入 globalVariables，格式为：
+ * globalVariables['loop'] = { item, index, isFirst, isLast, total, results }
+ */
+function replaceLoopVariablesFromGlobal(
+  text: string,
+  context: ExecutionContext
+): string {
+  if (!context.globalVariables) return text
+
+  let result = text
+
+  // 查找所有可能的循环命名空间（以 loop 开头或包含循环变量结构的）
+  for (const [key, value] of Object.entries(context.globalVariables)) {
+    if (
+      value &&
+      typeof value === 'object' &&
+      'item' in (value as Record<string, unknown>) &&
+      'index' in (value as Record<string, unknown>)
+    ) {
+      const vars = value as { item: unknown; index: number; isFirst?: boolean; isLast?: boolean; total?: number; results?: unknown[] }
+
+      // 替换 {{key.item}}
+      result = result.replace(
+        new RegExp(`\\{\\{${escapeRegex(key)}\\.item\\}\\}`, 'g'),
+        formatLoopValue(vars.item)
+      )
+
+      // 替换 {{key.index}}
+      result = result.replace(
+        new RegExp(`\\{\\{${escapeRegex(key)}\\.index\\}\\}`, 'g'),
+        String(vars.index)
+      )
+
+      // 替换 {{key.isFirst}}
+      result = result.replace(
+        new RegExp(`\\{\\{${escapeRegex(key)}\\.isFirst\\}\\}`, 'g'),
+        String(vars.isFirst ?? false)
+      )
+
+      // 替换 {{key.isLast}}
+      result = result.replace(
+        new RegExp(`\\{\\{${escapeRegex(key)}\\.isLast\\}\\}`, 'g'),
+        String(vars.isLast ?? false)
+      )
+
+      // 替换 {{key.total}}
+      result = result.replace(
+        new RegExp(`\\{\\{${escapeRegex(key)}\\.total\\}\\}`, 'g'),
+        String(vars.total ?? -1)
+      )
+
+      // 替换 {{key.results}}
+      if (vars.results) {
+        result = result.replace(
+          new RegExp(`\\{\\{${escapeRegex(key)}\\.results\\}\\}`, 'g'),
+          JSON.stringify(vars.results, null, 2)
+        )
+      }
+    }
+  }
+
+  return result
+}
+
+/**
+ * 格式化循环变量值
+ */
+function formatLoopValue(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'object') return JSON.stringify(value, null, 2)
+  return String(value)
+}
+
+/**
+ * 转义正则表达式特殊字符
+ */
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
  * 替换文本中的变量引用
  * 支持两种格式：
  * 1. {{节点名.字段名}} 或 {{节点名.字段名.子字段}} - 访问特定字段
@@ -200,8 +334,11 @@ export function replaceVariables(
   text: string,
   context: ExecutionContext
 ): string {
-  // 先处理完整格式 {{节点名.字段名}}
-  let result = text.replace(VARIABLE_PATTERN, (match, nodeName, fieldPath) => {
+  // 1. 首先处理循环变量 {{loop.item}}、{{loop.index}} 等
+  let result = replaceLoopVariables(text, context)
+
+  // 2. 处理完整格式 {{节点名.字段名}}
+  result = result.replace(VARIABLE_PATTERN, (match, nodeName, fieldPath) => {
     const nodeOutput = findNodeOutputByNameOrId(nodeName.trim(), context)
 
     if (!nodeOutput) {

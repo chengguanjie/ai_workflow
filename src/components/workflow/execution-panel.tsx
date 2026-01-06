@@ -3,7 +3,7 @@
 /**
  * 工作流执行面板
  * 用于执行工作流并展示结果
- * 支持两种模式：普通执行 / 实时监控
+ * 支持两种模式：执行模式 / 测试模式
  */
 
 import { useState, useCallback, useEffect, useRef } from "react";
@@ -31,7 +31,7 @@ import {
   ChevronDown,
   ChevronUp,
   MessageSquare,
-  Eye,
+  FlaskConical,
   Radio,
   StopCircle,
   Upload,
@@ -43,6 +43,8 @@ import {
   List,
   ListChecks,
   Minimize2,
+  Sparkles,
+  AlertCircle,
 } from "lucide-react";
 import type { InputFieldType } from "@/types/workflow";
 import { toast } from "sonner";
@@ -55,7 +57,7 @@ import {
 import { cn } from "@/lib/utils";
 
 // 执行模式类型
-type ExecutionMode = "quick" | "monitor";
+type ExecutionMode = "execute" | "test";
 
 // 节点执行状态
 type NodeExecutionStatus =
@@ -104,14 +106,16 @@ interface ExecutionPanelProps {
   onClose: () => void;
   initialMode?: ExecutionMode;
   onNodeStatusChange?: (nodeId: string, status: NodeExecutionStatus) => void;
+  onMinimize?: () => void;
 }
 
 export function ExecutionPanel({
   workflowId,
   isOpen,
   onClose,
-  initialMode = "quick",
+  initialMode = "execute",
   onNodeStatusChange,
+  onMinimize,
 }: ExecutionPanelProps) {
   // 执行模式
   const [executionMode, setExecutionMode] =
@@ -146,8 +150,13 @@ export function ExecutionPanel({
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const pollInFlightRef = useRef(false);
 
+  // AI 测试数据生成状态
+  const [isGeneratingTestData, setIsGeneratingTestData] = useState(false);
+  const [isAIGeneratedInput, setIsAIGeneratedInput] = useState(false);
+  const [aiGenerationWarnings, setAiGenerationWarnings] = useState<string[]>([]);
+
   // 实时监控模式状态
-  const [monitorStatus, setMonitorStatus] = useState<
+  const [testModeStatus, setTestModeStatus] = useState<
     "idle" | "running" | "completed" | "failed"
   >("idle");
   const [nodeStates, setNodeStates] = useState<Map<string, NodeExecutionInfo>>(
@@ -353,6 +362,11 @@ export function ExecutionPanel({
       setTaskId(null);
       setExecutionError(null);
       setExecutionMode(initialMode);
+      
+      // 重置 AI 生成状态
+      setIsGeneratingTestData(false);
+      setIsAIGeneratedInput(false);
+      setAiGenerationWarnings([]);
 
       // 监控模式：初始化节点状态
       const nodeMap = new Map<string, NodeExecutionInfo>();
@@ -365,7 +379,7 @@ export function ExecutionPanel({
         });
       });
       setNodeStates(nodeMap);
-      setMonitorStatus("idle");
+      setTestModeStatus("idle");
       setCurrentNodeId(null);
     }
   }, [isOpen, initialMode]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -431,7 +445,7 @@ export function ExecutionPanel({
   // 处理 SSE 完成
   const handleSSEComplete = useCallback((_event: ExecutionProgressEvent) => {
     setIsExecuting(false);
-    setMonitorStatus("completed");
+    setTestModeStatus("completed");
     setCurrentNodeId(null);
     setSseConnected(false);
     toast.success("工作流执行完成");
@@ -457,7 +471,7 @@ export function ExecutionPanel({
     onEvent: handleSSEEvent,
     onComplete: handleSSEComplete,
     onError: handleSSEError,
-    enabled: executionMode === "monitor",
+    enabled: executionMode === "test",
   });
 
   // 更新 SSE 连接状态
@@ -465,7 +479,7 @@ export function ExecutionPanel({
     setSseConnected(isConnected);
   }, [isConnected]);
 
-  // 轮询任务状态（监控模式专用）
+  // 轮询任务状态（测试模式专用）
   const pollTaskStatusMonitor = useCallback(async () => {
     const tid = taskIdRef.current;
     if (!tid) return;
@@ -481,7 +495,7 @@ export function ExecutionPanel({
           pollingRef.current = null;
         }
         setIsExecuting(false);
-        setMonitorStatus("failed");
+        setTestModeStatus("failed");
         toast.error("任务不存在或已过期");
         return;
       }
@@ -561,7 +575,7 @@ export function ExecutionPanel({
               }
               disconnectSSE();
               setIsExecuting(false);
-              setMonitorStatus(
+              setTestModeStatus(
                 execution.status === "COMPLETED" ? "completed" : "failed",
               );
               setCurrentNodeId(null);
@@ -616,7 +630,7 @@ export function ExecutionPanel({
         }
         disconnectSSE();
         setIsExecuting(false);
-        setMonitorStatus(data.status === "completed" ? "completed" : "failed");
+        setTestModeStatus(data.status === "completed" ? "completed" : "failed");
         setCurrentNodeId(null);
 
         if (data.status === "completed") {
@@ -727,6 +741,60 @@ export function ExecutionPanel({
     }
   }, []);
 
+  // AI 生成测试数据
+  const handleGenerateTestData = useCallback(async () => {
+    if (inputFields.length === 0) {
+      toast.error("没有可生成的输入字段");
+      return;
+    }
+
+    setIsGeneratingTestData(true);
+    setAiGenerationWarnings([]);
+
+    try {
+      const response = await fetch(`/api/workflows/${workflowId}/generate-test-data`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fields: inputFields.map((field) => ({
+            name: field.fieldName,
+            type: field.fieldType,
+            description: undefined,
+            options: field.options,
+            placeholder: undefined,
+            required: undefined,
+          })),
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error?.message || "生成失败");
+      }
+
+      const { data, isAIGenerated, warnings } = result.data || result;
+
+      // 更新输入值
+      setInputValues((prev) => ({ ...prev, ...data }));
+      setIsAIGeneratedInput(isAIGenerated);
+
+      if (warnings && warnings.length > 0) {
+        setAiGenerationWarnings(warnings);
+        toast.warning("测试数据已生成，但有一些警告");
+      } else if (isAIGenerated) {
+        toast.success("AI 测试数据生成成功");
+      } else {
+        toast.info("已生成占位测试数据");
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : "生成失败";
+      toast.error(errorMsg);
+    } finally {
+      setIsGeneratingTestData(false);
+    }
+  }, [workflowId, inputFields]);
+
   // 执行工作流
   const handleExecute = useCallback(async () => {
     // 防止重复启动轮询导致请求叠加
@@ -758,8 +826,8 @@ export function ExecutionPanel({
       emitNodeStatus(optimisticFirstNode.id, "running");
     }
 
-    // 监控模式：重置节点状态
-    if (executionMode === "monitor") {
+    // 测试模式：重置节点状态
+    if (executionMode === "test") {
       const nodeMap = new Map<string, NodeExecutionInfo>();
       nodes.forEach((node) => {
         nodeMap.set(node.id, {
@@ -770,7 +838,7 @@ export function ExecutionPanel({
         });
       });
       setNodeStates(nodeMap);
-      setMonitorStatus("running");
+      setTestModeStatus("running");
       setCurrentNodeId(null);
       executionIdRef.current = null;
       abortControllerRef.current = new AbortController();
@@ -783,10 +851,12 @@ export function ExecutionPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           input: inputValues,
-          async: executionMode === "monitor" ? true : asyncMode, // 监控模式强制异步
+          async: executionMode === "test" ? true : asyncMode, // 测试模式强制异步
+          executionType: executionMode === "test" ? "TEST" : "NORMAL",
+          isAIGeneratedInput: executionMode === "test" ? isAIGeneratedInput : false,
         }),
         signal:
-          executionMode === "monitor"
+          executionMode === "test"
             ? abortControllerRef.current?.signal
             : undefined,
       });
@@ -804,15 +874,15 @@ export function ExecutionPanel({
         setExecutionError(errorMsg);
         setIsExecuting(false);
         clearNodeExecutionStatus();
-        if (executionMode === "monitor") {
-          setMonitorStatus("failed");
+        if (executionMode === "test") {
+          setTestModeStatus("failed");
         }
         toast.error(errorMsg);
         return;
       }
 
-      if (executionMode === "monitor" && data.taskId) {
-        // 监控模式：开始轮询（SSE 会在获取到 executionId 后接管）
+      if (executionMode === "test" && data.taskId) {
+        // 测试模式：开始轮询（SSE 会在获取到 executionId 后接管）
         taskIdRef.current = data.taskId;
         setTaskId(data.taskId);
         setActiveExecution("", data.taskId);
@@ -847,8 +917,8 @@ export function ExecutionPanel({
       setExecutionError(errorMsg);
       setIsExecuting(false);
       clearNodeExecutionStatus();
-      if (executionMode === "monitor") {
-        setMonitorStatus("failed");
+      if (executionMode === "test") {
+        setTestModeStatus("failed");
       }
       toast.error(errorMsg);
     }
@@ -878,7 +948,7 @@ export function ExecutionPanel({
     }
     disconnectSSE();
     setIsExecuting(false);
-    setMonitorStatus("failed");
+    setTestModeStatus("failed");
     setCurrentNodeId(null);
     toast.info("执行已取消");
   }, [disconnectSSE]);
@@ -956,14 +1026,14 @@ export function ExecutionPanel({
         {/* 头部 */}
         <div className="flex items-center justify-between border-b px-6 py-4">
           <div className="flex items-center gap-2">
-            {executionMode === "monitor" ? (
-              <Eye className="h-5 w-5 text-blue-500" />
+            {executionMode === "test" ? (
+              <FlaskConical className="h-5 w-5 text-blue-500" />
             ) : (
               <Play className="h-5 w-5 text-primary" />
             )}
             <h2 className="text-lg font-semibold">执行工作流</h2>
-            {/* 监控模式进度 */}
-            {executionMode === "monitor" && monitorStatus === "running" && (
+            {/* 测试模式进度 */}
+            {executionMode === "test" && testModeStatus === "running" && (
               <>
                 <span className="ml-2 text-sm text-muted-foreground">
                   {getProgress()}% 完成
@@ -977,20 +1047,42 @@ export function ExecutionPanel({
               </>
             )}
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-2">
+            {/* 最小化按钮 - 执行中时显示 */}
+            {isExecuting && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  if (onMinimize) {
+                    onMinimize();
+                  } else {
+                    // 默认行为：设置后台执行状态并关闭面板
+                    setActiveExecution(executionIdRef.current || '', taskId || '');
+                    toast.info("任务将在后台继续执行，您可以在执行历史中查看进度");
+                    onClose();
+                  }
+                }}
+                title="最小化到后台"
+              >
+                <Minimize2 className="h-4 w-4" />
+              </Button>
+            )}
+            <Button variant="ghost" size="icon" onClick={onClose}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
 
-        {/* 监控模式进度条 */}
-        {executionMode === "monitor" && monitorStatus !== "idle" && (
+        {/* 测试模式进度条 */}
+        {executionMode === "test" && testModeStatus !== "idle" && (
           <div className="h-1.5 bg-muted">
             <div
               className={cn(
                 "h-full transition-all duration-300",
-                monitorStatus === "completed"
+                testModeStatus === "completed"
                   ? "bg-green-500"
-                  : monitorStatus === "failed"
+                  : testModeStatus === "failed"
                     ? "bg-red-500"
                     : "bg-blue-500",
               )}
@@ -1006,34 +1098,76 @@ export function ExecutionPanel({
             <button
               className={cn(
                 "flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors",
-                executionMode === "quick"
+                executionMode === "execute"
                   ? "bg-background shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
               )}
-              onClick={() => setExecutionMode("quick")}
+              onClick={() => setExecutionMode("execute")}
               disabled={isExecuting}
             >
               <Play className="h-4 w-4" />
-              普通执行
+              执行模式
             </button>
             <button
               className={cn(
                 "flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors",
-                executionMode === "monitor"
+                executionMode === "test"
                   ? "bg-background shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
               )}
-              onClick={() => setExecutionMode("monitor")}
+              onClick={() => setExecutionMode("test")}
               disabled={isExecuting}
             >
-              <Eye className="h-4 w-4" />
-              实时监控
+              <FlaskConical className="h-4 w-4" />
+              测试模式
             </button>
           </div>
 
+          {/* AI 生成测试数据按钮 - 仅在测试模式 idle 状态显示 */}
+          {executionMode === "test" && testModeStatus === "idle" && inputFields.length > 0 && (
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium">测试数据</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleGenerateTestData}
+                  disabled={isGeneratingTestData || isExecuting}
+                  className="gap-2"
+                >
+                  {isGeneratingTestData ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      生成中...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-4 w-4" />
+                      AI 生成测试数据
+                    </>
+                  )}
+                </Button>
+              </div>
+              
+              {/* AI 生成警告信息 */}
+              {aiGenerationWarnings.length > 0 && (
+                <div className="rounded-lg bg-yellow-50 p-3 text-sm text-yellow-700 mb-3">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                    <div>
+                      {aiGenerationWarnings.map((warning, index) => (
+                        <p key={index}>{warning}</p>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* 输入参数 - 执行前显示 */}
           {inputFields.length > 0 &&
-            (executionMode === "quick" || monitorStatus === "idle") && (
+            (executionMode === "execute" || testModeStatus === "idle") && (
               <div className="mb-6">
                 <button
                   className="flex w-full items-center justify-between text-sm font-medium"
@@ -1257,8 +1391,8 @@ export function ExecutionPanel({
               </div>
             )}
 
-          {/* 普通执行模式内容 */}
-          {executionMode === "quick" && (
+          {/* 执行模式内容 */}
+          {executionMode === "execute" && (
             <>
               {/* 执行选项 */}
               <div className="mb-6">
@@ -1436,33 +1570,33 @@ export function ExecutionPanel({
             </>
           )}
 
-          {/* 实时监控模式内容 */}
-          {executionMode === "monitor" && monitorStatus !== "idle" && (
+          {/* 测试模式内容 */}
+          {executionMode === "test" && testModeStatus !== "idle" && (
             <>
               {/* 执行总览 */}
               <div className="mb-6">
                 <div
                   className={cn(
                     "flex items-center gap-3 rounded-lg p-4",
-                    monitorStatus === "completed"
+                    testModeStatus === "completed"
                       ? "bg-green-50 text-green-700"
-                      : monitorStatus === "failed"
+                      : testModeStatus === "failed"
                         ? "bg-red-50 text-red-700"
                         : "bg-blue-50 text-blue-700",
                   )}
                 >
-                  {monitorStatus === "completed" ? (
+                  {testModeStatus === "completed" ? (
                     <CheckCircle2 className="h-5 w-5" />
-                  ) : monitorStatus === "failed" ? (
+                  ) : testModeStatus === "failed" ? (
                     <XCircle className="h-5 w-5" />
                   ) : (
                     <Loader2 className="h-5 w-5 animate-spin" />
                   )}
                   <div className="flex-1">
                     <p className="font-medium">
-                      {monitorStatus === "completed"
+                      {testModeStatus === "completed"
                         ? "执行成功"
-                        : monitorStatus === "failed"
+                        : testModeStatus === "failed"
                           ? "执行失败"
                           : "正在执行..."}
                     </p>
@@ -1571,10 +1705,10 @@ export function ExecutionPanel({
         {/* 底部 */}
         <div className="flex justify-between border-t px-6 py-4">
           <div>
-            {/* 反馈按钮 - 普通模式或监控模式执行完成/失败后显示 */}
-            {((executionMode === "quick" && result && result.executionId) ||
-              (executionMode === "monitor" &&
-                (monitorStatus === "completed" || monitorStatus === "failed") &&
+            {/* 反馈按钮 - 执行模式或测试模式执行完成/失败后显示 */}
+            {((executionMode === "execute" && result && result.executionId) ||
+              (executionMode === "test" &&
+                (testModeStatus === "completed" || testModeStatus === "failed") &&
                 executionIdRef.current)) && (
               <Button
                 variant="outline"
@@ -1588,30 +1722,14 @@ export function ExecutionPanel({
           </div>
           <div className="flex gap-3">
             <Button variant="outline" onClick={onClose} disabled={isExecuting && !asyncMode}>
-              {(executionMode === "quick" && result) ||
-              (executionMode === "monitor" &&
-                monitorStatus !== "idle" &&
-                monitorStatus !== "running")
+              {(executionMode === "execute" && result) ||
+              (executionMode === "test" &&
+                testModeStatus !== "idle" &&
+                testModeStatus !== "running")
                 ? "关闭"
                 : "取消"}
             </Button>
-            {/* 后台执行按钮 - 异步执行中时显示 */}
-            {isExecuting && asyncMode && taskId && (
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  // 设置后台执行状态，即使还没有 executionId 也要设置 taskId
-                  // 这样工作流页面可以通过 taskId 轮询获取执行状态
-                  setActiveExecution(executionIdRef.current || '', taskId);
-                  toast.info("任务将在后台继续执行，您可以在执行历史中查看进度");
-                  onClose();
-                }}
-              >
-                <Minimize2 className="mr-2 h-4 w-4" />
-                后台执行
-              </Button>
-            )}
-            {executionMode === "monitor" && isExecuting ? (
+            {executionMode === "test" && isExecuting ? (
               <Button variant="destructive" onClick={handleStop}>
                 <StopCircle className="mr-2 h-4 w-4" />
                 停止执行
@@ -1626,8 +1744,8 @@ export function ExecutionPanel({
                 ) : (
                   <>
                     <Play className="mr-2 h-4 w-4" />
-                    {(executionMode === "quick" && result) ||
-                    (executionMode === "monitor" && monitorStatus !== "idle")
+                    {(executionMode === "execute" && result) ||
+                    (executionMode === "test" && testModeStatus !== "idle")
                       ? "重新执行"
                       : "执行"}
                   </>

@@ -346,8 +346,50 @@ export interface OutputNodeConfig extends BaseNodeConfig {
  * 逻辑节点模式：
  * - condition: 条件判断，根据表达式决定激活哪些后续分支
  * - merge: 合并处理，等待所有上游节点完成后汇总结果传递给下游
+ * - loop: 循环处理，重复执行下游节点
  */
-export type LogicNodeMode = 'condition' | 'merge'
+export type LogicNodeMode = 'condition' | 'merge' | 'loop'
+
+/**
+ * 循环类型
+ */
+export type LoopType = 'forEach' | 'while' | 'times'
+
+/**
+ * 循环配置
+ */
+export interface LoopConfig {
+  /** 循环类型 */
+  loopType: LoopType
+
+  // ===== forEach 配置 =====
+  /** 要遍历的数组变量路径，如 "上游节点.items" */
+  iterableSource?: string
+  /** 每次迭代时当前元素的变量名，默认 "item" */
+  itemVariableName?: string
+  /** 当前索引的变量名，默认 "index" */
+  indexVariableName?: string
+
+  // ===== while 配置 =====
+  /** while 循环的条件表达式 */
+  whileCondition?: string
+
+  // ===== times 配置 =====
+  /** 固定循环次数 */
+  loopCount?: number
+  /** 次数来源变量路径（动态获取循环次数） */
+  loopCountSource?: string
+
+  // ===== 通用配置 =====
+  /** 最大迭代次数限制，防止无限循环，默认 100 */
+  maxIterations?: number
+  /** 循环体节点 ID 列表（手动指定）；为空时自动识别直接下游 */
+  loopBodyNodeIds?: string[]
+  /** 循环变量命名空间，避免嵌套循环冲突，默认 "loop" */
+  loopNamespace?: string
+  /** 是否收集每次迭代的结果，默认 true */
+  collectResults?: boolean
+}
 
 /**
  * 通用逻辑分支描述
@@ -414,6 +456,9 @@ export interface LogicNodeConfigData {
    * 实际值由引擎在执行时根据 nodeOutputs/globalVariables 解析
    */
   switchInput?: string
+
+  /** 循环模式配置 */
+  loopConfig?: LoopConfig
 }
 
 export interface LogicNodeConfig extends BaseNodeConfig {
