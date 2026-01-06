@@ -10,6 +10,19 @@ export class OpenRouterProvider implements AIProvider {
 
   async chat(request: ChatRequest, apiKey: string, baseUrl?: string): Promise<ChatResponse> {
     const url = baseUrl || DEFAULT_OPENROUTER_BASE_URL
+    
+    const requestBody: Record<string, unknown> = {
+      model: request.model,
+      messages: request.messages,
+      temperature: request.temperature ?? 0.7,
+      stream: false,
+    }
+    
+    // 只有明确指定了 maxTokens 才传递给 API
+    if (request.maxTokens) {
+      requestBody.max_tokens = request.maxTokens
+    }
+    
     const response = await fetchWithTimeout(`${url}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -18,13 +31,7 @@ export class OpenRouterProvider implements AIProvider {
         'HTTP-Referer': process.env.NEXTAUTH_URL || 'http://localhost:3000',
         'X-Title': 'AI Workflow',
       },
-      body: JSON.stringify({
-        model: request.model,
-        messages: request.messages,
-        temperature: request.temperature ?? 0.7,
-        max_tokens: request.maxTokens ?? 2048,
-        stream: false,
-      }),
+      body: JSON.stringify(requestBody),
       timeoutMs: 90_000,
     })
 

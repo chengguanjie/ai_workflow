@@ -1361,7 +1361,7 @@ function getDefaultConfig(type: string): Record<string, unknown> {
         systemPrompt: "",
         userPrompt: "",
         temperature: 0.7,
-        maxTokens: 2048,
+        maxTokens: 10000,
       };
     case "code":
       return {

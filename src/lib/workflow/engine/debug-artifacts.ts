@@ -19,6 +19,8 @@ type PersistedDebugPayload = {
   duration?: number
   tokenUsage?: NodeOutput['tokenUsage']
   error?: string
+  /** 完整的节点输出数据（不截断） */
+  output?: Record<string, unknown>
   logs: Array<{
     type: ExecutionLogType
     message: string
@@ -148,6 +150,8 @@ export class NodeDebugArtifactCollector {
       duration: result.duration,
       tokenUsage: result.tokenUsage,
       error: result.error,
+      // 保存完整的输出数据（不截断），用于用户查看完整内容
+      output: result.data,
       logs: logs.map((l) => ({
         type: l.type,
         message: l.message,

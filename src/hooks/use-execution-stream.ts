@@ -32,8 +32,8 @@ export interface ExecutionProgressEvent {
   }
   /** 输入状态 */
   inputStatus?: 'pending' | 'valid' | 'invalid' | 'missing'
-  /** 输出状态 */
-  outputStatus?: 'pending' | 'valid' | 'error' | 'empty'
+  /** 输出状态 - 扩展支持 'invalid' 和 'incomplete' */
+  outputStatus?: 'pending' | 'valid' | 'error' | 'empty' | 'invalid' | 'incomplete'
   /** 输入错误信息 */
   inputError?: string
   /** 输出错误信息 */

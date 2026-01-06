@@ -115,9 +115,60 @@ export function extractVariableReferences(text: string): Array<{ nodeName: strin
 /**
  * 从节点输出中获取默认值
  * 优先级：result > 结果 > 第一个字段 > 整个对象
+ * 
+ * 特殊处理：如果输出包含多媒体内容（images/videos/audio），
+ * 会将其与文本结果合并返回，确保下游节点能获取完整数据
  */
 function getDefaultOutputValue(nodeOutput: { data: Record<string, unknown> }): unknown {
   const { data } = nodeOutput
+
+  // 检查是否有多媒体内容
+  const hasImages = Array.isArray(data.images) && data.images.length > 0
+  const hasVideos = Array.isArray(data.videos) && data.videos.length > 0
+  const hasAudio = data.audio !== undefined && data.audio !== null
+
+  // 如果有多媒体内容，返回包含文本和多媒体URL的完整对象
+  if (hasImages || hasVideos || hasAudio) {
+    const result: Record<string, unknown> = {}
+    
+    // 添加文本结果
+    if ('result' in data) {
+      result['结果'] = data.result
+    } else if ('结果' in data) {
+      result['结果'] = data['结果']
+    }
+    
+    // 添加多媒体内容（保留完整对象，同时提取URL列表供AI使用）
+    if (hasImages) {
+      const images = data.images as Array<{ url?: string; b64?: string; revisedPrompt?: string }>
+      result.images = images
+      // 提取图片URL列表，方便AI在HTML中使用
+      result.imageUrls = images
+        .filter(img => img.url)
+        .map((img, index) => ({
+          index: index + 1,
+          url: img.url,
+          description: img.revisedPrompt || `图片${index + 1}`
+        }))
+    }
+    if (hasVideos) {
+      const videos = data.videos as Array<{ url?: string; duration?: number; format?: string }>
+      result.videos = videos
+      result.videoUrls = videos
+        .filter(v => v.url)
+        .map((v, index) => ({
+          index: index + 1,
+          url: v.url,
+          duration: v.duration,
+          format: v.format
+        }))
+    }
+    if (hasAudio) {
+      result.audio = data.audio
+    }
+    
+    return result
+  }
 
   // 优先使用 result 字段
   if ('result' in data) {
@@ -705,14 +756,56 @@ function convertValueToContentParts(value: unknown): ContentPart[] {
       return convertValueToContentParts(val.file)
     }
     
-    // 3.3 检查 images 数组（来自图片生成节点）
-    if (val.images && Array.isArray(val.images)) {
-      return val.images.flatMap((img: { url?: string }) => {
-        if (img.url) {
-          return [{ type: 'image_url', image_url: { url: img.url, detail: 'auto' } }]
+    // 3.3 检查是否包含 imageUrls（来自 getDefaultOutputValue 的增强输出）
+    // 这种情况下，我们需要将整个对象转换为文本，让AI知道图片URL
+    if (val.imageUrls && Array.isArray(val.imageUrls)) {
+      const parts: ContentPart[] = []
+      
+      // 添加文本结果
+      if (val['结果']) {
+        parts.push({ type: 'text', text: String(val['结果']) })
+      }
+      
+      // 添加图片URL信息作为文本（让AI知道URL以便在HTML中使用）
+      const imageUrlsText = val.imageUrls.map((img: { index: number; url: string; description?: string }) => 
+        `图片${img.index}: ${img.url}${img.description ? ` (${img.description})` : ''}`
+      ).join('\n')
+      parts.push({ type: 'text', text: `\n\n【可用的配图URL】\n${imageUrlsText}\n` })
+      
+      // 同时添加图片本身（让AI能"看到"图片内容）
+      if (val.images && Array.isArray(val.images)) {
+        for (const img of val.images) {
+          if (img.url) {
+            parts.push({ type: 'image_url', image_url: { url: img.url, detail: 'auto' } })
+          }
         }
-        return []
-      })
+      }
+      
+      return parts
+    }
+    
+    // 3.4 检查 images 数组（来自图片生成节点，没有 imageUrls 的情况）
+    if (val.images && Array.isArray(val.images)) {
+      const parts: ContentPart[] = []
+      
+      // 添加图片URL作为文本
+      const imageUrlsText = val.images
+        .filter((img: { url?: string }) => img.url)
+        .map((img: { url?: string; revisedPrompt?: string }, index: number) => 
+          `图片${index + 1}: ${img.url}${img.revisedPrompt ? ` (${img.revisedPrompt})` : ''}`
+        ).join('\n')
+      if (imageUrlsText) {
+        parts.push({ type: 'text', text: `【可用的配图URL】\n${imageUrlsText}\n` })
+      }
+      
+      // 同时添加图片本身
+      for (const img of val.images) {
+        if (img.url) {
+          parts.push({ type: 'image_url', image_url: { url: img.url, detail: 'auto' } })
+        }
+      }
+      
+      return parts
     }
   }
 

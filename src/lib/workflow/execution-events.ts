@@ -37,8 +37,8 @@ export interface ExecutionProgressEvent {
   }
   /** 输入状态 */
   inputStatus?: 'pending' | 'valid' | 'invalid' | 'missing'
-  /** 输出状态 */
-  outputStatus?: 'pending' | 'valid' | 'error' | 'empty'
+  /** 输出状态 - 扩展支持 'invalid' 和 'incomplete' */
+  outputStatus?: 'pending' | 'valid' | 'error' | 'empty' | 'invalid' | 'incomplete'
   /** 输入错误信息 */
   inputError?: string
   /** 输出错误信息 */
@@ -57,7 +57,7 @@ export interface NodeStatus {
   output?: Record<string, unknown>
   error?: string
   inputStatus?: 'pending' | 'valid' | 'invalid' | 'missing'
-  outputStatus?: 'pending' | 'valid' | 'error' | 'empty'
+  outputStatus?: 'pending' | 'valid' | 'error' | 'empty' | 'invalid' | 'incomplete'
   inputError?: string
   outputError?: string
   triggered?: boolean
@@ -211,7 +211,8 @@ class ExecutionEventManager extends EventEmitter {
     nodeName: string,
     nodeType: string,
     output?: Record<string, unknown>,
-    outputStatus?: 'valid' | 'empty'
+    outputStatus?: 'valid' | 'empty' | 'invalid' | 'incomplete',
+    outputError?: string
   ): void {
     const state = this.executionStates.get(executionId)
     if (!state) return
@@ -225,6 +226,7 @@ class ExecutionEventManager extends EventEmitter {
         : 0
       nodeStatus.output = output
       nodeStatus.outputStatus = outputStatus || 'valid'
+      nodeStatus.outputError = outputError
     }
 
     if (!state.completedNodes.includes(nodeId)) {
@@ -246,6 +248,7 @@ class ExecutionEventManager extends EventEmitter {
       currentNodeIndex: state.completedNodes.length,
       output,
       outputStatus: outputStatus || 'valid',
+      outputError,
       timestamp: new Date(),
     }
 

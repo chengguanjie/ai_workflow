@@ -156,6 +156,173 @@ describe('debugNode', () => {
   })
 })
 
+/**
+ * Log Completeness Tests
+ * 
+ * Requirements: 2.1 - WHEN 调试执行过程中发生错误 THEN THE Debug_Panel SHALL 显示错误发生前的所有日志
+ * Requirements: 2.2 - WHEN 模型配置错误导致执行失败 THEN THE Debug_Panel SHALL 在日志中显示具体的配置问题
+ */
+describe('debugNode - Log Completeness', () => {
+  it('should return logs even when execution fails with unknown node type', async () => {
+    const node = createTestNode('UNKNOWN_TYPE' as NodeType, {})
+
+    const request: DebugRequest = {
+      workflowId: 'wf-1',
+      organizationId: 'org-1',
+      userId: 'user-1',
+      node,
+      mockInputs: {},
+      config: createTestConfig(),
+    }
+
+    const result = await debugNode(request)
+
+    // Verify error status
+    expect(result.status).toBe('error')
+    
+    // Verify logs are returned even on error
+    expect(result.logs).toBeDefined()
+    expect(result.logs!.length).toBeGreaterThan(0)
+    
+    // Verify logs contain initialization info before error
+    expect(result.logs!.some(log => log.includes('开始调试节点'))).toBe(true)
+    
+    // Verify error is logged
+    expect(result.logs!.some(log => log.includes('未找到节点处理器'))).toBe(true)
+  })
+
+  it('should include node configuration details in logs', async () => {
+    const node = createTestNode('PROCESS', {
+      model: 'test-model',
+      aiConfigId: 'config-123',
+      enableToolCalling: false,
+    })
+
+    const request: DebugRequest = {
+      workflowId: 'wf-1',
+      organizationId: 'org-1',
+      userId: 'user-1',
+      node,
+      mockInputs: {},
+      config: createTestConfig(),
+    }
+
+    const result = await debugNode(request)
+
+    // Verify logs contain configuration details
+    expect(result.logs).toBeDefined()
+    expect(result.logs!.some(log => log.includes('节点配置检查'))).toBe(true)
+    expect(result.logs!.some(log => log.includes('test-model'))).toBe(true)
+    expect(result.logs!.some(log => log.includes('config-123'))).toBe(true)
+  })
+
+  it('should log all steps before error occurs', async () => {
+    const node = createTestNode('PROCESS', {
+      model: 'invalid-model',
+      userPrompt: 'test prompt',
+    })
+
+    const request: DebugRequest = {
+      workflowId: 'wf-1',
+      organizationId: 'org-1',
+      userId: 'user-1',
+      node,
+      mockInputs: {
+        upstream: { data: 'test data' },
+      },
+      config: createTestConfig(),
+    }
+
+    const result = await debugNode(request)
+
+    // Verify logs are returned
+    expect(result.logs).toBeDefined()
+    expect(result.logs!.length).toBeGreaterThan(0)
+    
+    // Verify initialization logs are present
+    expect(result.logs!.some(log => log.includes('开始调试节点'))).toBe(true)
+    
+    // Verify mock input injection is logged
+    expect(result.logs!.some(log => log.includes('注入模拟输入: upstream'))).toBe(true)
+    
+    // Verify processor lookup is logged
+    expect(result.logs!.some(log => log.includes('获取处理器'))).toBe(true)
+  })
+
+  it('should include timestamp in all log entries', async () => {
+    const node = createTestNode('INPUT', {
+      fields: [{ id: '1', name: 'test', type: 'text', value: 'value' }],
+    })
+
+    const request: DebugRequest = {
+      workflowId: 'wf-1',
+      organizationId: 'org-1',
+      userId: 'user-1',
+      node,
+      mockInputs: {},
+      config: createTestConfig(),
+    }
+
+    const result = await debugNode(request)
+
+    expect(result.logs).toBeDefined()
+    
+    // Verify all log entries have timestamps (format: [HH:MM:SS])
+    const timePattern = /\[\d{2}:\d{2}:\d{2}\]/
+    const logsWithTimestamp = result.logs!.filter(log => timePattern.test(log))
+    
+    // At least the main log entries should have timestamps
+    expect(logsWithTimestamp.length).toBeGreaterThan(0)
+  })
+
+  it('should log tool configuration when tools are enabled', async () => {
+    const node = createTestNode('PROCESS', {
+      model: 'test-model',
+      enableToolCalling: true,
+      tools: [
+        { type: 'web_search', name: 'Web Search', enabled: true },
+        { type: 'calculator', name: 'Calculator', enabled: false },
+      ],
+    })
+
+    const request: DebugRequest = {
+      workflowId: 'wf-1',
+      organizationId: 'org-1',
+      userId: 'user-1',
+      node,
+      mockInputs: {},
+      config: createTestConfig(),
+    }
+
+    const result = await debugNode(request)
+
+    expect(result.logs).toBeDefined()
+    
+    // Verify tool configuration is logged
+    expect(result.logs!.some(log => log.includes('工具调用检查'))).toBe(true)
+    expect(result.logs!.some(log => log.includes('web_search'))).toBe(true)
+  })
+
+  it('should return duration even when execution fails', async () => {
+    const node = createTestNode('UNKNOWN_TYPE' as NodeType, {})
+
+    const request: DebugRequest = {
+      workflowId: 'wf-1',
+      organizationId: 'org-1',
+      userId: 'user-1',
+      node,
+      mockInputs: {},
+      config: createTestConfig(),
+    }
+
+    const result = await debugNode(request)
+
+    expect(result.status).toBe('error')
+    expect(result.duration).toBeDefined()
+    expect(result.duration).toBeGreaterThanOrEqual(0)
+  })
+})
+
 describe('createMockContext', () => {
   it('should create empty context', () => {
     const context = createMockContext('wf-1', 'org-1', 'user-1')

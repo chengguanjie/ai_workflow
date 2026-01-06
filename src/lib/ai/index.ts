@@ -57,7 +57,9 @@ class AIService {
   ): Promise<ChatResponse> {
     // 验证上下文大小
     const model = request.model
-    const maxResponseTokens = request.maxTokens || 2000
+    // 如果未指定 maxTokens，使用模型上下文限制的一半作为预估（让模型自行决定输出长度）
+    const contextLimit = getModelContextLimit(model)
+    const maxResponseTokens = request.maxTokens || Math.min(contextLimit / 2, 16384)
 
     // 计算输入的总token数
     let totalInputTokens = 0
@@ -87,7 +89,6 @@ class AIService {
       maxResponseTokens
     )
 
-    const contextLimit = getModelContextLimit(model)
     const totalTokensNeeded = totalInputTokens + maxResponseTokens
 
     if (totalTokensNeeded > contextLimit) {

@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "中文回答",
+  "description": "确保AI助手的所有回答都使用中文",
+  "version": "1",
+  "when": {
+    "type": "promptSubmit"
+  },
+  "then": {
+    "type": "runCommand",
+    "command": "echo \"请用中文回答\""
+  }
+}

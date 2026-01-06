@@ -53,8 +53,12 @@ export class OpenAIProvider implements AIProvider {
       model: request.model,
       messages: request.messages,
       temperature: request.temperature ?? 0.7,
-      max_tokens: request.maxTokens ?? 2048,
       stream: false,
+    }
+
+    // 只有明确指定了 maxTokens 才传递给 API
+    if (request.maxTokens) {
+      requestBody.max_tokens = request.maxTokens
     }
 
     // Claude thinking 模型需要额外的 thinking 配置

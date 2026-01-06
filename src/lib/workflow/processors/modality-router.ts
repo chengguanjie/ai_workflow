@@ -115,13 +115,17 @@ async function handleTextGeneration(params: ModalityRouterParams): Promise<Modal
     messages.push({ role: 'user', content: prompt })
   }
 
+  // 如果用户没有指定 maxTokens 或设置为 -1（无限制），传递 undefined 让 API 使用模型默认最大值
+  const configMaxTokens = params.config.maxTokens
+  const maxTokens = (configMaxTokens === undefined || configMaxTokens === -1) ? undefined : configMaxTokens
+
   const response = await aiService.chat(
     aiConfig.provider,
     {
       model,
       messages,
       temperature: params.config.temperature ?? 0.7,
-      maxTokens: params.config.maxTokens ?? 2048,
+      maxTokens,
     },
     aiConfig.apiKey,
     aiConfig.baseUrl

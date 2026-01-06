@@ -459,6 +459,8 @@ model Execution {
   resumedFromId       String?
   workflowVersionId   String?
   organizationId      String
+  executionType       ExecutionType        @default(NORMAL)
+  isAIGeneratedInput  Boolean              @default(false)
   workflow            Workflow             @relation(fields: [workflowId], references: [id], onDelete: Cascade)
   user                User                 @relation(fields: [userId], references: [id])
   organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -467,6 +469,7 @@ model Execution {
   feedbacks           ExecutionFeedback[]
   analyticsDataPoints AnalyticsDataPoint[]
   approvalRequests    ApprovalRequest[]
+  nodeFeedbacks       NodeTestFeedback[]
 
   @@index([workflowId])
   @@index([userId])
@@ -475,6 +478,7 @@ model Execution {
   @@index([workflowVersionId])
   @@index([organizationId, createdAt])
   @@index([organizationId, status, createdAt])
+  @@index([executionType])
   @@map("executions")
 }
 
@@ -501,6 +505,29 @@ model ExecutionLog {
   @@index([executionId])
   @@index([nodeId])
   @@map("execution_logs")
+}
+
+model NodeTestFeedback {
+  id            String         @id @default(cuid())
+  executionId   String
+  nodeId        String
+  nodeName      String
+  nodeType      String
+  isCorrect     Boolean
+  errorReason   String?        @db.Text
+  errorCategory ErrorCategory?
+  nodeOutput    Json?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  userId        String
+  execution     Execution      @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@index([executionId])
+  @@index([nodeId])
+  @@index([isCorrect])
+  @@index([errorCategory])
+  @@index([createdAt])
+  @@map("node_test_feedbacks")
 }
 
 model OutputFile {
@@ -1454,4 +1481,18 @@ enum VisualizationType {
   HEATMAP
   GAUGE
   TABLE
+}
+
+enum ExecutionType {
+  NORMAL
+  TEST
+}
+
+enum ErrorCategory {
+  OUTPUT_FORMAT
+  OUTPUT_CONTENT
+  MISSING_DATA
+  LOGIC_ERROR
+  PERFORMANCE
+  OTHER
 }

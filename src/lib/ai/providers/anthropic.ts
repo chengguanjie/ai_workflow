@@ -61,7 +61,8 @@ export class AnthropicProvider implements AIProvider {
         content: m.content,
       })),
       system: systemMessage?.content,
-      max_tokens: request.maxTokens ?? 2048,
+      // Anthropic API 要求 max_tokens 参数，使用较高的默认值
+      max_tokens: request.maxTokens || 8192,
       temperature: request.temperature ?? 0.7,
     }
 

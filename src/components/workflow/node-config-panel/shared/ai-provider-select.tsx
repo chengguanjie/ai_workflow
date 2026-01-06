@@ -3,9 +3,15 @@
 import { useState, useEffect } from 'react'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
-import { Loader2, AlertCircle } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Loader2, AlertCircle, Infinity } from 'lucide-react'
 import type { AIProviderConfig } from './types'
 import type { ModelModality } from '@/lib/ai/types'
+
+// 无限制输出的特殊值（使用模型最大上下文长度）
+export const UNLIMITED_TOKENS = -1
+// 默认 token 限制
+export const DEFAULT_MAX_TOKENS = 10000
 
 interface AIProviderSelectProps {
   aiConfigId?: string
@@ -34,11 +40,14 @@ export function AIProviderSelect({
   onMaxTokensChange,
   showAdvancedSettings = true,
   defaultTemperature = 0.7,
-  defaultMaxTokens = 2048,
+  defaultMaxTokens = DEFAULT_MAX_TOKENS,
   modality,
 }: AIProviderSelectProps) {
   const [providers, setProviders] = useState<AIProviderConfig[]>([])
   const [loadingProviders, setLoadingProviders] = useState(true)
+
+  // 判断是否为无限制模式
+  const isUnlimited = maxTokens === UNLIMITED_TOKENS
 
   // 加载可用的服务商列表
   useEffect(() => {
@@ -170,13 +179,46 @@ export function AIProviderSelect({
           </div>
           <div className="space-y-2">
             <Label>Max Tokens</Label>
-            <Input
-              type="number"
-              min="1"
-              max="128000"
-              value={maxTokens ?? defaultMaxTokens}
-              onChange={(e) => onMaxTokensChange?.(parseInt(e.target.value))}
-            />
+            <div className="flex gap-2">
+              {isUnlimited ? (
+                <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-md border border-primary bg-primary/5 text-sm">
+                  <Infinity className="h-4 w-4 text-primary" />
+                  <span className="text-primary font-medium">无限制</span>
+                </div>
+              ) : (
+                <Input
+                  type="number"
+                  min="1"
+                  max="128000"
+                  value={maxTokens ?? defaultMaxTokens}
+                  onChange={(e) => onMaxTokensChange?.(parseInt(e.target.value))}
+                  className="flex-1"
+                />
+              )}
+              <Button
+                type="button"
+                variant={isUnlimited ? "default" : "outline"}
+                size="sm"
+                className="shrink-0"
+                onClick={() => {
+                  if (isUnlimited) {
+                    // 从无限制切换回默认值
+                    onMaxTokensChange?.(defaultMaxTokens)
+                  } else {
+                    // 切换到无限制
+                    onMaxTokensChange?.(UNLIMITED_TOKENS)
+                  }
+                }}
+                title={isUnlimited ? "点击恢复限制" : "点击启用无限制输出"}
+              >
+                <Infinity className="h-4 w-4" />
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {isUnlimited 
+                ? "无限制模式：使用模型最大输出长度，可能增加成本和响应时间" 
+                : "建议值：10000。点击右侧按钮可启用无限制输出"}
+            </p>
           </div>
         </div>
       )}

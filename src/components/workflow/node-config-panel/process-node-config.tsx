@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { X, Plus, Loader2, AlertCircle, Database, BookOpen } from 'lucide-react'
+import { X, Plus, Loader2, AlertCircle, Database, BookOpen, Infinity } from 'lucide-react'
 import type { KnowledgeItem, RAGConfig } from '@/types/workflow'
 import { PromptTabContent } from './shared/prompt-tab-content'
 import { OutputTabContent } from './shared/output-tab-content'
@@ -17,6 +17,7 @@ import type { ToolConfig } from './shared/tools-section'
 import { Slider } from '@/components/ui/slider'
 import { SHENSUAN_DEFAULT_MODELS } from '@/lib/ai/types'
 import type { ModelModality } from '@/lib/ai/types'
+import { UNLIMITED_TOKENS, DEFAULT_MAX_TOKENS } from './shared/ai-provider-select'
 
 // 对于 PROCESS 节点，我们现在固定使用文本模型进行提示词与工具编排，
 // 其他模态能力通过工具或专用节点实现，因此这里不再暴露模态选择给用户。
@@ -457,13 +458,44 @@ export function ProcessNodeConfigPanel({
                   </div>
                   <div className="space-y-2">
                     <Label>Max Tokens</Label>
-                    <Input
-                      type="number"
-                      min="1"
-                      max="128000"
-                      value={processConfig.maxTokens || 2048}
-                      onChange={(e) => handleChange('maxTokens', parseInt(e.target.value))}
-                    />
+                    <div className="flex gap-2">
+                      {processConfig.maxTokens === UNLIMITED_TOKENS ? (
+                        <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-md border border-primary bg-primary/5 text-sm">
+                          <Infinity className="h-4 w-4 text-primary" />
+                          <span className="text-primary font-medium">无限制</span>
+                        </div>
+                      ) : (
+                        <Input
+                          type="number"
+                          min="1"
+                          max="128000"
+                          value={processConfig.maxTokens || DEFAULT_MAX_TOKENS}
+                          onChange={(e) => handleChange('maxTokens', parseInt(e.target.value))}
+                          className="flex-1"
+                        />
+                      )}
+                      <Button
+                        type="button"
+                        variant={processConfig.maxTokens === UNLIMITED_TOKENS ? "default" : "outline"}
+                        size="sm"
+                        className="shrink-0"
+                        onClick={() => {
+                          if (processConfig.maxTokens === UNLIMITED_TOKENS) {
+                            handleChange('maxTokens', DEFAULT_MAX_TOKENS)
+                          } else {
+                            handleChange('maxTokens', UNLIMITED_TOKENS)
+                          }
+                        }}
+                        title={processConfig.maxTokens === UNLIMITED_TOKENS ? "点击恢复限制" : "点击启用无限制输出"}
+                      >
+                        <Infinity className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {processConfig.maxTokens === UNLIMITED_TOKENS 
+                        ? "无限制模式：使用模型最大输出长度，可能增加成本和响应时间" 
+                        : "建议值：10000。点击右侧按钮可启用无限制输出"}
+                    </p>
                   </div>
                 </div>
               )}

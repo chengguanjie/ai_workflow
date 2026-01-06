@@ -275,6 +275,10 @@ ${toolListText}${toolConfigText}
         baseUrl: aiConfig.baseUrl ? `${aiConfig.baseUrl.substring(0, 30)}...` : 'default',
       })
 
+      // 如果用户没有指定 maxTokens 或设置为 -1（无限制），传递 undefined 让 API 使用模型默认最大值
+      const configMaxTokens = processNode.config?.maxTokens
+      const maxTokens = (configMaxTokens === undefined || configMaxTokens === -1) ? undefined : configMaxTokens
+
       const result = await this.executeWithTools(
         aiConfig,
         model,
@@ -283,7 +287,7 @@ ${toolListText}${toolConfigText}
         claudeTools,
         effectiveToolChoice,
         processNode.config?.temperature ?? 0.7,
-        processNode.config?.maxTokens ?? 2048,
+        maxTokens,
         maxRounds,
         context
       )
@@ -386,6 +390,13 @@ ${toolListText}${toolConfigText}
         if (hint) {
           errorMessage = `${errorMessage}\n\n可能原因: ${hint}\n\n建议: 检查网络连接是否正常，如使用代理请确认配置正确，稍后重试`
         }
+      } else {
+        // 记录错误信息到日志，确保调试时能看到详细的错误上下文
+        context.addLog?.('error', `AI 处理失败: ${errorMessage}`, 'AI_CALL', {
+          configuredModel: processNode.config?.model,
+          aiConfigId: processNode.config?.aiConfigId,
+          errorType: error instanceof Error ? error.constructor.name : 'Unknown'
+        })
       }
       
       return {
@@ -616,7 +627,7 @@ ${toolListText}${toolConfigText}
     claudeTools: ClaudeTool[],
     toolChoice: 'auto' | 'none' | 'required',
     temperature: number,
-    maxTokens: number,
+    maxTokens: number | undefined,
     maxRounds: number,
     context: ExecutionContext
   ): Promise<{
@@ -849,7 +860,7 @@ ${toolListText}${toolConfigText}
     claudeTools: ClaudeTool[],
     toolChoice: 'auto' | 'none' | 'required',
     temperature: number,
-    maxTokens: number
+    maxTokens: number | undefined
   ): Promise<ChatResponseWithTools> {
     const isClaudeProvider = this.isClaudeFormat(aiConfig.provider, model)
 

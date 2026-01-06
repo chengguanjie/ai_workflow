@@ -727,6 +727,10 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
                       <CheckCircle2 className="h-3 w-3 text-green-500" />
                     ) : executionDetails?.outputStatus === 'error' ? (
                       <XCircle className="h-3 w-3 text-red-500" />
+                    ) : executionDetails?.outputStatus === 'invalid' ? (
+                      <XCircle className="h-3 w-3 text-red-500" />
+                    ) : executionDetails?.outputStatus === 'incomplete' ? (
+                      <AlertCircle className="h-3 w-3 text-orange-500" />
                     ) : executionDetails?.outputStatus === 'empty' ? (
                       <AlertCircle className="h-3 w-3 text-amber-500" />
                     ) : (
@@ -736,6 +740,8 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
                       "font-medium",
                       executionDetails?.outputStatus === 'valid' && "text-green-600",
                       executionDetails?.outputStatus === 'error' && "text-red-600",
+                      executionDetails?.outputStatus === 'invalid' && "text-red-600",
+                      executionDetails?.outputStatus === 'incomplete' && "text-orange-600",
                       executionDetails?.outputStatus === 'empty' && "text-amber-600",
                       (!executionDetails || executionDetails.outputStatus === 'pending') && "text-gray-500",
                     )}>
@@ -747,6 +753,8 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
                   <p className="text-xs">
                     {executionDetails?.outputStatus === 'valid' && "输出数据正常"}
                     {executionDetails?.outputStatus === 'error' && (executionDetails?.outputError || "输出异常")}
+                    {executionDetails?.outputStatus === 'invalid' && (executionDetails?.outputError || "输出格式无效")}
+                    {executionDetails?.outputStatus === 'incomplete' && (executionDetails?.outputError || "输出可能被截断")}
                     {executionDetails?.outputStatus === 'empty' && "输出为空"}
                     {(!executionDetails || executionDetails.outputStatus === 'pending') && "等待输出"}
                   </p>

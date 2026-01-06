@@ -69,8 +69,142 @@ import {
   inferOutputType,
   guessOutputTypeFromPromptAndTools,
 } from "@/lib/workflow/debug-panel/utils";
-import { getModelModality } from "@/lib/ai/types";
+import { getModelModality, SHENSUAN_DEFAULT_MODELS } from "@/lib/ai/types";
 import { extractVariableReferences } from "@/lib/workflow/utils";
+
+/**
+ * 验证并修复模型配置
+ * 检测非文本模型（如 video-gen, image-gen 等）并自动替换为默认文本模型
+ * 
+ * @param config - 节点配置对象
+ * @returns 修复后的配置对象（如果需要修复）或原配置
+ */
+function validateAndFixModelConfig(config: Record<string, unknown>): {
+  config: Record<string, unknown>;
+  wasFixed: boolean;
+  originalModel?: string;
+} {
+  const model = config.model as string | undefined;
+  
+  if (!model) {
+    return { config, wasFixed: false };
+  }
+  
+  const modality = getModelModality(model);
+  
+  // 检测非文本模型（video-gen, image-gen, audio-tts 等）
+  // 这些模型不适合用于 PROCESS 节点的文本处理任务
+  if (modality && modality !== 'text' && modality !== 'code') {
+    console.warn(
+      `[NodeDebugPanel] 检测到非文本模型: ${model} (${modality})，自动替换为默认文本模型: ${SHENSUAN_DEFAULT_MODELS.text}`
+    );
+    
+    return {
+      config: {
+        ...config,
+        model: SHENSUAN_DEFAULT_MODELS.text,
+        modality: 'text',
+      },
+      wasFixed: true,
+      originalModel: model,
+    };
+  }
+  
+  return { config, wasFixed: false };
+}
+
+/**
+ * 从输出对象中提取HTML内容
+ * 支持多种格式：
+ * 1. 直接是HTML字符串
+ * 2. JSON对象中的 formattedContent / html / content / 结果 等字段
+ * 3. 嵌套的JSON字符串
+ * 4. 包含转义字符的字符串
+ */
+function extractHtmlContent(output: unknown): string {
+  // 如果是字符串
+  if (typeof output === 'string') {
+    let str = output.trim();
+    
+    // 处理转义字符（如 \n, \", \\）
+    if (str.includes('\\n') || str.includes('\\"')) {
+      try {
+        // 尝试解析为JSON字符串
+        str = JSON.parse(`"${str.replace(/^"|"$/g, '').replace(/"/g, '\\"')}"`);
+      } catch {
+        // 手动替换常见转义字符
+        str = str
+          .replace(/\\n/g, '\n')
+          .replace(/\\"/g, '"')
+          .replace(/\\\\/g, '\\')
+          .replace(/\\t/g, '\t');
+      }
+    }
+    
+    // 检查是否是JSON字符串
+    if (str.startsWith('{') || str.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(str);
+        return extractHtmlContent(parsed);
+      } catch {
+        // 不是有效JSON，可能是HTML或普通文本
+      }
+    }
+    
+    // 检查是否包含HTML标签
+    if (str.includes('<') && str.includes('>')) {
+      return str;
+    }
+    return str;
+  }
+
+  // 如果是对象
+  if (output && typeof output === 'object' && !Array.isArray(output)) {
+    const obj = output as Record<string, unknown>;
+    
+    // 按优先级查找HTML内容字段
+    const htmlFields = [
+      'formattedContent',
+      'html',
+      'htmlContent',
+      'content',
+      '结果',
+      'result',
+      'output',
+      'text',
+    ];
+
+    for (const field of htmlFields) {
+      if (obj[field] && typeof obj[field] === 'string') {
+        const value = obj[field] as string;
+        const processed = extractHtmlContent(value);
+        // 检查是否包含HTML标签
+        if (processed.includes('<') && processed.includes('>')) {
+          return processed;
+        }
+      }
+    }
+
+    // 如果没有找到HTML字段，尝试递归查找
+    for (const key of Object.keys(obj)) {
+      const value = obj[key];
+      if (value && typeof value === 'object') {
+        const extracted = extractHtmlContent(value);
+        if (extracted.includes('<') && extracted.includes('>')) {
+          return extracted;
+        }
+      }
+    }
+  }
+
+  // 如果是数组，尝试提取第一个元素
+  if (Array.isArray(output) && output.length > 0) {
+    return extractHtmlContent(output[0]);
+  }
+
+  // 默认返回JSON字符串
+  return typeof output === 'string' ? output : JSON.stringify(output, null, 2);
+}
 
 type TriggerType = "MANUAL" | "WEBHOOK" | "SCHEDULE";
 
@@ -165,13 +299,21 @@ export function NodeDebugPanel() {
         const fileResp = await fetch(debugFile.url);
         if (!fileResp.ok) return;
         const text = await fileResp.text();
-        const payload = JSON.parse(text) as { legacyLogs?: string[]; status?: string; duration?: number; tokenUsage?: any; error?: string };
+        const payload = JSON.parse(text) as { 
+          legacyLogs?: string[]; 
+          status?: string; 
+          duration?: number; 
+          tokenUsage?: any; 
+          error?: string;
+          output?: Record<string, unknown>;  // 完整的输出数据
+        };
 
         if (cancelled) return;
 
         const merged = {
           status: (payload.status as any) || existing?.status || "success",
-          output: existing?.output || {},
+          // 优先使用调试文件中的完整输出，其次使用已有的输出
+          output: payload.output || existing?.output || {},
           error: payload.error || existing?.error,
           duration: typeof payload.duration === "number" ? payload.duration : existing?.duration || 0,
           tokenUsage: payload.tokenUsage || existing?.tokenUsage,
@@ -667,6 +809,25 @@ export function NodeDebugPanel() {
   // 使用 ref 来追踪是否正在进行 modality 切换，避免重复请求
   const isLoadingProvidersRef = useRef(false);
 
+  // 在节点加载时验证并修复模型配置
+  useEffect(() => {
+    if (!isDebugPanelOpen || !isProcessNode || !debugNodeId) return;
+    
+    const config = debugNode?.data?.config as Record<string, unknown> | undefined;
+    if (!config) return;
+    
+    // 验证模型配置，检测并替换非文本模型
+    const { config: fixedConfig, wasFixed, originalModel } = validateAndFixModelConfig(config);
+    
+    if (wasFixed) {
+      console.log(
+        `[NodeDebugPanel] 节点 ${debugNodeId} 的模型配置已修复: ${originalModel} -> ${fixedConfig.model}`
+      );
+      // 更新节点配置
+      updateNode(debugNodeId, { config: fixedConfig });
+    }
+  }, [isDebugPanelOpen, isProcessNode, debugNodeId, debugNode?.data?.config, updateNode]);
+
   useEffect(() => {
     if (isDebugPanelOpen && isProcessNode) {
       const config = debugNode?.data?.config as { modality?: ModelModality; model?: string; aiConfigId?: string } | undefined;
@@ -815,13 +976,147 @@ export function NodeDebugPanel() {
         content = JSON.stringify(result.output, null, 2);
         mimeType = "application/json";
         break;
-      case "html":
-        content =
-          typeof result.output === "string"
-            ? result.output
-            : JSON.stringify(result.output);
+      case "html": {
+        // 提取HTML内容
+        const htmlContent = extractHtmlContent(result.output);
+        
+        // 检查是否已经是完整的HTML文档
+        const isCompleteHtml = htmlContent.trim().toLowerCase().startsWith('<!doctype') || 
+                               htmlContent.trim().toLowerCase().startsWith('<html');
+        
+        if (isCompleteHtml) {
+          content = htmlContent;
+        } else {
+          // 包装成完整的HTML文档，包含基础样式
+          content = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${nodeName}</title>
+  <style>
+    /* 基础重置 */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    /* 页面基础样式 */
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      background: #fff;
+      padding: 20px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    
+    /* 标题样式 */
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.5em;
+      margin-bottom: 0.5em;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+    h1 { font-size: 2em; }
+    h2 { font-size: 1.5em; }
+    h3 { font-size: 1.25em; }
+    
+    /* 段落和文本 */
+    p { margin-bottom: 1em; }
+    strong, b { font-weight: 600; }
+    em, i { font-style: italic; }
+    
+    /* 列表 */
+    ul, ol { margin-bottom: 1em; padding-left: 2em; }
+    li { margin-bottom: 0.5em; }
+    
+    /* 链接 */
+    a { color: #0066cc; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    
+    /* 引用块 */
+    blockquote, .quote-box {
+      border-left: 4px solid #ddd;
+      padding: 0.5em 1em;
+      margin: 1em 0;
+      background: #f9f9f9;
+      color: #666;
+    }
+    
+    /* 代码 */
+    code {
+      background: #f4f4f4;
+      padding: 0.2em 0.4em;
+      border-radius: 3px;
+      font-family: Consolas, Monaco, "Courier New", monospace;
+      font-size: 0.9em;
+    }
+    pre {
+      background: #f4f4f4;
+      padding: 1em;
+      border-radius: 5px;
+      overflow-x: auto;
+      margin-bottom: 1em;
+    }
+    pre code { background: none; padding: 0; }
+    
+    /* 图片 */
+    img {
+      max-width: 100%;
+      height: auto;
+      display: block;
+      margin: 1em 0;
+    }
+    
+    /* 表格 */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 1em;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 0.5em;
+      text-align: left;
+    }
+    th { background: #f4f4f4; font-weight: 600; }
+    
+    /* 分隔线 */
+    hr {
+      border: none;
+      border-top: 1px solid #ddd;
+      margin: 2em 0;
+    }
+    
+    /* 常见的自定义类 */
+    .highlight { background: #fffbcc; padding: 0.2em; }
+    .note, .tip { 
+      background: #e7f3ff; 
+      border-left: 4px solid #0066cc; 
+      padding: 1em; 
+      margin: 1em 0; 
+    }
+    .warning { 
+      background: #fff3cd; 
+      border-left: 4px solid #ffc107; 
+      padding: 1em; 
+      margin: 1em 0; 
+    }
+    .error { 
+      background: #f8d7da; 
+      border-left: 4px solid #dc3545; 
+      padding: 1em; 
+      margin: 1em 0; 
+    }
+  </style>
+</head>
+<body>
+${htmlContent}
+</body>
+</html>`;
+        }
         mimeType = "text/html";
         break;
+      }
       case "csv":
         content =
           typeof result.output === "string"
@@ -1198,15 +1493,23 @@ export function NodeDebugPanel() {
                                   value={selectedValue}
                                   onChange={(e) => {
                                     const newModel = e.target.value;
+                                    console.log(`[NodeDebugPanel] 用户选择模型: ${newModel}`);
+                                    
                                     // 自动检测模型的 modality 并同步更新
                                     const inferredModality = newModel ? getModelModality(newModel) : null;
+                                    
+                                    // 构建更新对象，确保模型配置立即同步
+                                    const updates: Record<string, unknown> = { model: newModel };
+                                    
                                     if (inferredModality && inferredModality !== selectedModality) {
                                       // 如果检测到的 modality 与当前不同，同步更新
                                       setSelectedModality(inferredModality);
-                                      handleConfigUpdate({ model: newModel, modality: inferredModality });
-                                    } else {
-                                      handleConfigUpdate({ model: newModel });
+                                      updates.modality = inferredModality;
                                     }
+                                    
+                                    // 立即调用 handleConfigUpdate 同步到节点配置
+                                    handleConfigUpdate(updates);
+                                    console.log(`[NodeDebugPanel] 模型配置已同步: `, updates);
                                   }}
                                 >
                                   {/* 显示当前模型类别下的所有可用模型 */}
@@ -1396,21 +1699,16 @@ export function NodeDebugPanel() {
                                   <span>HTML 渲染预览</span>
                                 </div>
                                 <div
-                                  className="rounded-lg border bg-white p-4 min-h-[100px] max-h-[300px] overflow-auto"
+                                  className="rounded-lg border bg-white p-4 min-h-[100px] max-h-[300px] overflow-auto prose prose-sm max-w-none"
                                   dangerouslySetInnerHTML={{
-                                    __html:
-                                      typeof result.output === "string"
-                                        ? result.output
-                                        : JSON.stringify(result.output),
+                                    __html: extractHtmlContent(result.output),
                                   }}
                                 />
                                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                   <span>HTML 源码</span>
                                 </div>
                                 <pre className="rounded-lg border bg-white p-4 text-xs overflow-auto max-h-[200px] shadow-sm font-mono leading-relaxed scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
-                                  {typeof result.output === "string"
-                                    ? result.output
-                                    : JSON.stringify(result.output, null, 2)}
+                                  {extractHtmlContent(result.output)}
                                 </pre>
                               </div>
                             ) : selectedOutputType === "csv" ? (

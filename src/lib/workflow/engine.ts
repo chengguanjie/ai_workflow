@@ -14,6 +14,8 @@ import type {
 import { getExecutionOrder, getParallelExecutionLayers, getPredecessorIds, isOutputValid } from './utils'
 import { shouldExecuteNode, type LogicRoutingContext } from './engine/logic-routing'
 import { executionEvents } from './execution-events'
+import { validateNodeInput } from './validation/input-validator'
+import { validateNodeOutput } from './validation/output-validator'
 import {
   type CheckpointData,
   saveCheckpoint,
@@ -431,7 +433,41 @@ export class WorkflowEngine {
         context.addLog = this.debugCollector.createNodeScopedAddLog(node)
       }
 
-      executionEvents.nodeStart(executionId, node.id, node.name, node.type, 'valid')
+      // 执行输入验证
+      const inputValidation = validateNodeInput({
+        node,
+        context,
+        edges: this.config.edges,
+        nodes: this.config.nodes,
+      })
+
+      executionEvents.nodeStart(
+        executionId,
+        node.id,
+        node.name,
+        node.type,
+        inputValidation.status,
+        inputValidation.error
+      )
+
+      // 如果输入验证失败，抛出错误
+      if (inputValidation.status !== 'valid') {
+        this.lastFailedNodeId = node.id
+        executionEvents.nodeError(
+          executionId,
+          node.id,
+          node.name,
+          node.type,
+          inputValidation.error || '输入验证失败',
+          {
+            friendlyMessage: inputValidation.error || '输入验证失败',
+            suggestions: ['检查前置节点是否正常执行', '检查变量引用是否正确', '检查必填字段是否已填写'],
+            isRetryable: false
+          },
+          'input'
+        )
+        throw new Error(`节点 "${node.name}" 输入验证失败: ${inputValidation.error}`)
+      }
 
       const result = await this.executeNode(node, context)
       await this.saveNodeLog(executionId, node, result)
@@ -488,8 +524,21 @@ export class WorkflowEngine {
         lastOutput = result.data || {}
       }
 
-      const outputStatus = isOutputValid(result.data) ? 'valid' : 'empty'
-      executionEvents.nodeComplete(executionId, node.id, node.name, node.type, result.data, outputStatus as 'valid' | 'empty')
+      // 执行输出验证
+      const outputValidation = validateNodeOutput({
+        nodeConfig: node,
+        output: result.data || {},
+      })
+
+      executionEvents.nodeComplete(
+        executionId,
+        node.id,
+        node.name,
+        node.type,
+        result.data,
+        outputValidation.status,
+        outputValidation.error
+      )
       this.completedNodes.add(node.id)
     }
 
@@ -533,7 +582,37 @@ export class WorkflowEngine {
             }
           }
 
-          executionEvents.nodeStart(executionId, node.id, node.name, node.type, 'valid')
+          // 执行输入验证
+          const inputValidation = validateNodeInput({
+            node,
+            context,
+            edges: this.config.edges,
+            nodes: this.config.nodes,
+          })
+
+          executionEvents.nodeStart(
+            executionId,
+            node.id,
+            node.name,
+            node.type,
+            inputValidation.status,
+            inputValidation.error
+          )
+
+          // 如果输入验证失败，返回错误结果
+          if (inputValidation.status !== 'valid') {
+            return {
+              node,
+              result: {
+                status: 'error' as const,
+                data: {},
+                error: inputValidation.error || '输入验证失败',
+              },
+              skipped: false,
+              inputValidationFailed: true,
+            }
+          }
+
           // 并行执行时为每个节点使用独立的 addLog，避免日志串扰
           const nodeContext: ExecutionContext = this.debugCollector
             ? { ...context, addLog: this.debugCollector.createNodeScopedAddLog(node) }
@@ -561,13 +640,36 @@ export class WorkflowEngine {
           continue
         }
 
-        const { node, result, skipped } = settledResult.value
+        const { node, result, skipped } = settledResult.value as { 
+          node: NodeConfig
+          result: NodeOutput | null
+          skipped: boolean
+          inputValidationFailed?: boolean 
+        }
 
         if (skipped || !result) continue
 
+        // 处理输入验证失败的情况
+        const inputValidationFailed = (settledResult.value as { inputValidationFailed?: boolean }).inputValidationFailed
+
         if (result.status === 'error') {
           this.failedNodes.add(node.id)
-          executionEvents.nodeError(executionId, node.id, node.name, node.type, result.error || '未知错误', undefined, 'output')
+          
+          // 根据是输入验证失败还是执行失败，使用不同的错误阶段
+          const errorPhase = inputValidationFailed ? 'input' : 'output'
+          executionEvents.nodeError(
+            executionId,
+            node.id,
+            node.name,
+            node.type,
+            result.error || '未知错误',
+            inputValidationFailed ? {
+              friendlyMessage: result.error || '输入验证失败',
+              suggestions: ['检查前置节点是否正常执行', '检查变量引用是否正确', '检查必填字段是否已填写'],
+              isRetryable: false
+            } : undefined,
+            errorPhase
+          )
 
           switch (this.parallelErrorStrategy) {
             case 'fail_fast':
@@ -594,8 +696,21 @@ export class WorkflowEngine {
           lastOutput = result.data || {}
         }
 
-        const outputStatus = isOutputValid(result.data) ? 'valid' : 'empty'
-        executionEvents.nodeComplete(executionId, node.id, node.name, node.type, result.data, outputStatus as 'valid' | 'empty')
+        // 执行输出验证
+        const outputValidation = validateNodeOutput({
+          nodeConfig: node,
+          output: result.data || {},
+        })
+
+        executionEvents.nodeComplete(
+          executionId,
+          node.id,
+          node.name,
+          node.type,
+          result.data,
+          outputValidation.status,
+          outputValidation.error
+        )
         this.completedNodes.add(node.id)
       }
     }

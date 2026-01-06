@@ -29,9 +29,27 @@ export class ShensuanProvider implements AIProvider {
     // 检查是否误用了生成类模型（视频/图片生成）
     const modality = getModelModality(request.model)
     if (modality === 'video-gen' || modality === 'image-gen') {
+      const modalityName = modality === 'video-gen' ? '视频生成' : '图片生成'
+      const recommendedModels = [
+        'anthropic/claude-sonnet-4.5',
+        'google/gemini-3-pro-preview',
+        'openai/gpt-5.2',
+        'deepseek/deepseek-v3.2-think'
+      ]
       throw new Error(
-        `模型配置错误：模型 '${request.model}' 是媒体生成模型（${modality === 'video-gen' ? '视频' : '图片'}），不支持文本对话/处理任务。` +
-        `请在节点配置中选择文本或对话模型（如 Claude, GPT, Gemini Pro 等）。`
+        `【模型配置错误】\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `当前配置的模型: ${request.model}\n` +
+        `检测到的模型类型: ${modalityName} (${modality})\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `问题原因: ${modalityName}模型不支持文本对话/处理任务。\n` +
+        `这类模型只能用于生成${modality === 'video-gen' ? '视频' : '图片'}，无法进行文本推理。\n\n` +
+        `修复建议:\n` +
+        `1. 打开节点配置面板\n` +
+        `2. 在"模型选择"下拉框中选择一个文本/对话模型\n` +
+        `3. 推荐使用以下模型:\n` +
+        `   • ${recommendedModels.join('\n   • ')}\n\n` +
+        `如果您需要进行${modality === 'video-gen' ? '视频' : '图片'}生成，请使用专门的${modality === 'video-gen' ? '视频' : '图片'}生成节点。`
       )
     }
 
@@ -42,19 +60,26 @@ export class ShensuanProvider implements AIProvider {
       content: this.normalizeContent(m.content)
     }))
 
+    // 构建请求体，如果未指定 maxTokens 则不传递，让 API 使用模型默认最大值
+    const requestBody: Record<string, unknown> = {
+      model: request.model,
+      messages,
+      temperature: request.temperature ?? 0.7,
+      stream: false,
+    }
+    
+    // 只有明确指定了 maxTokens 才传递给 API
+    if (request.maxTokens) {
+      requestBody.max_tokens = request.maxTokens
+    }
+
     const response = await fetchWithTimeout(`${url}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        model: request.model,
-        messages,
-        temperature: request.temperature ?? 0.7,
-        max_tokens: request.maxTokens ?? 2048,
-        stream: false,
-      }),
+      body: JSON.stringify(requestBody),
       timeoutMs: 90_000,
       retries: 2,
       retryDelay: 2000,
@@ -485,10 +510,12 @@ export class ShensuanProvider implements AIProvider {
       }
 
       case 'doubao': {
-        // 豆包: size (2048x2048), image (参考图数组), watermark, sequential_image_generation
+        // 豆包: 要求至少 3686400 像素（约 1920x1920），使用 2048x2048 作为默认
+        // 支持的尺寸: 2048x2048, 1920x1920 等大尺寸
+        const doubaoSize = this.normalizeDoubaoSize(request.size || '2048x2048')
         return {
           ...base,
-          size: request.size || '1024x1024',
+          size: doubaoSize,
           watermark: false,
           sequential_image_generation: 'auto',
           sequential_image_generation_options: {
@@ -500,8 +527,9 @@ export class ShensuanProvider implements AIProvider {
       }
 
       case 'qwen': {
-        // 通义: size (1664*928 用星号), n, negative_prompt, prompt_extend, watermark
-        const qwenSize = (request.size || '1024x1024').replace('x', '*')
+        // 通义: 只支持特定尺寸 1664*928, 1472*1140, 1328*1328, 1140*1472, 928*1664
+        // 使用星号分隔
+        const qwenSize = this.normalizeQwenSize(request.size || '1328*1328')
         return {
           ...base,
           size: qwenSize,
@@ -740,6 +768,85 @@ export class ShensuanProvider implements AIProvider {
     }
 
     return { aspectRatio, size: sizeLevel }
+  }
+
+  /**
+   * 规范化豆包图片尺寸
+   * 豆包要求至少 3686400 像素（约 1920x1920）
+   */
+  private normalizeDoubaoSize(size: string): string {
+    const match = size.match(/(\d+)[x*](\d+)/)
+    if (!match) {
+      return '2048x2048' // 默认使用 2048x2048
+    }
+
+    const width = parseInt(match[1])
+    const height = parseInt(match[2])
+    const pixels = width * height
+
+    // 如果像素数不足，自动放大到满足要求
+    if (pixels < 3686400) {
+      // 保持宽高比，放大到满足要求
+      const ratio = width / height
+      if (ratio >= 1) {
+        // 横向或正方形
+        const newHeight = Math.ceil(Math.sqrt(3686400 / ratio))
+        const newWidth = Math.ceil(newHeight * ratio)
+        return `${newWidth}x${newHeight}`
+      } else {
+        // 纵向
+        const newWidth = Math.ceil(Math.sqrt(3686400 * ratio))
+        const newHeight = Math.ceil(newWidth / ratio)
+        return `${newWidth}x${newHeight}`
+      }
+    }
+
+    return `${width}x${height}`
+  }
+
+  /**
+   * 规范化通义图片尺寸
+   * 通义只支持特定尺寸: 1664*928, 1472*1140, 1328*1328, 1140*1472, 928*1664
+   */
+  private normalizeQwenSize(size: string): string {
+    const validSizes = [
+      '1664*928',   // 横向 16:9
+      '1472*1140',  // 横向 4:3
+      '1328*1328',  // 正方形 1:1
+      '1140*1472',  // 纵向 3:4
+      '928*1664',   // 纵向 9:16
+    ]
+
+    // 先将 x 替换为 *
+    const normalizedSize = size.replace('x', '*')
+
+    // 如果已经是有效尺寸，直接返回
+    if (validSizes.includes(normalizedSize)) {
+      return normalizedSize
+    }
+
+    // 解析尺寸
+    const match = size.match(/(\d+)[x*](\d+)/)
+    if (!match) {
+      return '1328*1328' // 默认正方形
+    }
+
+    const width = parseInt(match[1])
+    const height = parseInt(match[2])
+    const ratio = width / height
+
+    // 根据宽高比选择最接近的有效尺寸
+    if (ratio > 1.5) {
+      return '1664*928'   // 横向 16:9
+    } else if (ratio > 1.1) {
+      return '1472*1140'  // 横向 4:3
+    } else if (ratio > 0.9) {
+      return '1328*1328'  // 正方形 1:1
+    } else if (ratio > 0.67) {
+      return '1140*1472'  // 纵向 3:4
+    } else {
+      return '928*1664'   // 纵向 9:16
+    }
   }
 
   /**

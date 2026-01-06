@@ -27,7 +27,7 @@ interface GroupNodeConfigData {
 
 export interface NodeExecutionDetails {
   inputStatus: 'pending' | 'valid' | 'invalid' | 'missing';
-  outputStatus: 'pending' | 'valid' | 'error' | 'empty';
+  outputStatus: 'pending' | 'valid' | 'error' | 'empty' | 'invalid' | 'incomplete';
   inputError?: string;
   outputError?: string;
   triggered: boolean;

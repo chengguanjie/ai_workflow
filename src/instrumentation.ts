@@ -25,6 +25,10 @@ export async function register() {
     // 动态导入以避免客户端打包问题
     const { initializeScheduler } = await import('@/lib/scheduler/init')
     const { executionQueue } = await import('@/lib/workflow/queue')
+    const { cleanupStuckExecutions } = await import('@/lib/workflow/startup-cleanup')
+
+    // 清理上次服务器关闭时卡住的执行记录
+    await cleanupStuckExecutions()
 
     // 初始化执行队列（自动检测 Redis 并选择后端）
     await executionQueue.initialize()

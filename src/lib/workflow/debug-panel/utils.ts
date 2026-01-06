@@ -57,10 +57,13 @@ export function getDefaultModelForModality(modality: ModelModality): string {
 }
 
 /**
- * 根据用户提示词与工具配置推断“期望的”输出类型
+ * 根据用户提示词与工具配置推断"期望的"输出类型
  *
  * 注意：这是面向调试面板/预览的软推断，不影响实际执行结果，
  * 只用于给 OutputType 提供一个更贴近意图的默认值。
+ * 
+ * 重要：提示词中的明确格式指示优先级高于工具配置，
+ * 因为工具可能只是辅助功能（如在文章中插入配图），而不是主要输出。
  */
 export function guessOutputTypeFromPromptAndTools(options: {
   userPrompt?: string
@@ -69,20 +72,9 @@ export function guessOutputTypeFromPromptAndTools(options: {
   const { userPrompt = '', tools = [] } = options
   const prompt = (userPrompt || '').toLowerCase()
 
-  // 1. 先根据启用的工具做强信号判断
-  const enabledTools = tools.filter(t => (t as any).enabled !== false)
-  const hasImageTool = enabledTools.find(t => t.type === 'image-gen-ai')
-  const hasVideoTool = enabledTools.find(t => t.type === 'video-gen-ai')
-  const hasAudioTtsTool = enabledTools.find(t => t.type === 'audio-tts-ai')
-  const hasCodeExecutionTool = enabledTools.find(t => t.type === 'code-execution')
-
-  if (hasImageTool) return 'image'
-  if (hasVideoTool) return 'video'
-  if (hasAudioTtsTool) return 'audio'
-  // 代码执行类工具的结果通常更适合结构化展示，这里推荐使用 JSON
-  if (hasCodeExecutionTool) return 'json'
-
-  // 2. 再根据提示词中的语义做关键词判断
+  // 1. 首先根据提示词中的明确格式指示判断（优先级最高）
+  // 这些是用户明确指定的输出格式，应该优先于工具推断
+  
   // JSON / 结构化对象
   if (
     /json/.test(prompt) ||
@@ -90,6 +82,11 @@ export function guessOutputTypeFromPromptAndTools(options: {
     /返回.*json/.test(prompt)
   ) {
     return 'json'
+  }
+
+  // HTML / 网页 / 排版
+  if (/html/.test(prompt) || /返回.*网页/.test(prompt) || /排版/.test(prompt) || /格式化.*文章/.test(prompt)) {
+    return 'html'
   }
 
   // 表格 / Excel / CSV
@@ -100,16 +97,34 @@ export function guessOutputTypeFromPromptAndTools(options: {
     return 'excel'
   }
 
-  // HTML / 网页
-  if (/html/.test(prompt) || /返回.*网页/.test(prompt)) {
-    return 'html'
+  // Markdown / 富文本：仍然当作文本
+  if (/markdown|md格式|富文本/.test(prompt)) {
+    return 'text'
   }
 
-  // 图片 / 配图
-  if (/图片|配图|插图|海报/.test(prompt)) {
+  // 2. 如果提示词没有明确指定格式，再根据启用的工具做推断
+  // 但只有当工具是"主要"功能时才推断为对应类型
+  const enabledTools = tools.filter(t => (t as any).enabled !== false)
+  const hasImageTool = enabledTools.find(t => t.type === 'image-gen-ai')
+  const hasVideoTool = enabledTools.find(t => t.type === 'video-gen-ai')
+  const hasAudioTtsTool = enabledTools.find(t => t.type === 'audio-tts-ai')
+  const hasCodeExecutionTool = enabledTools.find(t => t.type === 'code-execution')
+
+  // 只有当提示词中明确提到生成图片/视频/音频作为主要输出时，才推断为对应类型
+  // 否则工具可能只是辅助功能（如在文章中插入配图）
+  if (hasImageTool && /生成.*图片|生成.*图像|画.*图|创建.*图片/.test(prompt)) {
     return 'image'
   }
+  if (hasVideoTool && /生成.*视频|创建.*视频/.test(prompt)) {
+    return 'video'
+  }
+  if (hasAudioTtsTool && /生成.*音频|转换.*语音|朗读/.test(prompt)) {
+    return 'audio'
+  }
+  // 代码执行类工具的结果通常更适合结构化展示，这里推荐使用 JSON
+  if (hasCodeExecutionTool) return 'json'
 
+  // 3. 再根据提示词中的其他语义做关键词判断
   // 音频 / 语音 / 播客
   if (/音频|语音|播客/.test(prompt)) {
     return 'audio'
@@ -118,11 +133,6 @@ export function guessOutputTypeFromPromptAndTools(options: {
   // 视频
   if (/视频/.test(prompt)) {
     return 'video'
-  }
-
-  // Markdown / 富文本：仍然当作文本
-  if (/markdown|md格式|富文本/.test(prompt)) {
-    return 'text'
   }
 
   // 默认返回 null，交给后续基于内容的推断或默认值处理

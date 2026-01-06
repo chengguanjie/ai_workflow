@@ -1604,7 +1604,7 @@ function getDefaultConfig(type: string): Record<string, unknown> {
     case "INPUT":
       return { fields: [] };
     case "PROCESS":
-      return { systemPrompt: "", userPrompt: "", temperature: 0.7, maxTokens: 2048 };
+      return { systemPrompt: "", userPrompt: "", temperature: 0.7, maxTokens: 10000 };
     case "CODE":
       return { prompt: "", language: "javascript", code: "" };
     case "OUTPUT":

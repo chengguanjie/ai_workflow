@@ -138,12 +138,24 @@ export class ProcessNodeProcessor implements NodeProcessor {
 
       const model = processNode.config?.model || aiConfig.defaultModel
       const temperature = processNode.config?.temperature ?? 0.7
-      const maxTokens = processNode.config?.maxTokens ?? 2048
+      // 如果用户没有指定 maxTokens 或设置为 -1（无限制），传递 undefined 让 API 使用模型默认最大值
+      const configMaxTokens = processNode.config?.maxTokens
+      const maxTokens = (configMaxTokens === undefined || configMaxTokens === -1) ? undefined : configMaxTokens
+
+      // 记录详细的模型配置信息，便于问题诊断
+      context.addLog?.('info', '模型配置详情', 'MODEL_CONFIG', {
+        configuredModel: processNode.config?.model || '(未配置，使用默认)',
+        actualModel: model,
+        aiConfigId: processNode.config?.aiConfigId || '(使用默认配置)',
+        defaultModel: aiConfig.defaultModel,
+        provider: aiConfig.provider
+      })
 
       context.addLog?.('step', '正在调用 AI 模型...', 'AI_CALL', {
         provider: aiConfig.provider,
         model,
         temperature,
+        maxTokens: maxTokens ?? '(使用模型默认值)',
         messageCount: messages.length
       })
 
@@ -184,13 +196,21 @@ export class ProcessNodeProcessor implements NodeProcessor {
         },
       }
     } catch (error) {
+      // 记录错误信息到日志，确保调试时能看到详细的错误上下文
+      const errorMessage = error instanceof Error ? error.message : 'AI 处理失败'
+      context.addLog?.('error', `AI 处理失败: ${errorMessage}`, 'AI_CALL', {
+        configuredModel: processNode.config?.model,
+        aiConfigId: processNode.config?.aiConfigId,
+        errorType: error instanceof Error ? error.constructor.name : 'Unknown'
+      })
+
       return {
         nodeId: node.id,
         nodeName: node.name,
         nodeType: node.type,
         status: 'error',
         data: {},
-        error: error instanceof Error ? error.message : 'AI 处理失败',
+        error: errorMessage,
         startedAt,
         completedAt: new Date(),
         duration: Date.now() - startedAt.getTime(),

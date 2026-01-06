@@ -1600,9 +1600,9 @@ export function ExecutionPanel({
               <Button
                 variant="secondary"
                 onClick={() => {
-                  if (executionIdRef.current) {
-                    setActiveExecution(executionIdRef.current, taskId);
-                  }
+                  // 设置后台执行状态，即使还没有 executionId 也要设置 taskId
+                  // 这样工作流页面可以通过 taskId 轮询获取执行状态
+                  setActiveExecution(executionIdRef.current || '', taskId);
                   toast.info("任务将在后台继续执行，您可以在执行历史中查看进度");
                   onClose();
                 }}

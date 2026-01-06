@@ -3,6 +3,8 @@
  *
  * These schemas provide runtime validation and TypeScript type inference
  * for workflow create, list, and execute operations.
+ * 
+ * Supported node types: INPUT, PROCESS, LOGIC
  */
 import { z } from "zod";
 
@@ -25,7 +27,6 @@ const baseNodeSchema = z.object({
 const nodeAIConfigSchema = z.object({
   aiConfigId: z.string().optional(),
   model: z.string().optional(),
-  // 显式保存模态（前端配置面板会写入该字段），避免仅依赖 model 推断导致的路由错误
   modality: z
     .enum([
       "text",
@@ -43,27 +44,11 @@ const nodeAIConfigSchema = z.object({
 });
 
 // ============================================
-// Node Specific Schemas
+// Node Specific Schemas (INPUT, PROCESS, LOGIC only)
 // ============================================
 
-// TRIGGER
-const triggerNodeSchema = baseNodeSchema.extend({
-  type: z.literal("TRIGGER"),
-  config: z.object({
-    triggerType: z.enum(["MANUAL", "WEBHOOK", "SCHEDULE"]).default("MANUAL"),
-    enabled: z.boolean().optional(),
-    cronExpression: z.string().optional(),
-    timezone: z.string().optional(),
-    inputTemplate: z.record(z.string(), z.unknown()).optional(),
-    retryOnFail: z.boolean().optional(),
-    maxRetries: z.number().optional(),
-    triggerId: z.string().optional(),
-  }),
-});
-
-// INPUT
-// 有效的 fieldType 值
-const _validFieldTypes = [
+// INPUT Node
+const validFieldTypes = [
   "text",
   "image",
   "pdf",
@@ -75,11 +60,10 @@ const _validFieldTypes = [
   "multiselect",
 ] as const;
 
-// fieldType 映射表：将无效值转换为有效值
-const fieldTypeMapping: Record<string, (typeof _validFieldTypes)[number]> = {
-  textarea: "text", // textarea -> text
-  file: "pdf", // file -> pdf (通用文件)
-  document: "pdf", // document -> pdf
+const fieldTypeMapping: Record<string, (typeof validFieldTypes)[number]> = {
+  textarea: "text",
+  file: "pdf",
+  document: "pdf",
   text: "text",
   image: "image",
   pdf: "pdf",
@@ -99,9 +83,9 @@ const inputFieldSchema = z.object({
     .string()
     .optional()
     .transform((val) => {
-      if (!val) return "text"; // 默认值
+      if (!val) return "text";
       const mapped = fieldTypeMapping[val];
-      return mapped || "text"; // 未知类型也转为 text
+      return mapped || "text";
     }),
   required: z.boolean().optional(),
   description: z.string().optional(),
@@ -113,19 +97,20 @@ const inputFieldSchema = z.object({
 
 const inputNodeSchema = baseNodeSchema.extend({
   type: z.literal("INPUT"),
-  config: z.object({
-    fields: z.array(inputFieldSchema),
-  }),
+  config: z
+    .object({
+      fields: z.array(inputFieldSchema).optional().default([]),
+    })
+    .catchall(z.unknown()),
 });
 
-// PROCESS
+// PROCESS Node
 const knowledgeItemSchema = z.object({
   id: z.string(),
   name: z.string(),
   content: z.string(),
 });
 
-// UI Tool Config schema - for tool configurations from the frontend
 const uiToolConfigSchema = z.object({
   id: z.string(),
   type: z.string(),
@@ -136,171 +121,59 @@ const uiToolConfigSchema = z.object({
 
 const processNodeSchema = baseNodeSchema.extend({
   type: z.literal("PROCESS"),
-  config: nodeAIConfigSchema.extend({
-    knowledgeItems: z.array(knowledgeItemSchema).optional(),
-    knowledgeBaseId: z.string().optional(),
-    ragConfig: z
-      .object({
-        topK: z.number().optional(),
-        threshold: z.number().optional(),
-        maxContextTokens: z.number().optional(),
-      })
-      .optional(),
-    systemPrompt: z.string().optional(),
-    userPrompt: z.string().optional(),
-    enableToolCalling: z.boolean().optional(),
-    enabledTools: z.array(z.string()).optional(),
-    tools: z.array(uiToolConfigSchema).optional(), // UI tool configurations
-    toolChoice: z.enum(["auto", "none", "required"]).optional(),
-    maxToolCallRounds: z.number().optional(),
-
-    // ===== 期望输出类型（用于画布展示与下载预设）=====
-    expectedOutputType: z
-      .enum([
-        "text",
-        "json",
-        "html",
-        "csv",
-        "word",
-        "pdf",
-        "excel",
-        "ppt",
-        "image",
-        "audio",
-        "video",
-      ])
-      .optional(),
-
-    // ===== 多模态生成配置（PROCESS 节点复用）=====
-    imageSize: z.string().optional(),
-    imageCount: z.number().optional(),
-    imageQuality: z.enum(["standard", "hd"]).optional(),
-    imageStyle: z.enum(["vivid", "natural"]).optional(),
-    negativePrompt: z.string().optional(),
-
-    videoDuration: z.number().optional(),
-    videoAspectRatio: z.enum(["16:9", "9:16", "1:1"]).optional(),
-    videoResolution: z.enum(["720p", "1080p", "4k"]).optional(),
-    referenceImage: z.string().optional(),
-
-    ttsVoice: z.string().optional(),
-    ttsSpeed: z.number().optional(),
-    ttsFormat: z.enum(["mp3", "wav", "opus"]).optional(),
-
-    transcriptionLanguage: z.string().optional(),
-    transcriptionFormat: z.enum(["json", "text", "srt", "vtt"]).optional(),
-
-    embeddingDimensions: z.number().optional(),
-  }),
+  config: nodeAIConfigSchema
+    .extend({
+      knowledgeItems: z.array(knowledgeItemSchema).optional(),
+      knowledgeBaseId: z.string().optional(),
+      ragConfig: z
+        .object({
+          topK: z.number().optional(),
+          threshold: z.number().optional(),
+          maxContextTokens: z.number().optional(),
+        })
+        .optional(),
+      systemPrompt: z.string().optional(),
+      userPrompt: z.string().optional(),
+      enableToolCalling: z.boolean().optional(),
+      enabledTools: z.array(z.string()).optional(),
+      tools: z.array(uiToolConfigSchema).optional(),
+      toolChoice: z.enum(["auto", "none", "required"]).optional(),
+      maxToolCallRounds: z.number().optional(),
+      expectedOutputType: z
+        .enum([
+          "text",
+          "json",
+          "html",
+          "csv",
+          "word",
+          "pdf",
+          "excel",
+          "ppt",
+          "image",
+          "audio",
+          "video",
+        ])
+        .optional(),
+      imageSize: z.string().optional(),
+      imageCount: z.number().optional(),
+      imageQuality: z.enum(["standard", "hd"]).optional(),
+      imageStyle: z.enum(["vivid", "natural"]).optional(),
+      negativePrompt: z.string().optional(),
+      videoDuration: z.number().optional(),
+      videoAspectRatio: z.enum(["16:9", "9:16", "1:1"]).optional(),
+      videoResolution: z.enum(["720p", "1080p", "4k"]).optional(),
+      referenceImage: z.string().optional(),
+      ttsVoice: z.string().optional(),
+      ttsSpeed: z.number().optional(),
+      ttsFormat: z.enum(["mp3", "wav", "opus"]).optional(),
+      transcriptionLanguage: z.string().optional(),
+      transcriptionFormat: z.enum(["json", "text", "srt", "vtt"]).optional(),
+      embeddingDimensions: z.number().optional(),
+    })
+    .catchall(z.unknown()),
 });
 
-// CODE
-const codeNodeSchema = baseNodeSchema.extend({
-  type: z.literal("CODE"),
-  config: nodeAIConfigSchema.extend({
-    prompt: z.string().optional(),
-    language: z
-      .enum(["javascript", "typescript", "python", "sql", "other"])
-      .optional(),
-    code: z.string().optional(),
-    timeout: z.number().optional(),
-    maxMemory: z.number().optional(),
-    maxOutputSize: z.number().optional(),
-  }),
-});
-
-// OUTPUT
-const outputNodeSchema = baseNodeSchema.extend({
-  type: z.literal("OUTPUT"),
-  config: nodeAIConfigSchema.extend({
-    prompt: z.string().optional(),
-    format: z
-      .enum([
-        "text",
-        "json",
-        "markdown",
-        "html",
-        "word",
-        "excel",
-        "pdf",
-        "image",
-        "audio",
-        "video",
-      ])
-      .optional(),
-    templateName: z.string().optional(),
-    fileName: z.string().optional(),
-    downloadUrl: z.string().optional(),
-  }),
-});
-
-// DATA, IMAGE, VIDEO, AUDIO (File Nodes)
-const importedFileSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  url: z.string(),
-  size: z.number().optional(),
-  type: z.string().optional(),
-});
-
-const fileNodeConfigSchema = z.object({
-  files: z.array(importedFileSchema).optional(),
-  prompt: z.string().optional(),
-});
-
-const dataNodeSchema = baseNodeSchema.extend({
-  type: z.literal("DATA"),
-  config: fileNodeConfigSchema.extend({
-    parseOptions: z
-      .object({
-        headerRow: z.number().optional(),
-        skipEmptyRows: z.boolean().optional(),
-        dateFormat: z.string().optional(),
-      })
-      .optional(),
-  }),
-});
-
-const imageNodeSchema = baseNodeSchema.extend({
-  type: z.literal("IMAGE"),
-  config: fileNodeConfigSchema.extend({
-    processingOptions: z
-      .object({
-        maxWidth: z.number().optional(),
-        maxHeight: z.number().optional(),
-        outputFormat: z.enum(["jpeg", "png", "webp"]).optional(),
-        quality: z.number().optional(),
-      })
-      .optional(),
-  }),
-});
-
-const videoNodeSchema = baseNodeSchema.extend({
-  type: z.literal("VIDEO"),
-  config: fileNodeConfigSchema.extend({
-    processingOptions: z
-      .object({
-        extractFrames: z.boolean().optional(),
-        frameInterval: z.number().optional(),
-        generateThumbnail: z.boolean().optional(),
-      })
-      .optional(),
-  }),
-});
-
-const audioNodeSchema = baseNodeSchema.extend({
-  type: z.literal("AUDIO"),
-  config: fileNodeConfigSchema.extend({
-    processingOptions: z
-      .object({
-        transcribe: z.boolean().optional(),
-        language: z.string().optional(),
-      })
-      .optional(),
-  }),
-});
-
-// LOGIC
+// LOGIC Node
 const logicBranchSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -316,231 +189,36 @@ const logicConditionSchema = z.object({
 
 const logicNodeSchema = baseNodeSchema.extend({
   type: z.literal("LOGIC"),
-  config: z.object({
-    mode: z.enum(["condition", "split", "merge", "switch"]),
-    conditions: z.array(logicConditionSchema).optional(),
-    fallbackTargetNodeId: z.string().optional(),
-    branches: z.array(logicBranchSchema).optional(),
-    mergeFromNodeIds: z.array(z.string()).optional(),
-    mergeStrategy: z.enum(["all", "first", "custom"]).optional(),
-    switchInput: z.string().optional(),
-  }),
+  config: z
+    .object({
+      mode: z.enum(["condition", "split", "merge", "switch"]).optional(),
+      conditions: z.array(logicConditionSchema).optional(),
+      fallbackTargetNodeId: z.string().optional(),
+      branches: z.array(logicBranchSchema).optional(),
+      mergeFromNodeIds: z.array(z.string()).optional(),
+      mergeStrategy: z.enum(["all", "first", "custom"]).optional(),
+      switchInput: z.string().optional(),
+    })
+    .catchall(z.unknown()),
 });
 
-// CONDITION
-const conditionSchema = z.object({
-  variable: z.string(),
-  operator: z.enum([
-    "equals",
-    "notEquals",
-    "greaterThan",
-    "lessThan",
-    "greaterOrEqual",
-    "lessOrEqual",
-    "contains",
-    "notContains",
-    "startsWith",
-    "endsWith",
-    "isEmpty",
-    "isNotEmpty",
-  ]),
-  value: z.union([z.string(), z.number(), z.boolean()]).optional(),
-  logic: z.enum(["AND", "OR"]).optional(),
-});
+// ============================================
+// Flexible Node Schema (accepts any node type for backward compatibility)
+// ============================================
 
-const conditionNodeSchema = baseNodeSchema.extend({
-  type: z.literal("CONDITION"),
-  config: z.object({
-    conditions: z.array(conditionSchema).default([]),
-    evaluationMode: z.enum(["all", "any"]).default("all").optional(),
-  }),
-});
-
-// LOOP
-const loopNodeSchema = baseNodeSchema.extend({
-  type: z.literal("LOOP"),
-  config: z.object({
-    loopType: z.enum(["FOR", "WHILE"]).default("FOR"),
-    forConfig: z
-      .object({
-        arrayVariable: z.string(),
-        itemName: z.string(),
-        indexName: z.string().optional(),
-      })
-      .optional(),
-    whileConfig: z
-      .object({
-        condition: conditionSchema,
-        maxIterations: z.number(),
-      })
-      .optional(),
-    maxIterations: z.number().optional(),
-    continueOnError: z.boolean().optional(),
-  }),
-});
-
-// SWITCH
-const switchCaseSchema = z
+const flexibleNodeSchema = z
   .object({
-    id: z.string().optional(),
-    label: z.string(),
-    value: z.union([z.string(), z.number(), z.boolean()]),
-    isDefault: z.boolean().optional(),
+    id: z.string(),
+    name: z.string(),
+    type: z.string(),
+    position: nodePositionSchema,
+    config: z.record(z.string(), z.unknown()).optional().default({}),
+    comment: z.string().optional(),
   })
-  .transform((val) => ({
-    ...val,
-    id: val.id ?? Math.random().toString(36).slice(2, 8),
-  }));
+  .catchall(z.unknown());
 
-const switchNodeSchema = baseNodeSchema.extend({
-  type: z.literal("SWITCH"),
-  config: z.object({
-    switchVariable: z.string().default(""),
-    cases: z.array(switchCaseSchema).default([]),
-    matchType: z.enum(["exact", "contains", "regex", "range"]).optional(),
-    caseSensitive: z.boolean().optional(),
-    includeDefault: z.boolean().optional(),
-  }),
-});
-
-// MERGE
-const mergeNodeSchema = baseNodeSchema.extend({
-  type: z.literal("MERGE"),
-  config: z.object({
-    mergeStrategy: z.enum(["all", "any", "race"]).default("all"),
-    errorStrategy: z.enum(["fail_fast", "continue", "collect"]).optional(),
-    timeout: z.number().optional(),
-    outputMode: z.enum(["merge", "array", "first"]).optional(),
-  }),
-});
-
-// HTTP
-const httpNodeSchema = baseNodeSchema.extend({
-  type: z.literal("HTTP"),
-  config: z.object({
-    method: z.enum(["GET", "POST", "PUT", "DELETE", "PATCH"]).default("GET"),
-    url: z.string().default(""),
-    headers: z.record(z.string(), z.string()).optional(),
-    queryParams: z.record(z.string(), z.string()).optional(),
-    body: z
-      .object({
-        type: z.enum(["json", "form", "text", "file", "none"]),
-        content: z
-          .union([z.string(), z.record(z.string(), z.unknown())])
-          .optional(),
-      })
-      .optional(),
-    timeout: z.number().optional(),
-    retry: z
-      .object({
-        maxRetries: z.number(),
-        retryDelay: z.number(),
-        retryOnStatus: z.array(z.number()).optional(),
-      })
-      .optional(),
-  }),
-});
-
-// IMAGE_GEN
-const imageGenNodeSchema = baseNodeSchema.extend({
-  type: z.literal("IMAGE_GEN"),
-  config: nodeAIConfigSchema.extend({
-    prompt: z.string().optional(),
-    negativePrompt: z.string().optional(),
-    provider: z
-      .enum(["OPENAI", "STABILITYAI", "ALIYUN_TONGYI", "SHENSUAN"])
-      .optional(),
-    imageModel: z.string().optional(),
-    size: z
-      .enum(["256x256", "512x512", "1024x1024", "1024x1792", "1792x1024"])
-      .optional(),
-    quality: z.enum(["standard", "hd"]).optional(),
-    n: z.number().optional(),
-    style: z.string().optional(),
-  }),
-});
-
-// NOTIFICATION
-const notificationNodeSchema = baseNodeSchema.extend({
-  type: z.literal("NOTIFICATION"),
-  config: z.object({
-    platform: z.enum(["feishu", "dingtalk", "wecom"]).default("feishu"),
-    webhookUrl: z.string().default(""),
-    messageType: z.enum(["text", "markdown", "card"]).default("text"),
-    content: z.string().default(""),
-    title: z.string().optional(),
-    atMobiles: z.array(z.string()).optional(),
-    atAll: z.boolean().optional(),
-  }),
-});
-
-// GROUP
-const groupNodeSchema = baseNodeSchema.extend({
-  type: z.literal("GROUP"),
-  config: z.object({
-    childNodeIds: z.array(z.string()).default([]),
-    label: z.string().optional(),
-    collapsed: z.boolean().optional(),
-    childRelativePositions: z.record(z.string(), nodePositionSchema).optional(),
-  }),
-});
-
-// APPROVAL
-const approverConfigSchema = z.object({
-  type: z.enum(["USER", "ROLE", "DEPARTMENT"]),
-  targetId: z.string(),
-  displayName: z.string().optional(),
-});
-
-const approvalCustomFieldSchema = z.object({
-  key: z.string(),
-  label: z.string(),
-  type: z.enum(["TEXT", "TEXTAREA", "NUMBER", "SELECT", "CHECKBOX", "DATE"]),
-  required: z.boolean().optional(),
-  options: z
-    .array(z.object({ label: z.string(), value: z.string() }))
-    .optional(),
-  defaultValue: z.union([z.string(), z.number(), z.boolean()]).optional(),
-  placeholder: z.string().optional(),
-});
-
-const approvalNodeSchema = baseNodeSchema.extend({
-  type: z.literal("APPROVAL"),
-  config: z.object({
-    title: z.string(),
-    description: z.string().optional(),
-    approvers: z.array(approverConfigSchema),
-    timeout: z.number(),
-    timeoutAction: z.enum(["APPROVE", "REJECT", "ESCALATE"]),
-    notificationChannels: z.array(z.enum(["EMAIL", "IN_APP", "WEBHOOK"])),
-    requiredApprovals: z.number(),
-    allowComments: z.boolean(),
-    customFields: z.array(approvalCustomFieldSchema),
-  }),
-});
-
-// Union of all node types
-const nodeSchema = z.discriminatedUnion("type", [
-  triggerNodeSchema,
-  inputNodeSchema,
-  processNodeSchema,
-  codeNodeSchema,
-  outputNodeSchema,
-  dataNodeSchema,
-  imageNodeSchema,
-  videoNodeSchema,
-  audioNodeSchema,
-  logicNodeSchema,
-  conditionNodeSchema,
-  loopNodeSchema,
-  switchNodeSchema,
-  httpNodeSchema,
-  mergeNodeSchema,
-  imageGenNodeSchema,
-  notificationNodeSchema,
-  groupNodeSchema,
-  approvalNodeSchema,
-]);
+// Use flexible schema for API validation
+const nodeSchema = flexibleNodeSchema;
 
 const edgeSchema = z.object({
   id: z.string(),
@@ -556,7 +234,6 @@ const edgeSchema = z.object({
 
 /**
  * Schema for creating a new workflow
- * Validates name, optional description, and workflow configuration
  */
 export const workflowCreateSchema = z.object({
   name: z.string().min(1, "名称不能为空").max(100, "名称不能超过100字符"),
@@ -571,12 +248,11 @@ export const workflowCreateSchema = z.object({
       manual: z.string().optional(),
       version: z.number().optional(),
     })
-    .passthrough(),
+    .catchall(z.unknown()),
 });
 
 /**
  * Schema for listing workflows with pagination and filtering
- * Uses z.coerce for query parameter parsing
  */
 export const workflowListSchema = z.object({
   page: z.coerce.number().int().positive().default(1),
@@ -589,7 +265,6 @@ export const workflowListSchema = z.object({
 
 /**
  * Schema for updating an existing workflow
- * All fields are optional since partial updates are allowed
  */
 export const workflowUpdateSchema = z.object({
   name: z
@@ -608,7 +283,7 @@ export const workflowUpdateSchema = z.object({
       manual: z.string().optional(),
       version: z.number().optional(),
     })
-    .passthrough()
+    .catchall(z.unknown())
     .optional(),
   isActive: z.boolean().optional(),
   category: z.string().max(50).optional(),
@@ -619,7 +294,6 @@ export const workflowUpdateSchema = z.object({
 
 /**
  * Schema for executing a workflow
- * Validates optional input data, timeout configuration, async mode, and execution mode
  */
 export const workflowExecuteSchema = z.object({
   input: z.record(z.string(), z.unknown()).optional(),
@@ -628,8 +302,18 @@ export const workflowExecuteSchema = z.object({
   mode: z.enum(["production", "draft"]).optional(),
 });
 
-// Inferred TypeScript types from Zod schemas
+// Inferred TypeScript types
 export type WorkflowCreateInput = z.infer<typeof workflowCreateSchema>;
 export type WorkflowUpdateInput = z.infer<typeof workflowUpdateSchema>;
 export type WorkflowListInput = z.infer<typeof workflowListSchema>;
 export type WorkflowExecuteInput = z.infer<typeof workflowExecuteSchema>;
+
+// Export node schemas for testing
+export {
+  inputNodeSchema,
+  processNodeSchema,
+  logicNodeSchema,
+  flexibleNodeSchema,
+  nodeSchema,
+  edgeSchema,
+};

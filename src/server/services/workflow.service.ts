@@ -794,83 +794,88 @@ export class WorkflowService {
     config: WorkflowConfig,
     creatorId: string
   ): Promise<void> {
-    interface TriggerNodeConfigData {
-      triggerType?: 'MANUAL' | 'WEBHOOK' | 'SCHEDULE'
-      enabled?: boolean
-      webhookPath?: string
-      hasWebhookSecret?: boolean
-      cronExpression?: string
-      timezone?: string
-      inputTemplate?: Record<string, unknown>
-      retryOnFail?: boolean
-      maxRetries?: number
-    }
+    try {
+      interface TriggerNodeConfigData {
+        triggerType?: 'MANUAL' | 'WEBHOOK' | 'SCHEDULE'
+        enabled?: boolean
+        webhookPath?: string
+        hasWebhookSecret?: boolean
+        cronExpression?: string
+        timezone?: string
+        inputTemplate?: Record<string, unknown>
+        retryOnFail?: boolean
+        maxRetries?: number
+      }
 
-    const inputNode = config.nodes?.find(
-      (node) => node.type === 'INPUT'
-    ) as NodeConfig | undefined
+      const inputNode = config.nodes?.find(
+        (node) => node.type === 'INPUT'
+      ) as NodeConfig | undefined
 
-    const existingTrigger = await prisma.workflowTrigger.findFirst({
-      where: { workflowId },
-    })
+      const existingTrigger = await prisma.workflowTrigger.findFirst({
+        where: { workflowId },
+      })
 
-    const inputConfig = inputNode?.config as Record<string, unknown> | undefined
-    const triggerConfig = inputConfig?.triggerConfig as TriggerNodeConfigData | undefined
+      const inputConfig = inputNode?.config as Record<string, unknown> | undefined
+      const triggerConfig = inputConfig?.triggerConfig as TriggerNodeConfigData | undefined
 
-    if (!triggerConfig || !triggerConfig.triggerType || triggerConfig.triggerType === 'MANUAL') {
+      if (!triggerConfig || !triggerConfig.triggerType || triggerConfig.triggerType === 'MANUAL') {
+        if (existingTrigger) {
+          await prisma.workflowTrigger.delete({
+            where: { id: existingTrigger.id },
+          })
+        }
+        return
+      }
+
+      const triggerType = triggerConfig.triggerType as TriggerType
+
+      const triggerData: Prisma.WorkflowTriggerCreateInput = {
+        name: inputNode?.name || '触发器',
+        type: triggerType,
+        enabled: triggerConfig.enabled ?? true,
+        webhookPath: triggerConfig.webhookPath || null,
+        webhookSecret: existingTrigger?.webhookSecret || null,
+        cronExpression: triggerConfig.cronExpression || null,
+        timezone: triggerConfig.timezone || 'Asia/Shanghai',
+        inputTemplate: triggerConfig.inputTemplate as Prisma.InputJsonValue || Prisma.DbNull,
+        retryOnFail: triggerConfig.retryOnFail ?? false,
+        maxRetries: triggerConfig.maxRetries ?? 3,
+        workflow: { connect: { id: workflowId } },
+        createdById: creatorId,
+      }
+
+      if (triggerType === 'WEBHOOK' && triggerConfig.hasWebhookSecret && !existingTrigger?.webhookSecret) {
+        triggerData.webhookSecret = crypto.randomBytes(32).toString('hex')
+      }
+
+      if (!triggerConfig.hasWebhookSecret) {
+        triggerData.webhookSecret = null
+      }
+
       if (existingTrigger) {
-        await prisma.workflowTrigger.delete({
+        await prisma.workflowTrigger.update({
           where: { id: existingTrigger.id },
+          data: {
+            name: triggerData.name,
+            type: triggerData.type,
+            enabled: triggerData.enabled,
+            webhookPath: triggerData.webhookPath,
+            webhookSecret: triggerData.webhookSecret,
+            cronExpression: triggerData.cronExpression,
+            timezone: triggerData.timezone,
+            inputTemplate: triggerData.inputTemplate,
+            retryOnFail: triggerData.retryOnFail,
+            maxRetries: triggerData.maxRetries,
+          },
+        })
+      } else {
+        await prisma.workflowTrigger.create({
+          data: triggerData,
         })
       }
-      return
-    }
-
-    const triggerType = triggerConfig.triggerType as TriggerType
-
-    const triggerData: Prisma.WorkflowTriggerCreateInput = {
-      name: inputNode?.name || '触发器',
-      type: triggerType,
-      enabled: triggerConfig.enabled ?? true,
-      webhookPath: triggerConfig.webhookPath || null,
-      webhookSecret: existingTrigger?.webhookSecret || null,
-      cronExpression: triggerConfig.cronExpression || null,
-      timezone: triggerConfig.timezone || 'Asia/Shanghai',
-      inputTemplate: triggerConfig.inputTemplate as Prisma.InputJsonValue || Prisma.DbNull,
-      retryOnFail: triggerConfig.retryOnFail ?? false,
-      maxRetries: triggerConfig.maxRetries ?? 3,
-      workflow: { connect: { id: workflowId } },
-      createdById: creatorId,
-    }
-
-    if (triggerType === 'WEBHOOK' && triggerConfig.hasWebhookSecret && !existingTrigger?.webhookSecret) {
-      triggerData.webhookSecret = crypto.randomBytes(32).toString('hex')
-    }
-
-    if (!triggerConfig.hasWebhookSecret) {
-      triggerData.webhookSecret = null
-    }
-
-    if (existingTrigger) {
-      await prisma.workflowTrigger.update({
-        where: { id: existingTrigger.id },
-        data: {
-          name: triggerData.name,
-          type: triggerData.type,
-          enabled: triggerData.enabled,
-          webhookPath: triggerData.webhookPath,
-          webhookSecret: triggerData.webhookSecret,
-          cronExpression: triggerData.cronExpression,
-          timezone: triggerData.timezone,
-          inputTemplate: triggerData.inputTemplate,
-          retryOnFail: triggerData.retryOnFail,
-          maxRetries: triggerData.maxRetries,
-        },
-      })
-    } else {
-      await prisma.workflowTrigger.create({
-        data: triggerData,
-      })
+    } catch (error) {
+      // Log the error but don't throw - trigger sync failure shouldn't block workflow save
+      console.warn('[WorkflowService] syncTriggerFromConfig failed:', error)
     }
   }
 
