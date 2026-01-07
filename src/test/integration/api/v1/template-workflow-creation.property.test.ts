@@ -228,22 +228,22 @@ describe('V1 Template-Based Workflow Creation API - Property Tests', () => {
           vi.mocked(prisma.workflowTemplate.update).mockResolvedValue({} as never)
 
           // Capture the create call data
-          let capturedCreateData: Record<string, unknown> | null = null
-          vi.mocked(prisma.workflow.create).mockImplementation(async (args) => {
-            capturedCreateData = args.data as Record<string, unknown>
-            return {
+          let capturedCreateData: any
+          ;(prisma.workflow.create as any).mockImplementation((args: any) => {
+            capturedCreateData = args?.data
+            return Promise.resolve({
               id: newWorkflowId,
-              name: capturedCreateData.name,
-              description: capturedCreateData.description,
-              config: capturedCreateData.config,
-              category: capturedCreateData.category,
-              tags: capturedCreateData.tags,
+              name: capturedCreateData?.name,
+              description: capturedCreateData?.description,
+              config: capturedCreateData?.config,
+              category: capturedCreateData?.category,
+              tags: capturedCreateData?.tags,
               isActive: true,
-              publishStatus: capturedCreateData.publishStatus,
-              version: capturedCreateData.version,
+              publishStatus: capturedCreateData?.publishStatus,
+              version: capturedCreateData?.version,
               createdAt: new Date(),
               updatedAt: new Date(),
-            } as never
+            })
           })
 
           // Create request with templateId
@@ -271,7 +271,8 @@ describe('V1 Template-Based Workflow Creation API - Property Tests', () => {
           expect(data.success).toBe(true)
 
           // Property 11: Configuration matches template
-          const createdConfig = capturedCreateData?.config as WorkflowConfig
+          if (!capturedCreateData) throw new Error('expected prisma.workflow.create to be called')
+          const createdConfig = capturedCreateData.config as WorkflowConfig
           
           // Verify nodes count matches
           expect(createdConfig.nodes.length).toBe(template.config.nodes.length)
@@ -446,9 +447,9 @@ describe('V1 Template-Based Workflow Creation API - Property Tests', () => {
           vi.mocked(prisma.workflowTemplate.update).mockResolvedValue({} as never)
 
           // Capture the create call data
-          vi.mocked(prisma.workflow.create).mockImplementation(async (args) => {
-            const data = args.data as Record<string, unknown>
-            return {
+          ;(prisma.workflow.create as any).mockImplementation((args: any) => {
+            const data = args?.data as Record<string, unknown>
+            return Promise.resolve({
               id: newWorkflowId,
               name: data.name,
               description: data.description,
@@ -460,7 +461,7 @@ describe('V1 Template-Based Workflow Creation API - Property Tests', () => {
               version: data.version,
               createdAt: new Date(),
               updatedAt: new Date(),
-            } as never
+            })
           })
 
           // Create request with templateId
@@ -522,9 +523,9 @@ describe('V1 Template-Based Workflow Creation API - Property Tests', () => {
           vi.mocked(prisma.workflowTemplate.update).mockResolvedValue({} as never)
 
           // Capture the create call data
-          vi.mocked(prisma.workflow.create).mockImplementation(async (args) => {
-            const data = args.data as Record<string, unknown>
-            return {
+          ;(prisma.workflow.create as any).mockImplementation((args: any) => {
+            const data = args?.data as Record<string, unknown>
+            return Promise.resolve({
               id: newWorkflowId,
               name: data.name,
               description: data.description,
@@ -536,7 +537,7 @@ describe('V1 Template-Based Workflow Creation API - Property Tests', () => {
               version: data.version,
               createdAt: new Date(),
               updatedAt: new Date(),
-            } as never
+            })
           })
 
           // Create request with templateId

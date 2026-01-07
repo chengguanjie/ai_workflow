@@ -8,6 +8,9 @@ import {
   updateTokenUsage,
 } from '@/lib/auth'
 
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 interface RouteParams {
   params: Promise<{ taskId: string }>
 }
@@ -70,6 +73,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         duration: task.result?.duration || execution?.duration,
         totalTokens: task.result?.totalTokens || execution?.totalTokens,
       }
+    }
+
+    if (execution) {
+      data.executionId = execution.id
+      data.executionStatus = execution.status
     }
 
     return ApiResponse.success(data)

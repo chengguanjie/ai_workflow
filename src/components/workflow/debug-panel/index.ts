@@ -18,3 +18,6 @@ export type { default as PreviewModalComponent } from './preview-modal'
 
 export { ModelSelector, getDefaultModelForModality, filterModelsByModality } from './model-selector'
 export type { default as ModelSelectorComponent } from './model-selector'
+
+export { DebugLogViewer } from './debug-log-viewer'
+export type { DebugLogViewerProps } from './debug-log-viewer'

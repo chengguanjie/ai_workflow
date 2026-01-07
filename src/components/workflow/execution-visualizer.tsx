@@ -444,6 +444,8 @@ export function ExecutionVisualizer({
         body: JSON.stringify({
           input: inputValues,
           async: true,
+          // 编辑器内执行优先使用草稿配置，避免跑到已发布(旧)版本
+          mode: 'draft',
         }),
         signal: abortControllerRef.current.signal,
       })

@@ -5,7 +5,7 @@
  * 用于 BullMQ 任务队列
  */
 
-import Redis from 'ioredis'
+import type RedisClient from 'ioredis'
 
 /**
  * Redis 连接配置
@@ -16,6 +16,13 @@ export interface RedisConfig {
   password?: string
   db?: number
   maxRetriesPerRequest?: number | null
+}
+
+function loadRedisCtor(): typeof import('ioredis') {
+  // Avoid bundling/initializing ioredis at module load time (Next route compilation may choke on it).
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const mod = require('ioredis') as any
+  return (mod?.default || mod) as typeof import('ioredis')
 }
 
 /**
@@ -74,7 +81,8 @@ export function createRedisConnection(): Redis | null {
     return null
   }
 
-  const redis = new Redis({
+  const RedisCtor = loadRedisCtor() as any
+  const redis = new RedisCtor({
     host: config.host,
     port: config.port,
     password: config.password,
@@ -131,4 +139,4 @@ export async function closeRedisConnection(): Promise<void> {
   }
 }
 
-export { Redis }
+export type Redis = RedisClient

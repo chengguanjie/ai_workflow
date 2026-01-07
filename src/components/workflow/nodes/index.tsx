@@ -37,12 +37,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useWorkflowStore } from "@/stores/workflow-store";
 import { useNodeDebug } from "@/hooks/use-node-debug";
 import type {
@@ -209,21 +203,28 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
     y: number;
   } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const {
-    deleteNode,
-    duplicateNode,
-    openDebugPanel,
-    nodes,
-    nodeExecutionStatus,
-    nodeExecutionDetails,
-    connectedNodeIds,
-    selectedNodeId,
-  } = useWorkflowStore();
+  
+  // 使用选择器模式订阅 store，避免不必要的重新渲染
+  // 每个节点只订阅自己的执行状态，而不是整个 nodeExecutionStatus 对象
+  const deleteNode = useWorkflowStore((state) => state.deleteNode);
+  const duplicateNode = useWorkflowStore((state) => state.duplicateNode);
+  const openDebugPanel = useWorkflowStore((state) => state.openDebugPanel);
+  const nodes = useWorkflowStore((state) => state.nodes);
+  const connectedNodeIds = useWorkflowStore((state) => state.connectedNodeIds);
+  const selectedNodeId = useWorkflowStore((state) => state.selectedNodeId);
+  
+  // 关键优化：使用选择器只订阅当前节点的执行状态
+  // 这样当其他节点状态变化时，当前节点不会重新渲染
+  const executionStatus = useWorkflowStore(
+    (state) => state.nodeExecutionStatus[id]
+  );
+  const executionDetails = useWorkflowStore(
+    (state) => state.nodeExecutionDetails[id]
+  );
+  
   const { runNode, getDefaultInputs } = useNodeDebug();
 
-  const executionStatus = nodeExecutionStatus[id];
   const hasExecutionStatus = executionStatus !== undefined;
-  const executionDetails = nodeExecutionDetails[id];
 
   const isConnected = connectedNodeIds.includes(id);
   const isSelected = id === selectedNodeId;
@@ -435,56 +436,56 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
     const BadgeIcon = meta.icon;
 
     return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <div
-            className={cn(
-              "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium shadow-sm",
-              meta.bg,
-              meta.fg,
-            )}
-          >
-            <BadgeIcon className="h-3 w-3" />
-            <span>
-              {outputType.toUpperCase()}
-            </span>
-          </div>
-        </TooltipTrigger>
-        <TooltipContent side="left">
-          <p className="text-xs">{meta.label}</p>
-        </TooltipContent>
-      </Tooltip>
+      <div
+        className={cn(
+          "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium shadow-sm cursor-default",
+          meta.bg,
+          meta.fg,
+        )}
+        title={meta.label}
+      >
+        <BadgeIcon className="h-3 w-3" />
+        <span>
+          {outputType.toUpperCase()}
+        </span>
+      </div>
     );
   };
 
+  // 缓存执行状态相关的样式类名，避免在渲染时重复计算
+  const executionStatusClass = executionStatus === "failed" 
+    ? "node-failed border-red-500"
+    : executionStatus === "completed" 
+    ? "node-completed border-green-500"
+    : executionStatus === "running" 
+    ? "node-executing border-blue-500"
+    : "";
+
   return (
-    <TooltipProvider delayDuration={0}>
-      <div
-        className={cn(
-          "group relative min-w-[240px] border-2 bg-white transition-all duration-300",
-          baseStyle.className || "rounded-xl",
-          "shadow-sm hover:shadow-md",
-          "hover:-translate-y-0.5",
-          style.borderColor,
-          selected
-            ? "ring-[3px] ring-primary ring-offset-2 shadow-lg shadow-primary/30"
-            : "",
-          !selected && connectedNodeIds.includes(id)
-            ? "ring-2 ring-primary/60 ring-offset-2 scale-[1.02] shadow-md shadow-primary/20"
-            : "",
-          executionStatus === "failed" && "node-failed border-red-500",
-          executionStatus === "completed" && "node-completed border-green-500",
-          executionStatus === "running" && "node-executing border-blue-500",
-          shouldDim && "opacity-30 grayscale-[0.6] blur-[0.5px] scale-[0.98]",
-          data.previewStatus === "added" &&
-            "ring-[3px] ring-green-500 border-green-500 shadow-lg shadow-green-500/20",
-          data.previewStatus === "modified" &&
-            "ring-[3px] ring-amber-500 border-amber-500 shadow-lg shadow-amber-500/20",
-          data.previewStatus === "removed" &&
-            "ring-[3px] ring-red-500 border-red-500 opacity-60 grayscale bg-red-50",
-        )}
-        onContextMenu={handleContextMenu}
-      >
+    <div
+      className={cn(
+        "group relative min-w-[240px] border-2 bg-white transition-all duration-300",
+        baseStyle.className || "rounded-xl",
+        "shadow-sm hover:shadow-md",
+        "hover:-translate-y-0.5",
+        style.borderColor,
+        selected
+          ? "ring-[3px] ring-primary ring-offset-2 shadow-lg shadow-primary/30"
+          : "",
+        !selected && connectedNodeIds.includes(id)
+          ? "ring-2 ring-primary/60 ring-offset-2 scale-[1.02] shadow-md shadow-primary/20"
+          : "",
+        executionStatusClass,
+        shouldDim && "opacity-30 grayscale-[0.6] blur-[0.5px] scale-[0.98]",
+        data.previewStatus === "added" &&
+          "ring-[3px] ring-green-500 border-green-500 shadow-lg shadow-green-500/20",
+        data.previewStatus === "modified" &&
+          "ring-[3px] ring-amber-500 border-amber-500 shadow-lg shadow-amber-500/20",
+        data.previewStatus === "removed" &&
+          "ring-[3px] ring-red-500 border-red-500 opacity-60 grayscale bg-red-50",
+      )}
+      onContextMenu={handleContextMenu}
+    >
         {nodeKind !== "input" && (
           <div className="absolute -left-1.5 top-1/2 -translate-y-1/2 px-2 py-4 opacity-0 transition-opacity duration-300 group-hover:opacity-100 z-50">
             <Handle
@@ -536,29 +537,23 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
                   : "opacity-0 group-hover:opacity-100",
               )}
             >
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "h-7 w-7 shrink-0 rounded-full hover:bg-white/50",
-                      style.color,
-                    )}
-                    onClick={handleExecute}
-                    disabled={executionStatus === "running"}
-                  >
-                    {executionStatus === "running" ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <Play className="h-3 w-3 fill-current" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  <p>{getStatusTooltip()}</p>
-                </TooltipContent>
-              </Tooltip>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "h-7 w-7 shrink-0 rounded-full hover:bg-white/50",
+                  style.color,
+                )}
+                onClick={handleExecute}
+                disabled={executionStatus === "running"}
+                title={getStatusTooltip()}
+              >
+                {executionStatus === "running" ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Play className="h-3 w-3 fill-current" />
+                )}
+              </Button>
             </div>
           )}
         </div>
@@ -589,26 +584,18 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
                       label,
                     } = MODEL_TYPE_ICONS[modality];
                     return (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span
-                            className={cn(
-                              "flex items-center gap-1 font-bold tracking-wider px-2 py-0.5 rounded-full",
-                              "text-[10px]",
-                              bgColor,
-                              color,
-                            )}
-                          >
-                            <ModalityIcon className="h-3 w-3" />
-                            {label}
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">
-                          <p className="text-xs">
-                            {data.config?.model || "未选择模型"}
-                          </p>
-                        </TooltipContent>
-                      </Tooltip>
+                      <span
+                        className={cn(
+                          "flex items-center gap-1 font-bold tracking-wider px-2 py-0.5 rounded-full cursor-default",
+                          "text-[10px]",
+                          bgColor,
+                          color,
+                        )}
+                        title={data.config?.model || "未选择模型"}
+                      >
+                        <ModalityIcon className="h-3 w-3" />
+                        {label}
+                      </span>
                     );
                   }
 
@@ -632,23 +619,16 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
                             TOOL_ICONS[tool.type] || TOOL_ICONS["custom"];
                           const ToolIcon = toolMeta.icon;
                           return (
-                            <Tooltip key={tool.id}>
-                              <TooltipTrigger asChild>
-                                <div
-                                  className={cn(
-                                    "flex items-center justify-center h-5 w-5 rounded bg-slate-100 hover:bg-slate-200 transition-colors cursor-default",
-                                    toolMeta.color,
-                                  )}
-                                >
-                                  <ToolIcon className="h-3 w-3" />
-                                </div>
-                              </TooltipTrigger>
-                              <TooltipContent side="top">
-                                <p className="text-xs">
-                                  {tool.name || toolMeta.label}
-                                </p>
-                              </TooltipContent>
-                            </Tooltip>
+                            <div
+                              key={tool.id}
+                              className={cn(
+                                "flex items-center justify-center h-5 w-5 rounded bg-slate-100 hover:bg-slate-200 transition-colors cursor-default",
+                                toolMeta.color,
+                              )}
+                              title={tool.name || toolMeta.label}
+                            >
+                              <ToolIcon className="h-3 w-3" />
+                            </div>
                           );
                         })}
                       {data.config.tools.filter((t) => t.enabled).length > 4 && (
@@ -691,81 +671,73 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
             )}
           >
             <div className="flex items-center gap-3">
-              {/* 输入状态 */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center gap-1">
-                    {executionDetails?.inputStatus === 'valid' ? (
-                      <CheckCircle2 className="h-3 w-3 text-green-500" />
-                    ) : executionDetails?.inputStatus === 'invalid' ? (
-                      <XCircle className="h-3 w-3 text-red-500" />
-                    ) : executionDetails?.inputStatus === 'missing' ? (
-                      <AlertCircle className="h-3 w-3 text-amber-500" />
-                    ) : (
-                      <Clock className="h-3 w-3 text-gray-400" />
-                    )}
-                    <span className={cn(
-                      "font-medium",
-                      executionDetails?.inputStatus === 'valid' && "text-green-600",
-                      executionDetails?.inputStatus === 'invalid' && "text-red-600",
-                      executionDetails?.inputStatus === 'missing' && "text-amber-600",
-                      (!executionDetails || executionDetails.inputStatus === 'pending') && "text-gray-500",
-                    )}>
-                      输入
-                    </span>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p className="text-xs">
-                    {executionDetails?.inputStatus === 'valid' && "输入数据正常"}
-                    {executionDetails?.inputStatus === 'invalid' && (executionDetails?.inputError || "输入数据异常")}
-                    {executionDetails?.inputStatus === 'missing' && "缺少必要的输入数据"}
-                    {(!executionDetails || executionDetails.inputStatus === 'pending') && "等待输入"}
-                  </p>
-                </TooltipContent>
-              </Tooltip>
+              {/* 输入状态 - 使用原生 title 属性避免 Tooltip 导致的重渲染问题 */}
+              <div 
+                className="flex items-center gap-1 cursor-default"
+                title={
+                  executionDetails?.inputStatus === 'valid' ? "输入数据正常" :
+                  executionDetails?.inputStatus === 'invalid' ? (executionDetails?.inputError || "输入数据异常") :
+                  executionDetails?.inputStatus === 'missing' ? "缺少必要的输入数据" :
+                  "等待输入"
+                }
+              >
+                {executionDetails?.inputStatus === 'valid' ? (
+                  <CheckCircle2 className="h-3 w-3 text-green-500" />
+                ) : executionDetails?.inputStatus === 'invalid' ? (
+                  <XCircle className="h-3 w-3 text-red-500" />
+                ) : executionDetails?.inputStatus === 'missing' ? (
+                  <AlertCircle className="h-3 w-3 text-amber-500" />
+                ) : (
+                  <Clock className="h-3 w-3 text-gray-400" />
+                )}
+                <span className={cn(
+                  "font-medium",
+                  executionDetails?.inputStatus === 'valid' && "text-green-600",
+                  executionDetails?.inputStatus === 'invalid' && "text-red-600",
+                  executionDetails?.inputStatus === 'missing' && "text-amber-600",
+                  (!executionDetails || executionDetails.inputStatus === 'pending') && "text-gray-500",
+                )}>
+                  输入
+                </span>
+              </div>
 
-              {/* 输出状态 */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center gap-1">
-                    {executionDetails?.outputStatus === 'valid' ? (
-                      <CheckCircle2 className="h-3 w-3 text-green-500" />
-                    ) : executionDetails?.outputStatus === 'error' ? (
-                      <XCircle className="h-3 w-3 text-red-500" />
-                    ) : executionDetails?.outputStatus === 'invalid' ? (
-                      <XCircle className="h-3 w-3 text-red-500" />
-                    ) : executionDetails?.outputStatus === 'incomplete' ? (
-                      <AlertCircle className="h-3 w-3 text-orange-500" />
-                    ) : executionDetails?.outputStatus === 'empty' ? (
-                      <AlertCircle className="h-3 w-3 text-amber-500" />
-                    ) : (
-                      <Clock className="h-3 w-3 text-gray-400" />
-                    )}
-                    <span className={cn(
-                      "font-medium",
-                      executionDetails?.outputStatus === 'valid' && "text-green-600",
-                      executionDetails?.outputStatus === 'error' && "text-red-600",
-                      executionDetails?.outputStatus === 'invalid' && "text-red-600",
-                      executionDetails?.outputStatus === 'incomplete' && "text-orange-600",
-                      executionDetails?.outputStatus === 'empty' && "text-amber-600",
-                      (!executionDetails || executionDetails.outputStatus === 'pending') && "text-gray-500",
-                    )}>
-                      输出
-                    </span>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p className="text-xs">
-                    {executionDetails?.outputStatus === 'valid' && "输出数据正常"}
-                    {executionDetails?.outputStatus === 'error' && (executionDetails?.outputError || "输出异常")}
-                    {executionDetails?.outputStatus === 'invalid' && (executionDetails?.outputError || "输出格式无效")}
-                    {executionDetails?.outputStatus === 'incomplete' && (executionDetails?.outputError || "输出可能被截断")}
-                    {executionDetails?.outputStatus === 'empty' && "输出为空"}
-                    {(!executionDetails || executionDetails.outputStatus === 'pending') && "等待输出"}
-                  </p>
-                </TooltipContent>
-              </Tooltip>
+              {/* 输出状态 - 使用原生 title 属性避免 Tooltip 导致的重渲染问题 */}
+              <div 
+                className="flex items-center gap-1 cursor-default"
+                title={
+                  executionDetails?.outputStatus === 'valid' ? "输出数据正常" :
+                  executionDetails?.outputStatus === 'error' ? (executionDetails?.outputError || "输出异常") :
+                  executionDetails?.outputStatus === 'invalid' ? (executionDetails?.outputError || "输出格式无效") :
+                  executionDetails?.outputStatus === 'incomplete' ? (executionDetails?.outputError || "输出可能被截断") :
+                  executionDetails?.outputStatus === 'empty' ? "输出为空" :
+                  "等待输出"
+                }
+              >
+                {executionDetails?.outputStatus === 'valid' ? (
+                  <CheckCircle2 className="h-3 w-3 text-green-500" />
+                ) : executionDetails?.outputStatus === 'error' ? (
+                  <XCircle className="h-3 w-3 text-red-500" />
+                ) : executionDetails?.outputStatus === 'invalid' ? (
+                  <XCircle className="h-3 w-3 text-red-500" />
+                ) : executionDetails?.outputStatus === 'incomplete' ? (
+                  <AlertCircle className="h-3 w-3 text-orange-500" />
+                ) : executionDetails?.outputStatus === 'empty' ? (
+                  <AlertCircle className="h-3 w-3 text-amber-500" />
+                ) : (
+                  <Clock className="h-3 w-3 text-gray-400" />
+                )}
+                <span className={cn(
+                  "font-medium",
+                  executionDetails?.outputStatus === 'valid' && "text-green-600",
+                  executionDetails?.outputStatus === 'error' && "text-red-600",
+                  executionDetails?.outputStatus === 'invalid' && "text-red-600",
+                  executionDetails?.outputStatus === 'incomplete' && "text-orange-600",
+                  executionDetails?.outputStatus === 'empty' && "text-amber-600",
+                  (!executionDetails || executionDetails.outputStatus === 'pending') && "text-gray-500",
+                )}>
+                  输出
+                </span>
+              </div>
             </div>
 
             {/* 执行状态 */}
@@ -875,7 +847,6 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
             document.body,
           )}
       </div>
-    </TooltipProvider>
   );
 }
 
@@ -970,23 +941,22 @@ function GroupNodeComponent({
   };
 
   return (
-    <TooltipProvider delayDuration={0}>
-      <div
-        className={cn(
-          "rounded-xl border-2 bg-green-50/50 transition-all duration-300",
-          "shadow-sm hover:shadow-md",
-          style.borderColor,
-          selected
-            ? "ring-[3px] ring-primary ring-offset-2 shadow-lg shadow-primary/30"
-            : "",
-          isCollapsed ? "min-w-[280px]" : "",
-        )}
-        onContextMenu={handleContextMenu}
-        style={{
-          width: "100%",
-          height: "100%",
-        }}
-      >
+    <div
+      className={cn(
+        "rounded-xl border-2 bg-green-50/50 transition-all duration-300",
+        "shadow-sm hover:shadow-md",
+        style.borderColor,
+        selected
+          ? "ring-[3px] ring-primary ring-offset-2 shadow-lg shadow-primary/30"
+          : "",
+        isCollapsed ? "min-w-[280px]" : "",
+      )}
+      onContextMenu={handleContextMenu}
+      style={{
+        width: "100%",
+        height: "100%",
+      }}
+    >
         {/* 左侧入口 Handle */}
         <div className="absolute -left-1.5 top-1/2 -translate-y-1/2 z-50">
           <Handle
@@ -1022,28 +992,22 @@ function GroupNodeComponent({
             </span>
           </div>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "h-7 w-7 shrink-0 rounded-full hover:bg-white/50",
-                  style.color,
-                )}
-                onClick={handleToggleCollapse}
-              >
-                {isCollapsed ? (
-                  <ChevronRight className="h-4 w-4" />
-                ) : (
-                  <ChevronDown className="h-4 w-4" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              <p>{isCollapsed ? "展开组" : "折叠组"}</p>
-            </TooltipContent>
-          </Tooltip>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "h-7 w-7 shrink-0 rounded-full hover:bg-white/50",
+              style.color,
+            )}
+            onClick={handleToggleCollapse}
+            title={isCollapsed ? "展开组" : "折叠组"}
+          >
+            {isCollapsed ? (
+              <ChevronRight className="h-4 w-4" />
+            ) : (
+              <ChevronDown className="h-4 w-4" />
+            )}
+          </Button>
         </div>
 
         {/* 折叠状态下显示摘要 */}
@@ -1108,7 +1072,6 @@ function GroupNodeComponent({
             document.body,
           )}
       </div>
-    </TooltipProvider>
   );
 }
 
@@ -1142,17 +1105,20 @@ function LogicNodeComponent({
     y: number;
   } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const {
-    deleteNode,
-    duplicateNode,
-    openDebugPanel,
-    nodeExecutionStatus,
-    connectedNodeIds,
-    selectedNodeId,
-  } = useWorkflowStore();
+  
+  // 使用选择器模式订阅 store，避免不必要的重新渲染
+  const deleteNode = useWorkflowStore((state) => state.deleteNode);
+  const duplicateNode = useWorkflowStore((state) => state.duplicateNode);
+  const openDebugPanel = useWorkflowStore((state) => state.openDebugPanel);
+  const connectedNodeIds = useWorkflowStore((state) => state.connectedNodeIds);
+  const selectedNodeId = useWorkflowStore((state) => state.selectedNodeId);
+  
+  // 关键优化：使用选择器只订阅当前节点的执行状态
+  const executionStatus = useWorkflowStore(
+    (state) => state.nodeExecutionStatus[id]
+  ) || "idle";
+  
   const { runNode, getDefaultInputs } = useNodeDebug();
-
-  const executionStatus = nodeExecutionStatus[id] || "idle";
   const isConnected = connectedNodeIds.includes(id);
   const isSelected = id === selectedNodeId;
   const hasSelection = !!selectedNodeId;
@@ -1237,33 +1203,32 @@ function LogicNodeComponent({
   };
 
   return (
-    <TooltipProvider delayDuration={0}>
-      <div
-        className={cn(
-          "group relative flex flex-col items-center justify-center",
-          "w-[120px] h-[120px] rounded-full",
-          "border-2 transition-all duration-300",
-          "shadow-sm hover:shadow-md",
-          "hover:-translate-y-0.5",
-          style.headerColor,
-          style.borderColor,
-          selected
-            ? "ring-[3px] ring-primary ring-offset-2 shadow-lg shadow-primary/30"
-            : "",
-          !selected && connectedNodeIds.includes(id)
-            ? "ring-2 ring-primary/60 ring-offset-2 scale-[1.02] shadow-md shadow-primary/20"
-            : "",
-          executionStatus === "running" && "node-executing border-blue-500",
-          shouldDim && "opacity-30 grayscale-[0.6] blur-[0.5px] scale-[0.98]",
-          data.previewStatus === "added" &&
-            "ring-[3px] ring-green-500 border-green-500 shadow-lg shadow-green-500/20",
-          data.previewStatus === "modified" &&
-            "ring-[3px] ring-amber-500 border-amber-500 shadow-lg shadow-amber-500/20",
-          data.previewStatus === "removed" &&
-            "ring-[3px] ring-red-500 border-red-500 opacity-60 grayscale bg-red-50",
-        )}
-        onContextMenu={handleContextMenu}
-      >
+    <div
+      className={cn(
+        "group relative flex flex-col items-center justify-center",
+        "w-[120px] h-[120px] rounded-full",
+        "border-2 transition-all duration-300",
+        "shadow-sm hover:shadow-md",
+        "hover:-translate-y-0.5",
+        style.headerColor,
+        style.borderColor,
+        selected
+          ? "ring-[3px] ring-primary ring-offset-2 shadow-lg shadow-primary/30"
+          : "",
+        !selected && connectedNodeIds.includes(id)
+          ? "ring-2 ring-primary/60 ring-offset-2 scale-[1.02] shadow-md shadow-primary/20"
+          : "",
+        executionStatus === "running" && "node-executing border-blue-500",
+        shouldDim && "opacity-30 grayscale-[0.6] blur-[0.5px] scale-[0.98]",
+        data.previewStatus === "added" &&
+          "ring-[3px] ring-green-500 border-green-500 shadow-lg shadow-green-500/20",
+        data.previewStatus === "modified" &&
+          "ring-[3px] ring-amber-500 border-amber-500 shadow-lg shadow-amber-500/20",
+        data.previewStatus === "removed" &&
+          "ring-[3px] ring-red-500 border-red-500 opacity-60 grayscale bg-red-50",
+      )}
+      onContextMenu={handleContextMenu}
+    >
         {/* 左侧入口 Handle */}
         <div className="absolute -left-1.5 top-1/2 -translate-y-1/2 px-2 py-4 opacity-0 transition-opacity duration-300 group-hover:opacity-100 z-50">
           <Handle
@@ -1302,29 +1267,23 @@ function LogicNodeComponent({
               : "opacity-0 group-hover:opacity-100",
           )}
         >
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "h-6 w-6 shrink-0 rounded-full bg-white shadow-sm border",
-                  style.color,
-                )}
-                onClick={handleExecute}
-                disabled={executionStatus === "running"}
-              >
-                {executionStatus === "running" ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <Play className="h-3 w-3 fill-current" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              <p>{getStatusTooltip()}</p>
-            </TooltipContent>
-          </Tooltip>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "h-6 w-6 shrink-0 rounded-full bg-white shadow-sm border",
+              style.color,
+            )}
+            onClick={handleExecute}
+            disabled={executionStatus === "running"}
+            title={getStatusTooltip()}
+          >
+            {executionStatus === "running" ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Play className="h-3 w-3 fill-current" />
+            )}
+          </Button>
         </div>
 
         {/* 右侧出口 Handle */}
@@ -1394,7 +1353,6 @@ function LogicNodeComponent({
             document.body,
           )}
       </div>
-    </TooltipProvider>
   );
 }
 

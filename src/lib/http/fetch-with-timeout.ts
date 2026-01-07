@@ -5,6 +5,7 @@ export type FetchWithTimeoutInit = RequestInit & {
 }
 
 let didPreferIpv4First = false
+const FORMATTED_NETWORK_ERROR = '__formattedNetworkError'
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message
@@ -41,6 +42,8 @@ export function isRetryableNetworkError(error: unknown): boolean {
     'connecttimeouterror',
     'socket hang up',
     'network socket disconnected',
+    'other side closed',
+    'und_err_socket',
     'fetch failed',
     'network error',
     'dns lookup',
@@ -70,6 +73,8 @@ export function getNetworkErrorHint(error: unknown): string {
     hint = '域名解析失败，请检查网络或 DNS 设置'
   } else if (lower.includes('socket hang up')) {
     hint = '连接意外断开，网络不稳定'
+  } else if (lower.includes('other side closed') || lower.includes('und_err_socket')) {
+    hint = '连接被对端关闭，可能是服务端节点不稳定、长连接被回收或代理中断'
   } else if (lower.includes('tls') || lower.includes('ssl') || lower.includes('certificate')) {
     hint = 'TLS/SSL 握手失败，可能是证书问题或代理干扰'
   }
@@ -77,7 +82,15 @@ export function getNetworkErrorHint(error: unknown): string {
   return hint
 }
 
+export type FormattedNetworkError = Error & { __formattedNetworkError: true }
+
+export function isFormattedNetworkError(error: unknown): error is FormattedNetworkError {
+  return error instanceof Error && Boolean((error as unknown as Record<string, unknown>)[FORMATTED_NETWORK_ERROR])
+}
+
 export function formatNetworkError(error: unknown, context?: string): Error {
+  if (isFormattedNetworkError(error)) return error
+
   const message = getErrorMessage(error)
   const cause = getErrorCauseMessage(error)
   const hint = getNetworkErrorHint(error)
@@ -90,6 +103,7 @@ export function formatNetworkError(error: unknown, context?: string): Error {
   }
   
   const formatted = new Error(fullMessage)
+  ;(formatted as unknown as Record<string, unknown>)[FORMATTED_NETWORK_ERROR] = true
   if (error instanceof Error) {
     formatted.stack = error.stack
   }
@@ -169,7 +183,7 @@ export async function fetchWithTimeout(
       if (error instanceof Error) {
         const cause = (error as Error & { cause?: Error }).cause
         if (cause) {
-          throw new Error(`${error.message}: ${cause.message}`)
+          throw new Error(`${error.message}: ${cause.message}`, { cause })
         }
       }
       throw error
@@ -195,7 +209,9 @@ export async function fetchWithTimeout(
       const hasRetriesLeft = attempt < retries
 
       if (isRetryable && hasRetriesLeft) {
-        const delay = retryDelay * Math.pow(1.5, attempt)
+        const baseDelay = retryDelay * Math.pow(1.5, attempt)
+        const jitter = 0.8 + Math.random() * 0.4
+        const delay = Math.round(baseDelay * jitter)
         console.log(`[fetchWithTimeout] 网络错误，${delay}ms 后重试 (${attempt + 1}/${retries}):`, getErrorMessage(error))
         await sleep(delay)
         return executeWithRetry(attempt + 1)

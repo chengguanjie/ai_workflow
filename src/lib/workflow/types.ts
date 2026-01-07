@@ -117,6 +117,11 @@ export interface NodeOutput {
   nodeName: string
   nodeType: string
   status: 'success' | 'error' | 'skipped' | 'paused'
+  /**
+   * 节点实际执行输入快照（可选）
+   * - 用于在 ExecutionLog.input 中持久化更贴近运行时的入参（如渲染后的 prompt）
+   */
+  input?: Record<string, unknown>
   data: Record<string, unknown>
   /**
    * 节点标准化输出类型（可选）

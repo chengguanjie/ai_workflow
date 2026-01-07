@@ -21,7 +21,7 @@ import { shensuanProvider } from './providers/shensuan'
 import { openRouterProvider } from './providers/openrouter'
 import { openAIProvider } from './providers/openai'
 import { anthropicProvider } from './providers/anthropic'
-import { validateContextSize, estimateTokenCount, getModelContextLimit } from './token-utils'
+import { estimateTokenCount, getModelContextLimit, MODEL_CONTEXT_LIMITS } from './token-utils'
 
 export * from './types'
 
@@ -33,6 +33,8 @@ export * from './context-builder'
 
 class AIService {
   private providers: Map<AIProviderType, AIProvider> = new Map()
+  private modelContextLengthCache: Map<string, { fetchedAt: number; byId: Map<string, number> }> = new Map()
+  private readonly modelContextLengthCacheTtlMs = 10 * 60 * 1000
 
   constructor() {
     this.providers.set('SHENSUAN', shensuanProvider)
@@ -55,60 +57,233 @@ class AIService {
     apiKey: string,
     baseUrl?: string
   ): Promise<ChatResponse> {
-    // 验证上下文大小
+    const provider = this.getProvider(providerType)
     const model = request.model
-    // 如果未指定 maxTokens，使用模型上下文限制的一半作为预估（让模型自行决定输出长度）
-    const contextLimit = getModelContextLimit(model)
-    const maxResponseTokens = request.maxTokens || Math.min(contextLimit / 2, 16384)
+    const totalInputTokens = this.estimateMessageTokens(request.messages || [])
+    const contextLimit = await this.resolveModelContextLimit(providerType, model, apiKey, baseUrl)
 
-    // 计算输入的总token数
-    let totalInputTokens = 0
+    // By default, do NOT send max_tokens. Let provider/model decide.
+    // Only pass through an explicit positive value.
+    const userMax = request.maxTokens && request.maxTokens > 0 ? request.maxTokens : undefined
 
-    // 处理消息内容
-    for (const message of request.messages || []) {
+    const effectiveRequest: ChatRequest = { ...request, maxTokens: userMax }
+
+    const first = await this.chatWithAdaptiveMaxTokens(provider, effectiveRequest, apiKey, baseUrl)
+    const continued = await this.autoContinueIfTruncated(provider, effectiveRequest, apiKey, baseUrl, first)
+
+    console.log(
+      `[AI Service] Model=${model} input≈${totalInputTokens} ctx=${contextLimit ?? 'unknown'} max=${userMax ?? '(default)'} segments=${continued.segments ?? 1}`
+    )
+
+    return continued
+  }
+
+  private estimateMessageTokens(messages: ChatRequest['messages']): number {
+    let total = 0
+    for (const message of messages || []) {
       if (typeof message.content === 'string') {
-        totalInputTokens += estimateTokenCount(message.content)
+        total += estimateTokenCount(message.content)
       } else if (Array.isArray(message.content)) {
-        // 处理多模态消息
         for (const part of message.content) {
-          if (part.type === 'text') {
-            totalInputTokens += estimateTokenCount(part.text)
-          }
-          // 图片通常占用约85 tokens
-          if (part.type === 'image_url') {
-            totalInputTokens += 85
-          }
+          if (part.type === 'text') total += estimateTokenCount(part.text)
+          if (part.type === 'image_url') total += 85
         }
       }
     }
+    return total
+  }
 
-    // 验证是否超出模型限制
-    validateContextSize(
-      '', // validateContextSize expects text, we already calculated tokens. Pass empty string to avoid re-calculating.
-      model,
-      maxResponseTokens
-    )
+  private async resolveModelContextLimit(
+    providerType: AIProviderType,
+    model: string,
+    apiKey: string,
+    baseUrl?: string
+  ): Promise<number | null> {
+    // Best-effort: OpenRouter /models exposes context_length.
+    if (providerType === 'OPENROUTER') {
+      const cacheKey = `${providerType}:${baseUrl || ''}`
+      const cached = this.modelContextLengthCache.get(cacheKey)
+      const now = Date.now()
+      if (!cached || now - cached.fetchedAt > this.modelContextLengthCacheTtlMs) {
+        try {
+          const models = await this.listModels(providerType, apiKey, baseUrl)
+          const byId = new Map<string, number>()
+          for (const m of models) {
+            if (m.contextLength && m.contextLength > 0) byId.set(m.id, m.contextLength)
+          }
+          this.modelContextLengthCache.set(cacheKey, { fetchedAt: now, byId })
+        } catch {
+          // ignore - fallback below
+        }
+      }
 
-    const totalTokensNeeded = totalInputTokens + maxResponseTokens
-
-    if (totalTokensNeeded > contextLimit) {
-      const error = new Error(
-        `Context limit exceeded: ${totalInputTokens} (input) + ${maxResponseTokens} (max output) = ${totalTokensNeeded} > ${contextLimit} (model limit for ${model})`
-      )
-      const extendedError = error as unknown as Record<string, unknown>
-      extendedError.code = 'CONTEXT_LIMIT_EXCEEDED'
-      extendedError.inputTokens = totalInputTokens
-      extendedError.maxResponseTokens = maxResponseTokens
-      extendedError.totalTokensNeeded = totalTokensNeeded
-      extendedError.contextLimit = contextLimit
-      throw error
+      const updated = this.modelContextLengthCache.get(cacheKey)
+      const limit = updated?.byId.get(model)
+      if (limit && limit > 0) return limit
     }
 
-    // 记录token使用情况
-    console.log(`[AI Service] Model: ${model}, Input tokens: ${totalInputTokens}, Max response: ${maxResponseTokens}, Total: ${totalTokensNeeded}/${contextLimit}`)
+    // Fallback: local heuristics/map
+    const limit = getModelContextLimit(model)
 
-    const provider = this.getProvider(providerType)
+    // If we only hit the generic default (16k), treat as unknown unless the model is known to be 16k.
+    const isKnown16k = model === 'gpt-3.5-turbo'
+    if (limit === MODEL_CONTEXT_LIMITS.default && !isKnown16k) return null
+    return limit
+  }
+
+  private isTruncationFinishReason(reason: string | undefined): boolean {
+    const r = (reason || '').toLowerCase()
+    return r === 'length' || r === 'max_tokens' || r.includes('max_tokens') || r.includes('length')
+  }
+
+  private extractMaxTokenHintFromError(message: string): number | null {
+    // Examples:
+    // - "max_tokens must be <= 4096"
+    // - "max_tokens must be less than or equal to 8192"
+    // - "must be between 1 and 8192"
+    const patterns: RegExp[] = [
+      /\bmax[_\s-]?tokens?\b[^0-9]{0,40}\b(?:<=|less than or equal to)\s*(\d{2,7})/i,
+      /\bbetween\s+1\s+and\s+(\d{2,7})\b/i,
+      /\bmaximum\b[^0-9]{0,40}\b(\d{2,7})\b/i,
+    ]
+    for (const re of patterns) {
+      const m = message.match(re)
+      if (m?.[1]) {
+        const n = Number(m[1])
+        if (Number.isFinite(n) && n > 0) return n
+      }
+    }
+    return null
+  }
+
+  private async chatWithAdaptiveMaxTokens(
+    provider: AIProvider,
+    request: ChatRequest,
+    apiKey: string,
+    baseUrl?: string
+  ): Promise<ChatResponse> {
+    let currentMax = request.maxTokens
+    let attempt = 0
+    const maxAttempts = 6
+
+    while (attempt < maxAttempts) {
+      attempt++
+      try {
+        return await provider.chat({ ...request, maxTokens: currentMax }, apiKey, baseUrl)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        const hinted = this.extractMaxTokenHintFromError(msg)
+        if (hinted && hinted > 0) {
+          const next = Math.max(1, hinted)
+          if (next === currentMax) throw err
+          currentMax = next
+          continue
+        }
+
+        // Heuristic: reduce maxTokens and retry if it looks like a max_tokens/context-related error.
+        const looksTokenRelated =
+          msg.toLowerCase().includes('max_tokens') ||
+          msg.toLowerCase().includes('maximum context') ||
+          msg.toLowerCase().includes('context length') ||
+          msg.toLowerCase().includes('too many tokens')
+
+        if (!looksTokenRelated) throw err
+        if (!currentMax || currentMax <= 1) throw err
+
+        currentMax = Math.max(1, Math.floor(currentMax / 2))
+      }
+    }
+
+    // Should not reach here
     return provider.chat(request, apiKey, baseUrl)
+  }
+
+  private async autoContinueIfTruncated(
+    provider: AIProvider,
+    baseRequest: ChatRequest,
+    apiKey: string,
+    baseUrl: string | undefined,
+    first: ChatResponse
+  ): Promise<ChatResponse> {
+    if (!this.isTruncationFinishReason(first.finishReason)) {
+      return { ...first, wasAutoContinued: false, segments: 1 }
+    }
+
+    const maxSegments = 20
+    const tailChars = 4000
+    const overlapProbeChars = 2000
+
+    let merged = first.content || ''
+    let segments = 1
+    let totalUsage = { ...first.usage }
+    let lastFinishReason = first.finishReason
+    let lastModel = first.model
+
+    while (segments < maxSegments && this.isTruncationFinishReason(lastFinishReason)) {
+      const tail = merged.slice(-tailChars)
+      const continuationPrompt =
+        `请继续输出，从上一次输出的末尾继续，不要重复已输出内容。\n` +
+        `上一次输出的末尾如下（不要重复这段）：\n` +
+        `${tail}\n\n` +
+        `直接续写正文，不要解释，不要重复标题。`
+
+      const systemMsg = (baseRequest.messages || []).find(m => m.role === 'system')
+      const lastUserMsg = [...(baseRequest.messages || [])].reverse().find(m => m.role === 'user')
+      const userSummary =
+        typeof lastUserMsg?.content === 'string'
+          ? lastUserMsg.content.slice(0, 2000)
+          : '[non-text user content]'
+
+      const continuationMessages: ChatRequest['messages'] = [
+        ...(systemMsg ? [systemMsg] : []),
+        { role: 'user', content: `任务指令（摘要）：\n${userSummary}\n\n${continuationPrompt}` },
+      ]
+
+      const next = await this.chatWithAdaptiveMaxTokens(
+        provider,
+        {
+          ...baseRequest,
+          messages: continuationMessages,
+        },
+        apiKey,
+        baseUrl
+      )
+
+      const nextContent = next.content || ''
+      const probe = merged.slice(-overlapProbeChars)
+      const deduped = this.removeLeadingOverlap(probe, nextContent)
+      merged += deduped
+
+      totalUsage = {
+        promptTokens: totalUsage.promptTokens + (next.usage?.promptTokens || 0),
+        completionTokens: totalUsage.completionTokens + (next.usage?.completionTokens || 0),
+        totalTokens: totalUsage.totalTokens + (next.usage?.totalTokens || 0),
+      }
+      segments++
+      lastFinishReason = next.finishReason
+      lastModel = next.model
+    }
+
+    return {
+      content: merged,
+      usage: totalUsage,
+      finishReason: this.isTruncationFinishReason(lastFinishReason) ? lastFinishReason : 'stop',
+      model: lastModel,
+      wasAutoContinued: segments > 1,
+      segments,
+    }
+  }
+
+  private removeLeadingOverlap(prevTail: string, next: string): string {
+    if (!prevTail || !next) return next
+    const max = Math.min(prevTail.length, next.length, 2000)
+    for (let len = max; len >= 50; len--) {
+      const suffix = prevTail.slice(-len)
+      if (next.startsWith(suffix)) {
+        return next.slice(len)
+      }
+    }
+    return next
   }
 
   async listModels(

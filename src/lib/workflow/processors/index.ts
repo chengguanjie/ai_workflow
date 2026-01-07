@@ -11,6 +11,7 @@ import { processWithToolsNodeProcessor } from './process-with-tools'
 import { codeNodeProcessor } from './code'
 import { outputNodeProcessor } from './output'
 import { logicNodeProcessor } from './logic'
+import { groupNodeProcessor } from './group'
 
 const processors: Map<string, NodeProcessor> = new Map()
 
@@ -20,6 +21,7 @@ processors.set('PROCESS_WITH_TOOLS', processWithToolsNodeProcessor)
 processors.set('CODE', codeNodeProcessor)
 processors.set('OUTPUT', outputNodeProcessor)
 processors.set('LOGIC', logicNodeProcessor)
+processors.set('GROUP', groupNodeProcessor)
 
 /**
  * 获取节点处理器
@@ -41,4 +43,5 @@ export {
   processWithToolsNodeProcessor,
   codeNodeProcessor,
   outputNodeProcessor,
+  groupNodeProcessor,
 }

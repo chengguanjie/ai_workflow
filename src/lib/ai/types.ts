@@ -153,6 +153,13 @@ export interface ChatResponse {
   }
   finishReason: string
   model: string
+  /**
+   * When enabled, the service may auto-continue on truncation (finishReason=length/max_tokens)
+   * and return the merged content.
+   */
+  wasAutoContinued?: boolean
+  /** Number of merged response segments (1 means single call). */
+  segments?: number
 }
 
 /**

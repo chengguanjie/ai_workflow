@@ -12,13 +12,52 @@ import {
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { useWorkflowStore } from '@/stores/workflow-store'
-import { Loader2, Sparkles, BookOpen } from 'lucide-react'
+import { Sparkles, BookOpen, PlayCircle } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface WorkflowManualDialogProps {
   isOpen: boolean
   onClose: () => void
   workflowId: string
+}
+
+// 圆形进度条组件 - 使用 CSS 动画避免状态更新
+function CircularProgress({ size = 16 }: { size?: number }) {
+  const strokeWidth = 2
+  const radius = (size - strokeWidth) / 2
+  const circumference = radius * 2 * Math.PI
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      className="animate-spin"
+      style={{ animationDuration: '1.5s' }}
+    >
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        fill="none"
+        className="text-muted-foreground/30"
+      />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        fill="none"
+        strokeDasharray={circumference}
+        strokeDashoffset={circumference * 0.75}
+        strokeLinecap="round"
+        className="text-primary"
+        style={{ transform: 'rotate(-90deg)', transformOrigin: 'center' }}
+      />
+    </svg>
+  )
 }
 
 export function WorkflowManualDialog({
@@ -40,24 +79,26 @@ export function WorkflowManualDialog({
     onClose()
   }
 
+  // 构建工作流上下文信息
+  const buildWorkflowContext = () => ({
+    name,
+    nodes: nodes.map((n) => ({
+      id: n.id,
+      type: n.data?.type,
+      name: n.data?.name,
+      comment: n.data?.comment,
+      config: n.data?.config,
+    })),
+    edges: edges.map((e) => ({
+      source: e.source,
+      target: e.target,
+    })),
+  })
+
   const handleAIGenerate = async () => {
     setIsGenerating(true)
     try {
-      // 构建工作流上下文信息
-      const workflowContext = {
-        name,
-        nodes: nodes.map((n) => ({
-          id: n.id,
-          type: n.data?.type,
-          name: n.data?.name,
-          comment: n.data?.comment,
-          config: n.data?.config,
-        })),
-        edges: edges.map((e) => ({
-          source: e.source,
-          target: e.target,
-        })),
-      }
+      const workflowContext = buildWorkflowContext()
 
       const response = await fetch('/api/ai/generate-manual', {
         method: 'POST',
@@ -71,15 +112,60 @@ export function WorkflowManualDialog({
       const result = await response.json()
 
       if (!response.ok) {
-        throw new Error(result.error || '生成说明手册失败')
+        throw new Error(result.error?.message || result.error || '生成说明手册失败')
       }
-      setContent(result.manual)
+
+      // 修复: API 返回格式是 { success: true, data: { manual: "..." } }
+      const manualContent = result.data?.manual || result.manual
+      if (!manualContent) {
+        throw new Error('生成结果为空')
+      }
+
+      setContent(manualContent)
       toast.success('AI 说明手册已生成')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '生成说明手册失败')
     } finally {
       setIsGenerating(false)
     }
+  }
+
+  // 后台执行功能
+  const handleBackgroundGenerate = () => {
+    const workflowContext = buildWorkflowContext()
+
+    toast.info('说明手册正在后台生成中...')
+    onClose()
+
+    // 使用 setTimeout 确保对话框关闭后再开始请求
+    setTimeout(async () => {
+      try {
+        const response = await fetch('/api/ai/generate-manual', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workflowId,
+            workflowContext,
+          }),
+        })
+
+        const result = await response.json()
+
+        if (!response.ok) {
+          throw new Error(result.error?.message || result.error || '生成说明手册失败')
+        }
+
+        const manualContent = result.data?.manual || result.manual
+        if (!manualContent) {
+          throw new Error('生成结果为空')
+        }
+
+        setManual(manualContent)
+        toast.success('说明手册已在后台生成完成')
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : '后台生成说明手册失败')
+      }
+    }, 100)
   }
 
   return (
@@ -108,11 +194,11 @@ export function WorkflowManualDialog({
               className="gap-2"
             >
               {isGenerating ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <CircularProgress size={16} />
               ) : (
                 <Sparkles className="h-4 w-4" />
               )}
-              AI 生成
+              {isGenerating ? '生成中...' : 'AI 生成'}
             </Button>
           </div>
 
@@ -137,7 +223,16 @@ export function WorkflowManualDialog({
           />
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button
+            variant="ghost"
+            onClick={handleBackgroundGenerate}
+            disabled={isGenerating}
+            className="gap-2"
+          >
+            <PlayCircle className="h-4 w-4" />
+            后台执行
+          </Button>
           <Button variant="outline" onClick={onClose}>
             取消
           </Button>

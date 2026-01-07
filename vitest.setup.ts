@@ -1,6 +1,23 @@
 import { vi, afterEach } from 'vitest'
 import '@testing-library/dom'
 
+// Happy DOM: avoid throwing when DOMPurify encounters <script src="..."> or <link href="...">
+// We never want tests to perform external resource loading; treat it as a successful no-op.
+if (typeof window !== 'undefined') {
+  const happyDOM = (window as any).happyDOM
+  if (happyDOM?.settings) {
+    happyDOM.settings.disableJavaScriptFileLoading = true
+    happyDOM.settings.disableCSSFileLoading = true
+    if (happyDOM.settings.navigation) {
+      happyDOM.settings.navigation.disableMainFrameNavigation = true
+      happyDOM.settings.navigation.disableChildFrameNavigation = true
+      happyDOM.settings.navigation.disableChildPageNavigation = true
+      happyDOM.settings.navigation.disableFallbackToSetURL = true
+    }
+    happyDOM.settings.handleDisabledFileLoadingAsSuccess = true
+  }
+}
+
 // Mock xlsx module
 vi.mock('xlsx', () => ({
   read: vi.fn(() => ({ SheetNames: [], Sheets: {} })),

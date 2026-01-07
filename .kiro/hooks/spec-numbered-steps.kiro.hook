@@ -1,0 +1,18 @@
+{
+  "enabled": true,
+  "name": "Spec文件步骤编号",
+  "description": "当创建spec文件时，自动为每个步骤添加数字序号（如 1. 2. 3.），便于用户了解当前正在执行哪个步骤",
+  "version": "1",
+  "when": {
+    "type": "fileCreated",
+    "patterns": [
+      "*.spec.md",
+      "*spec*.md",
+      ".kiro/specs/**/*.md"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "检查刚创建的spec文件，确保所有任务步骤都使用数字序号标注（如 1. 2. 3.），而不是使用无序列表或其他格式。如果发现步骤没有编号，请更新文件为每个步骤添加清晰的数字序号，这样用户可以清楚地知道当前正在执行第几步。"
+  }
+}

@@ -29,13 +29,27 @@ import {
   Expand,
   Sparkles,
   FileText,
+  StopCircle,
 } from "lucide-react";
+import { useDebugStream } from "@/hooks/use-debug-stream";
+import { DebugLogViewer } from "./debug-panel/debug-log-viewer";
+import type {
+  DebugLogData,
+  DebugCompleteData,
+  DebugStatusData,
+} from "@/lib/workflow/debug-events";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Collapsible,
   CollapsibleContent,
@@ -71,6 +85,11 @@ import {
 } from "@/lib/workflow/debug-panel/utils";
 import { getModelModality, SHENSUAN_DEFAULT_MODELS } from "@/lib/ai/types";
 import { extractVariableReferences } from "@/lib/workflow/utils";
+import {
+  DEFAULT_MAX_TOKENS,
+  UNLIMITED_TOKENS,
+} from "./node-config-panel/shared/ai-provider-select";
+import type { DebugStatus } from "@/lib/workflow/debug-events";
 
 /**
  * 验证并修复模型配置
@@ -141,13 +160,45 @@ function extractHtmlContent(output: unknown): string {
       }
     }
     
-    // 检查是否是JSON字符串
+    // 先尝试处理 Markdown code fence 包裹的 JSON（常见：```json {...} ```）
+    if (str.startsWith('```') && str.includes('```', 3)) {
+      try {
+        const lines = str.split('\n');
+        if (lines.length >= 3 && lines[0].startsWith('```') && lines[lines.length - 1].startsWith('```')) {
+          const inner = lines.slice(1, -1).join('\n').trim();
+          if (inner.startsWith('{') || inner.startsWith('[')) {
+            const parsed = JSON.parse(inner);
+            return extractHtmlContent(parsed);
+          }
+        }
+      } catch {
+        // ignore, fallback to other heuristics
+      }
+    }
+
+    // 检查是否是JSON字符串（不含 code fence）
     if (str.startsWith('{') || str.startsWith('[')) {
       try {
         const parsed = JSON.parse(str);
         return extractHtmlContent(parsed);
       } catch {
         // 不是有效JSON，可能是HTML或普通文本
+      }
+    }
+
+    // 尝试从混合文本中提取 JSON 对象（如：```json\n{...}\n``` 或前后有解释文字）
+    const jsonStart = str.indexOf('{');
+    const jsonEnd = str.lastIndexOf('}');
+    if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+      const maybeJson = str.slice(jsonStart, jsonEnd + 1).trim();
+      if (maybeJson.startsWith('{') && maybeJson.endsWith('}')) {
+        try {
+          const parsed = JSON.parse(maybeJson);
+          const extracted = extractHtmlContent(parsed);
+          if (extracted.includes('<') && extracted.includes('>')) return extracted;
+        } catch {
+          // ignore
+        }
       }
     }
     
@@ -241,6 +292,51 @@ interface DebugResult {
   logs?: string[];
 }
 
+function legacyLogsToDebugLogs(logs: string[]): DebugLogData[] {
+  const now = new Date();
+  const toIsoWithTime = (time: string) => {
+    const [hh, mm, ss] = time.split(":").map((v) => Number(v));
+    if (
+      Number.isFinite(hh) &&
+      Number.isFinite(mm) &&
+      Number.isFinite(ss) &&
+      hh >= 0 &&
+      hh <= 23 &&
+      mm >= 0 &&
+      mm <= 59 &&
+      ss >= 0 &&
+      ss <= 59
+    ) {
+      const d = new Date(now);
+      d.setHours(hh, mm, ss, 0);
+      return d.toISOString();
+    }
+    return undefined;
+  };
+
+  const inferLevel = (message: string): DebugLogData["level"] => {
+    const m = message.toLowerCase();
+    if (m.includes("[error]") || m.includes("错误") || m.includes("失败")) {
+      return "error";
+    }
+    if (m.includes("[warn]") || m.includes("警告")) return "warning";
+    return "info";
+  };
+
+  return logs.map((raw) => {
+    const trimmed = String(raw ?? "").trim();
+    const match = trimmed.match(/^\[?(\d{2}:\d{2}:\d{2})\]?\s*(.*)$/);
+    const time = match?.[1];
+    const rest = match ? match[2] : trimmed;
+    return {
+      level: inferLevel(rest),
+      step: "HISTORY",
+      message: rest || trimmed,
+      timestamp: time ? toIsoWithTime(time) : undefined,
+    };
+  });
+}
+
 export function NodeDebugPanel() {
   const {
     debugNodeId,
@@ -254,9 +350,13 @@ export function NodeDebugPanel() {
     updateNode,
     nodeExecutionResults,
     updateNodeExecutionResult,
-    nodeExecutionStatus,
-    updateNodeExecutionStatus,
+    updateNodeExecutionStatusSafe,
   } = useWorkflowStore();
+  
+  // 使用选择器只订阅当前调试节点的执行状态，避免其他节点状态变化导致重新渲染
+  const currentNodeStatus = useWorkflowStore(
+    (state) => debugNodeId ? state.nodeExecutionStatus[debugNodeId] : undefined
+  );
 
   // 使用 ref 来存储最新的 nodes，避免在异步回调中出现 stale closure
   const nodesRef = useRef(nodes);
@@ -264,10 +364,101 @@ export function NodeDebugPanel() {
     nodesRef.current = nodes;
   }, [nodes]);
 
+  // “继续输出”时用于拼接上一次的输出
+  const continuationPrefixRef = useRef<string | null>(null);
+
   const [mockInputs, setMockInputs] = useState<
     Record<string, Record<string, unknown>>
   >({});
-  const [isRunning, setIsRunning] = useState(false);
+
+  // streamLogs/streamResult 属于“最近一次 startDebug 的节点”，需要明确归属，避免节点切换后展示错内容
+  const streamOwnerNodeIdRef = useRef<string | null>(null);
+  const [streamOwnerNodeId, setStreamOwnerNodeId] = useState<string | null>(
+    null,
+  );
+
+  // 使用实时调试流 Hook
+  const {
+    isRunning: isStreamRunning,
+    logs: streamLogs,
+    status: streamStatus,
+    result: streamResult,
+    error: streamError,
+    startDebug,
+    stopDebug,
+    clearLogs,
+  } = useDebugStream({
+    onStatus: useCallback((statusData: DebugStatusData) => {
+      const targetNodeId = streamOwnerNodeIdRef.current;
+      if (!targetNodeId) return;
+
+      if (statusData.status === 'running') {
+        updateNodeExecutionStatusSafe(targetNodeId, 'running');
+        return;
+      }
+
+      if (statusData.status === 'completed') {
+        updateNodeExecutionStatusSafe(targetNodeId, 'completed');
+        return;
+      }
+
+      updateNodeExecutionStatusSafe(targetNodeId, 'failed');
+    }, [updateNodeExecutionStatusSafe]),
+    onComplete: useCallback((completeData: DebugCompleteData) => {
+      // 回调可能发生在节点切换后，使用本次流的所属节点 ID，避免写错节点结果
+      const targetNodeId = streamOwnerNodeIdRef.current;
+      if (!targetNodeId) return;
+
+      const prefix = continuationPrefixRef.current;
+      const mergedOutput = (() => {
+        if (!prefix) return completeData.output;
+        const out = completeData.output as Record<string, unknown>;
+        const currentText = out?.结果;
+        if (typeof currentText !== "string") return completeData.output;
+        continuationPrefixRef.current = null;
+        return {
+          ...out,
+          结果: `${prefix}\n\n${currentText}`.trim(),
+          _meta: {
+            ...(typeof out._meta === "object" && out._meta
+              ? (out._meta as Record<string, unknown>)
+              : {}),
+            continued: true,
+            truncated: false,
+          },
+        };
+      })();
+
+      // 将流式结果同步到 store
+      // 注意：日志已经在 streamResult 中，这里只需要同步结果
+      updateNodeExecutionResult(targetNodeId, {
+        status: completeData.status,
+        output: mergedOutput,
+        error: completeData.error,
+        duration: completeData.duration,
+        tokenUsage: completeData.tokenUsage,
+      });
+      
+      // 更新节点执行状态
+      if (completeData.status === 'success') {
+        updateNodeExecutionStatusSafe(targetNodeId, 'completed');
+      } else {
+        updateNodeExecutionStatusSafe(targetNodeId, 'failed');
+      }
+    }, [updateNodeExecutionResult, updateNodeExecutionStatusSafe]),
+    onError: useCallback((errorMsg: string) => {
+      const targetNodeId = streamOwnerNodeIdRef.current;
+      if (!targetNodeId) return;
+      updateNodeExecutionResult(targetNodeId, {
+        status: 'error',
+        output: {},
+        error: errorMsg,
+        duration: 0,
+        logs: [`[ERROR] ${errorMsg}`],
+      });
+      updateNodeExecutionStatusSafe(targetNodeId, 'failed');
+    }, [updateNodeExecutionResult, updateNodeExecutionStatusSafe]),
+  });
 
   // 从 store 读取当前节点的执行结果（添加空值保护）
   const result =
@@ -364,6 +555,9 @@ export function NodeDebugPanel() {
     null,
   );
 
+  // 输出截断后的继续输出确认
+  const [isTruncationDialogOpen, setIsTruncationDialogOpen] = useState(false);
+
   // Panel position and size state (可拖动和调整大小)
   const [panelWidth, setPanelWidth] = useState(500);
   const [panelPosition, setPanelPosition] = useState({ x: 0, y: 0 });
@@ -387,8 +581,8 @@ export function NodeDebugPanel() {
     debugNode?.type === "process" || debugNode?.type === "PROCESS";
 
   // 计算节点是否正在运行（结合本地状态和 store 状态）
-  const currentNodeStatus = debugNodeId ? nodeExecutionStatus[debugNodeId] : undefined;
-  const isNodeRunning = isRunning || currentNodeStatus === "running";
+  // currentNodeStatus 已通过选择器获取
+  const isNodeRunning = isStreamRunning || currentNodeStatus === "running";
 
   // 初始化编辑标题
   useEffect(() => {
@@ -510,6 +704,11 @@ export function NodeDebugPanel() {
   useEffect(() => {
     // 只有在节点真正切换时才重置 UI 状态，避免在同一节点执行时折叠面板
     const isNodeChanged = prevDebugNodeIdRef.current !== debugNodeId;
+
+    // 切换节点时中止正在进行的流式调试，避免日志/输出串到新节点
+    if (isNodeChanged && isStreamRunning) {
+      stopDebug();
+    }
 
     if (debugNodeId) {
       const defaultInputs: Record<string, Record<string, unknown>> = {};
@@ -678,119 +877,103 @@ export function NodeDebugPanel() {
         setPreviewContent(null);
       }
     }
-  }, [debugNodeId, predecessorNodes, nodeExecutionResults, nodes]);
+  }, [
+    debugNodeId,
+    predecessorNodes,
+    nodeExecutionResults,
+    nodes,
+    isStreamRunning,
+    stopDebug,
+  ]);
 
-  const handleRunDebug = async () => {
+  const handleRunDebug = useCallback(() => {
     if (!workflowId || !debugNodeId) return;
 
-    setIsRunning(true);
+    streamOwnerNodeIdRef.current = debugNodeId;
+    setStreamOwnerNodeId(debugNodeId);
+
     // 更新 store 中的执行状态，让节点图标也能同步显示
-    updateNodeExecutionStatus(debugNodeId, "running");
+    updateNodeExecutionStatusSafe(debugNodeId, "running");
     // 清除之前的结果
     updateNodeExecutionResult(debugNodeId, null);
     setIsProcessOpen(true);
-    setIsOutputOpen(false);
+    // 展开输出结果区域，让用户可以看到调试过程
+    setIsOutputOpen(true);
 
-    try {
-      // Inputs are already an object, no need to parse
-      const parsedInputs = mockInputs;
+    // 获取当前节点的最新配置（可能包含未保存的更改）
+    const currentNode = nodes.find((n) => n.id === debugNodeId);
+    const currentNodeConfig = currentNode?.data?.config as Record<string, unknown> | undefined;
 
-      // 获取当前节点的最新配置（可能包含未保存的更改）
-      const currentNode = nodes.find((n) => n.id === debugNodeId);
-      const currentNodeConfig = currentNode?.data?.config as Record<string, unknown> | undefined;
+    // 使用流式调试 API
+    startDebug({
+      workflowId,
+      nodeId: debugNodeId,
+      mockInputs,
+      nodeConfig: currentNodeConfig,
+    });
+  }, [workflowId, debugNodeId, mockInputs, nodes, startDebug, updateNodeExecutionStatusSafe, updateNodeExecutionResult]);
 
-      const response = await fetch(
-        `/api/workflows/${workflowId}/nodes/${debugNodeId}/debug`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            mockInputs: parsedInputs,
-            importedFiles: importedFiles.map((f) => ({
-              name: f.name,
-              content:
-                typeof f.content === "string"
-                  ? f.content
-                  : "[Binary Content]",
-              type: f.type,
-            })),
-            // 传递当前节点配置，让后端使用最新的配置
-            nodeConfig: currentNodeConfig,
-          }),
-        },
-      );
+  // 处理停止调试
+  const handleStopDebug = useCallback(() => {
+    stopDebug();
+    const targetNodeId = streamOwnerNodeIdRef.current ?? debugNodeId;
+    if (targetNodeId) updateNodeExecutionStatusSafe(targetNodeId, "failed");
+  }, [stopDebug, debugNodeId, updateNodeExecutionStatusSafe]);
 
-      const data = await response.json();
+  const handleContinueAfterTruncation = useCallback(() => {
+    if (!workflowId || !debugNodeId) return;
 
-      if (data.success) {
-        // 1) 根据提示词 + 工具配置推断“期望输出类型”（用于 UI 展示）
-        const guessedFromIntent = guessOutputTypeFromPromptAndTools({
-          userPrompt: processConfig.userPrompt as string | undefined,
-          tools: (processConfig.tools as any[]) || [],
-        });
+    const currentNode = nodesRef.current.find((n) => n.id === debugNodeId);
+    const currentNodeConfig = currentNode?.data?.config as
+      | Record<string, unknown>
+      | undefined;
+    if (!currentNodeConfig) return;
 
-        // 2) 再根据实际输出内容做兜底推断
-        const output =
-          (data.data?.output ||
-            data.data?.output?.output ||
-            data.data?.output?.result ||
-            data.data) ?? {};
-        const contentForInfer =
-          typeof output === "string"
-            ? output
-            : JSON.stringify(output, null, 2);
-        const inferredFromContent = inferOutputType(contentForInfer);
+    const prevOutputObj = (result?.output || streamResult?.output) as
+      | Record<string, unknown>
+      | undefined;
+    const prevText = (prevOutputObj?.结果 as string | undefined) ?? "";
 
-        const finalOutputType = guessedFromIntent || inferredFromContent;
-        setSelectedOutputType(finalOutputType);
+    continuationPrefixRef.current = prevText || null;
 
-        // 将期望输出类型同步回节点配置，方便画布节点使用
-        if (currentNodeConfig && finalOutputType) {
-          updateNode(debugNodeId, {
-            config: {
-              ...currentNodeConfig,
-              expectedOutputType: finalOutputType,
-            },
-          });
-        }
+    const excerpt = prevText.slice(Math.max(0, prevText.length - 2000));
+    const originalUserPrompt =
+      (currentNodeConfig.userPrompt as string | undefined) || "";
 
-        // 存储结果到 store（增强结果结构，带上 outputType）
-        updateNodeExecutionResult(debugNodeId, {
-          ...(data.data as any),
-          output,
-          outputType: finalOutputType,
-        });
-        updateNodeExecutionStatus(debugNodeId, "completed");
-        setIsOutputOpen(true);
-      } else {
-        const errorResult: DebugResult = {
-          status: "error",
-          output: {},
-          error: data.error?.message || "调试失败",
-          duration: 0,
-          logs: ["[ERROR] 请求失败"],
-        };
-        updateNodeExecutionResult(debugNodeId, errorResult);
-        updateNodeExecutionStatus(debugNodeId, "failed");
-        setIsOutputOpen(true);
-      }
-    } catch (error) {
-      const errorResult: DebugResult = {
-        status: "error",
-        output: {},
-        error: error instanceof Error ? error.message : "调试请求失败",
-        duration: 0,
-        logs: [
-          `[ERROR] ${error instanceof Error ? error.message : "未知错误"}`,
-        ],
-      };
-      updateNodeExecutionResult(debugNodeId, errorResult);
-      updateNodeExecutionStatus(debugNodeId, "failed");
-      setIsOutputOpen(true);
-    } finally {
-      setIsRunning(false);
-    }
-  };
+    const continuationUserPrompt = `${originalUserPrompt}\n\n---\n\n【续写】上一条输出因长度限制被截断。请从下方“已输出末尾摘录”的位置继续写，不要重复已输出内容，保持格式与风格完全一致，输出剩余全部内容直到结束。\n\n【已输出末尾摘录】\n${excerpt}\n\n【从这里继续输出】`;
+
+    const overrideConfig: Record<string, unknown> = {
+      ...currentNodeConfig,
+      maxTokens: UNLIMITED_TOKENS,
+      isMaxTokensManuallySet: true,
+      userPrompt: continuationUserPrompt,
+    };
+
+    setIsTruncationDialogOpen(false);
+    setIsProcessOpen(true);
+    setIsOutputOpen(true);
+    updateNodeExecutionStatusSafe(debugNodeId, "running");
+    updateNodeExecutionResult(debugNodeId, null);
+
+    streamOwnerNodeIdRef.current = debugNodeId;
+    setStreamOwnerNodeId(debugNodeId);
+
+    startDebug({
+      workflowId,
+      nodeId: debugNodeId,
+      mockInputs,
+      nodeConfig: overrideConfig,
+    });
+  }, [
+    debugNodeId,
+    mockInputs,
+    result?.output,
+    startDebug,
+    streamResult?.output,
+    updateNodeExecutionResult,
+    updateNodeExecutionStatusSafe,
+    workflowId,
+  ]);
 
   const updateMockInput = (nodeName: string, field: string, value: string) => {
     setMockInputs((prev) => ({
@@ -801,9 +984,6 @@ export function NodeDebugPanel() {
       },
     }));
   };
-
-  // 注意：modality 状态的初始化已经在上面的 useEffect 中处理了（通过 prevDebugNodeIdRef 控制）
-  // 这里不再需要额外的 useEffect 来同步 modality，避免多次重置导致用户选择丢失
 
   // Init Config Data
   // 使用 ref 来追踪是否正在进行 modality 切换，避免重复请求
@@ -825,6 +1005,27 @@ export function NodeDebugPanel() {
       );
       // 更新节点配置
       updateNode(debugNodeId, { config: fixedConfig });
+    }
+  }, [isDebugPanelOpen, isProcessNode, debugNodeId, debugNode?.data?.config, updateNode]);
+
+  // 迁移旧默认 maxTokens（2048）到新的默认值（仅在用户未手动设置时）
+  useEffect(() => {
+    if (!isDebugPanelOpen || !isProcessNode || !debugNodeId) return;
+    const config = debugNode?.data?.config as Record<string, unknown> | undefined;
+    if (!config) return;
+
+    const currentMaxTokens = config.maxTokens as number | undefined;
+    const isMaxTokensManuallySet = config.isMaxTokensManuallySet as
+      | boolean
+      | undefined;
+
+    if (currentMaxTokens === 2048 && !isMaxTokensManuallySet) {
+      updateNode(debugNodeId, {
+        config: {
+          ...config,
+          maxTokens: DEFAULT_MAX_TOKENS,
+        },
+      });
     }
   }, [isDebugPanelOpen, isProcessNode, debugNodeId, debugNode?.data?.config, updateNode]);
 
@@ -854,16 +1055,24 @@ export function NodeDebugPanel() {
             // providersModality 与当前使用的模态保持一致（固定为 text）
             setProvidersModality(currentModality);
 
-            // 计算一个合适的默认模型：优先沿用当前模型（如果在列表中），否则使用默认文本模型
-            const allModels = newProviders.flatMap((p: AIProviderConfig) => p.models);
+            // 选择一个有效的服务商配置（优先使用节点已选配置；若无效则按当前模型匹配；最后用默认）
+            const currentAiConfigId = config?.aiConfigId;
+            const providerFromConfig = currentAiConfigId
+              ? newProviders.find((p: AIProviderConfig) => p.id === currentAiConfigId)
+              : undefined;
+            const providerForModel = currentModel
+              ? newProviders.find((p: AIProviderConfig) => p.models.includes(currentModel))
+              : undefined;
             const defaultProvider = data.data.defaultProvider || newProviders[0];
-            const defaultModel =
-              defaultProvider?.defaultModel || (allModels.length > 0 ? allModels[0] : "");
+            const selectedProvider =
+              providerFromConfig || providerForModel || defaultProvider;
 
+            // 计算一个合适的模型：必须属于 selectedProvider
             const nextModel =
-              currentModel && allModels.includes(currentModel)
+              currentModel && selectedProvider?.models?.includes(currentModel)
                 ? currentModel
-                : defaultModel;
+                : selectedProvider?.defaultModel ||
+                  (selectedProvider?.models?.length ? selectedProvider.models[0] : "");
 
             const updates: Record<string, unknown> = {};
             // 强制将节点的 modality 统一为 text
@@ -873,8 +1082,9 @@ export function NodeDebugPanel() {
             if (nextModel && nextModel !== currentModel) {
               updates.model = nextModel;
             }
-            if (!config?.aiConfigId && defaultProvider?.id) {
-              updates.aiConfigId = defaultProvider.id;
+            // 修复无效的 aiConfigId：必须存在于当前组织可用配置列表
+            if (selectedProvider?.id && selectedProvider.id !== currentAiConfigId) {
+              updates.aiConfigId = selectedProvider.id;
             }
 
             if (Object.keys(updates).length > 0) {
@@ -915,6 +1125,76 @@ export function NodeDebugPanel() {
   }, [debugNodeId, updateNode]);
 
   const processConfig = (debugNode?.data.config as Record<string, unknown>) || {};
+
+  // 当流式调试完成时，更新输出类型和结果
+  useEffect(() => {
+    if (streamResult && debugNodeId && streamOwnerNodeId === debugNodeId) {
+      // 1) 根据提示词 + 工具配置推断"期望输出类型"（用于 UI 展示）
+      const guessedFromIntent = guessOutputTypeFromPromptAndTools({
+        userPrompt: processConfig.userPrompt as string | undefined,
+        tools: (processConfig.tools as any[]) || [],
+      });
+
+      // 2) 再根据实际输出内容做兜底推断
+      const output = streamResult.output ?? {};
+      const contentForInfer =
+        typeof output === "string"
+          ? output
+          : JSON.stringify(output, null, 2);
+      const inferredFromContent = inferOutputType(contentForInfer);
+
+      const finalOutputType = guessedFromIntent || inferredFromContent;
+      setSelectedOutputType((prev) =>
+        prev === finalOutputType ? prev : finalOutputType,
+      );
+
+      // 将期望输出类型同步回节点配置，方便画布节点使用
+      const currentNode = nodesRef.current.find((n) => n.id === debugNodeId);
+      const currentNodeConfig = currentNode?.data?.config as
+        | Record<string, unknown>
+        | undefined;
+      const currentExpectedOutputType = currentNodeConfig?.expectedOutputType as
+        | OutputType
+        | undefined;
+
+      // 避免在 effect 中重复写回同一个值，导致无限更新循环
+      if (
+        currentNodeConfig &&
+        finalOutputType &&
+        currentExpectedOutputType !== finalOutputType
+      ) {
+        updateNode(debugNodeId, {
+          config: {
+            ...currentNodeConfig,
+            expectedOutputType: finalOutputType,
+          },
+        });
+      }
+
+      // 展开输出区域
+      setIsOutputOpen(true);
+
+      // 输出截断检测：PROCESS 节点会在 output._meta 中携带 finishReason/truncated
+      const outputObj = streamResult.output as Record<string, unknown> | undefined;
+      const meta = outputObj?._meta as Record<string, unknown> | undefined;
+      const finishReason = meta?.finishReason as string | undefined;
+      const truncated =
+        Boolean(meta?.truncated) ||
+        finishReason === "length" ||
+        finishReason === "max_tokens";
+      if (truncated) {
+        setIsTruncationDialogOpen(true);
+      }
+    }
+  }, [
+    streamResult,
+    debugNodeId,
+    streamOwnerNodeId,
+    processConfig.userPrompt,
+    processConfig.tools,
+    updateNode,
+  ]);
+
   const knowledgeItems = useMemo(
     () => (processConfig.knowledgeItems as KnowledgeItem[]) || [],
     [processConfig.knowledgeItems],
@@ -1586,59 +1866,66 @@ ${htmlContent}
                 </TabsList>
 
                 <TabsContent value="run" className="mt-0 space-y-3">
-                  <Button
-                    onClick={handleRunDebug}
-                    disabled={isNodeRunning}
-                    className={cn(
-                      "w-full transition-all duration-300",
-                      isNodeRunning ? "bg-primary/80" : "hover:scale-[1.02]",
-                    )}
-                    size="lg"
-                  >
-                    {isNodeRunning ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        正在执行...
-                      </>
-                    ) : (
-                      <>
-                        <Play className="h-4 w-4 mr-2" />
-                        开始调试
-                      </>
-                    )}
-                  </Button>
-
-                  <div className="rounded-lg border bg-zinc-950 p-4 font-mono text-xs text-zinc-300 min-h-[120px] max-h-[300px] overflow-y-auto shadow-inner scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent">
-                    {result?.logs && result.logs.length > 0 ? (
-                      <div className="space-y-1.5">
-                        {result.logs.map((log, i) => (
-                          <div key={i} className="flex gap-2">
-                            <span className="text-zinc-600 select-none">{">"}</span>
-                            <span className="break-all whitespace-pre-wrap">
-                              {log}
-                            </span>
-                          </div>
-                        ))}
-                        {result?.status === "success" && (
-                          <div className="flex gap-2 text-green-400 mt-2">
-                            <span className="text-zinc-600 select-none">{">"}</span>
-                            <span>Execution completed successfully.</span>
-                          </div>
-                        )}
-                        {result?.status === "error" && (
-                          <div className="flex gap-2 text-red-400 mt-2">
-                            <span className="text-zinc-600 select-none">{">"}</span>
-                            <span>Execution failed.</span>
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="h-full flex flex-col items-center justify-center text-zinc-600 italic gap-2 min-h-[80px]">
-                        <Terminal className="h-8 w-8 opacity-20" />
-                        <span>等待执行...</span>
-                      </div>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={handleRunDebug}
+                      disabled={isNodeRunning}
+                      className={cn(
+                        "flex-1 transition-all duration-300",
+                        isNodeRunning ? "bg-primary/80" : "hover:scale-[1.02]",
+                      )}
+                      size="lg"
+                    >
+                      {isNodeRunning ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          正在执行...
+                        </>
+                      ) : (
+                        <>
+                          <Play className="h-4 w-4 mr-2" />
+                          开始调试
+                        </>
+                      )}
+                    </Button>
+                    {isNodeRunning && (
+                      <Button
+                        onClick={handleStopDebug}
+                        variant="destructive"
+                        size="lg"
+                        className="px-4"
+                      >
+                        <StopCircle className="h-4 w-4" />
+                      </Button>
                     )}
                   </div>
+
+                  {/* 使用实时日志查看器组件 */}
+                  <DebugLogViewer
+                    logs={(() => {
+                      const hasActiveStreamForNode =
+                        streamOwnerNodeId === debugNodeId &&
+                        (isStreamRunning ||
+                          streamLogs.length > 0 ||
+                          streamStatus !== "idle");
+                      if (hasActiveStreamForNode) return streamLogs;
+                      if (result?.logs?.length) return legacyLogsToDebugLogs(result.logs);
+                      return [];
+                    })()}
+                    isRunning={streamOwnerNodeId === debugNodeId && isStreamRunning}
+                    status={(() => {
+                      const hasActiveStreamForNode =
+                        streamOwnerNodeId === debugNodeId &&
+                        (isStreamRunning ||
+                          streamLogs.length > 0 ||
+                          streamStatus !== "idle");
+                      if (hasActiveStreamForNode) return streamStatus;
+                      if (result?.status === "success") return "completed";
+                      if (result?.status === "error") return "failed";
+                      return "idle";
+                    })() as DebugStatus}
+                    autoScroll={true}
+                  />
                 </TabsContent>
 
                 <TabsContent value="result" className="mt-0 space-y-4">
@@ -1868,6 +2155,30 @@ ${htmlContent}
               </Tabs>
             </div>
           </Section>
+
+          <Dialog
+            open={isTruncationDialogOpen}
+            onOpenChange={setIsTruncationDialogOpen}
+          >
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>输出可能被截断</DialogTitle>
+              </DialogHeader>
+              <div className="text-sm text-muted-foreground space-y-3">
+                <p>本次输出疑似达到了模型的最大输出长度限制，导致内容未完整生成。</p>
+                <p>是否开启“最大化输出”并继续生成剩余内容？</p>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setIsTruncationDialogOpen(false)}
+                >
+                  保持当前
+                </Button>
+                <Button onClick={handleContinueAfterTruncation}>继续输出</Button>
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {/* Preview Modal (新增) */}
           <PreviewModal

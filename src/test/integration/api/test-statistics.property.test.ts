@@ -330,11 +330,16 @@ describe('Test Statistics API - Property Tests', () => {
    * Validates: Requirements 6.4
    */
   it('Property 6d: time filtering only includes data within specified range', async () => {
+    // Use integer-based date generation to avoid invalid dates
+    const validDateArb = fc
+      .integer({ min: new Date('2024-01-01').getTime(), max: new Date('2024-12-31').getTime() })
+      .map((timestamp) => new Date(timestamp))
+
     await fc.assert(
       fc.asyncProperty(
         feedbacksArrayArb,
-        fc.date({ min: new Date('2024-01-01'), max: new Date('2024-12-31') }),
-        fc.date({ min: new Date('2024-01-01'), max: new Date('2024-12-31') }),
+        validDateArb,
+        validDateArb,
         async (feedbacks, date1, date2) => {
           const workflowId = mockWorkflow.id
 

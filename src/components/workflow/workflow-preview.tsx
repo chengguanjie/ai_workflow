@@ -106,7 +106,7 @@ function WorkflowPreviewContent({
                                                                         >
                                                                                           <Background color="#ccc" gap={20} />
                                                                                           <Controls />
-                                                                                          <MiniMap />
+                                                                                          <MiniMap pannable zoomable />
                                                                         </ReactFlow>
                                                       </div>
                                     </div>

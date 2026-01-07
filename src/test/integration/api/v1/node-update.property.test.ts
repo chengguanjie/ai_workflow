@@ -219,12 +219,12 @@ describe('V1 Node Update API - Property Tests', () => {
             publishStatus,
           }
 
-          vi.mocked(prisma.workflow.findFirst).mockResolvedValue(mockWorkflow as never)
+          ;(prisma.workflow.findFirst as any).mockResolvedValue(mockWorkflow)
 
-          let capturedUpdateData: Record<string, unknown> | null = null
-          vi.mocked(prisma.workflow.update).mockImplementation(async (args) => {
-            capturedUpdateData = args.data as Record<string, unknown>
-            return { ...mockWorkflow, ...capturedUpdateData } as never
+          let capturedUpdateData: { config?: WorkflowConfig; publishStatus?: string } | undefined
+          ;(prisma.workflow.update as any).mockImplementation((args: any) => {
+            capturedUpdateData = args?.data
+            return Promise.resolve({ ...mockWorkflow, ...(capturedUpdateData || {}) })
           })
 
           // Create request
@@ -263,8 +263,8 @@ describe('V1 Node Update API - Property Tests', () => {
           }
 
           // Property 1.3: Other nodes should remain unchanged
-          expect(capturedUpdateData).not.toBeNull()
-          const savedConfig = capturedUpdateData?.config as WorkflowConfig
+          if (!capturedUpdateData) throw new Error('expected prisma.workflow.update to be called')
+          const savedConfig = capturedUpdateData.config as WorkflowConfig
           const otherNodes = savedConfig.nodes.filter((n) => n.id !== targetNode.id)
           const originalOtherNodes = workflowConfig.nodes.filter(
             (n) => n.id !== targetNode.id
@@ -279,7 +279,7 @@ describe('V1 Node Update API - Property Tests', () => {
 
           // Property 1.4: PublishStatus should change to DRAFT_MODIFIED if was PUBLISHED
           if (publishStatus === 'PUBLISHED') {
-            expect(capturedUpdateData?.publishStatus).toBe('DRAFT_MODIFIED')
+            expect(capturedUpdateData.publishStatus).toBe('DRAFT_MODIFIED')
           }
 
           return true

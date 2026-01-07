@@ -192,7 +192,7 @@ describe('Test Execution API - Property Tests', () => {
           const now = new Date()
 
           // Track the execution creation call
-          let capturedExecutionData: Record<string, unknown> | null = null
+          let capturedExecutionData: { executionType?: string; isAIGeneratedInput?: boolean } | undefined
 
           // Mock executeWorkflow to capture the execution type
           vi.mocked(executeWorkflow).mockImplementation(async (
@@ -237,8 +237,8 @@ describe('Test Execution API - Property Tests', () => {
           // Property 2a: Execution must be created with TEST type
           expect(response.status).toBe(200)
           expect(data.success).toBe(true)
-          expect(capturedExecutionData).not.toBeNull()
-          expect(capturedExecutionData?.executionType).toBe('TEST')
+          if (!capturedExecutionData) throw new Error('expected executeWorkflow to be called')
+          expect(capturedExecutionData.executionType).toBe('TEST')
 
           return true
         }

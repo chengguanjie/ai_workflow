@@ -69,6 +69,15 @@ export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   'claude-3-haiku': 200000,
   'claude-3-sonnet': 200000,
   'claude-3-opus': 200000,
+  // Newer / namespaced variants seen in configs (e.g. "anthropic/claude-sonnet-4.5")
+  'anthropic/claude-haiku-4.5': 200000,
+  'anthropic/claude-haiku-4.5:thinking': 200000,
+  'anthropic/claude-sonnet-4.5': 200000,
+  'anthropic/claude-sonnet-4.5:thinking': 200000,
+  'anthropic/claude-opus-4.5': 200000,
+  'claude-sonnet-4.5': 200000,
+  'claude-opus-4.5': 200000,
+  'claude-haiku-4.5': 200000,
   'claude-2.1': 200000,
   'claude-2': 100000,
 
@@ -76,11 +85,37 @@ export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   'default': 16385
 }
 
+function normalizeModelId(model: string): string {
+  const trimmed = (model || '').trim()
+  if (!trimmed) return trimmed
+
+  // Drop OpenRouter/Anthropic style suffixes like ":thinking"
+  const withoutSuffix = trimmed.split(':')[0]
+
+  // Drop provider namespace like "anthropic/xxx" or "openrouter/xxx"
+  const lastSegment = withoutSuffix.includes('/') ? (withoutSuffix.split('/').pop() ?? withoutSuffix) : withoutSuffix
+
+  return lastSegment
+}
+
 /**
  * Get context limit for a model
  */
 export function getModelContextLimit(model: string): number {
-  return MODEL_CONTEXT_LIMITS[model] || MODEL_CONTEXT_LIMITS.default
+  if (MODEL_CONTEXT_LIMITS[model]) return MODEL_CONTEXT_LIMITS[model]
+
+  const normalized = normalizeModelId(model)
+  if (MODEL_CONTEXT_LIMITS[normalized]) return MODEL_CONTEXT_LIMITS[normalized]
+
+  // Heuristics: avoid incorrectly falling back to 16k for recognized families
+  const normalizedLower = normalized.toLowerCase()
+  if (normalizedLower.startsWith('claude-2.1')) return 200000
+  if (normalizedLower.startsWith('claude-2')) return 100000
+  if (normalizedLower.startsWith('claude')) return 200000
+  if (normalizedLower.startsWith('gpt-4o')) return 128000
+  if (normalizedLower.startsWith('gpt-4-turbo')) return 128000
+
+  return MODEL_CONTEXT_LIMITS.default
 }
 
 /**

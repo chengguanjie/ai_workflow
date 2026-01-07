@@ -106,7 +106,16 @@ export async function extractTextFromFile(params: {
       const wb = XLSX.read(params.buffer as any, { type: 'buffer' })
       const sheetName = wb.SheetNames[0]
       const sheet = sheetName ? wb.Sheets[sheetName] : undefined
-      const csv = sheet ? XLSX.utils.sheet_to_csv(sheet, { FS: ',', RS: '\n' }) : ''
+      if (!sheetName || !sheet) {
+        throw new Error('xlsx: no sheets found')
+      }
+      if (typeof (XLSX as any).utils?.sheet_to_csv !== 'function') {
+        throw new Error('xlsx: sheet_to_csv not available')
+      }
+      const csv = (XLSX as any).utils.sheet_to_csv(sheet, { FS: ',', RS: '\n' }) as string
+      if (!csv || csv.trim().length === 0) {
+        throw new Error('xlsx: empty csv')
+      }
       return { kind: 'text', detectedType: 'xlsx', content: clampText(csv, maxChars) }
     } catch {
       const workbook = new ExcelJS.Workbook()

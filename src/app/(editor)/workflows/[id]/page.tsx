@@ -30,7 +30,6 @@ import {
   Play,
   ArrowLeft,
   Loader2,
-  History,
   Link2,
   Group,
   Trash2,
@@ -68,13 +67,7 @@ const ExecutionPanel = dynamic(
     ),
   { ssr: false },
 );
-const ExecutionHistoryPanel = dynamic(
-  () =>
-    import("@/components/workflow/execution-history-panel").then(
-      (mod) => mod.ExecutionHistoryPanel,
-    ),
-  { ssr: false },
-);
+
 const NodeDebugPanel = dynamic(
   () =>
     import("@/components/workflow/node-debug-panel").then(
@@ -143,7 +136,6 @@ function WorkflowEditor() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [showExecutionPanel, setShowExecutionPanel] = useState(false);
-  const [showHistoryPanel, setShowHistoryPanel] = useState(false);
   const [showImportExportDialog, setShowImportExportDialog] = useState(false);
   const [isPresentationMode, setIsPresentationMode] = useState(false); // Presentation Mode State
   const [presentationStep, setPresentationStep] = useState(0);
@@ -223,6 +215,7 @@ function WorkflowEditor() {
     getSelectedNodeIds,
     autoLayout,
     updateNodeExecutionStatus,
+    updateNodeExecutionStatusSafe,
     updateNodeExecutionResult,
     updateNodeExecutionDetails,
     clearNodeExecutionStatus,
@@ -237,6 +230,7 @@ function WorkflowEditor() {
     clearActiveExecution,
     setActiveExecution,
     setLatestExecutionId,
+    executionManagerActive,
   } = useWorkflowStore();
 
   // 加载工作流数据
@@ -332,27 +326,33 @@ function WorkflowEditor() {
   }, [workflowId, setWorkflow, setServerVersion, clearNodeExecutionStatus, clearNodeExecutionDetails, updateNodeExecutionStatus, updateNodeExecutionDetails, updateNodeExecutionResult]);
 
   // 后台执行事件订阅 - 实时更新节点执行状态
+  // 注意：回调函数不需要 useCallback 包装，因为 useExecutionStream 内部使用 ref 存储回调
+  // 当 executionManagerActive 为 true 时，由执行可视化组件统一管理状态更新，禁用此处的 SSE 订阅
   const { connect: connectExecution, disconnect: disconnectExecution } = useExecutionStream({
-    onEvent: useCallback((event: ExecutionProgressEvent) => {
+    onEvent: (event: ExecutionProgressEvent) => {
+      // 当执行管理器激活时，跳过状态更新（由执行可视化组件统一管理）
+      if (executionManagerActive) return;
+      
       if (event.nodeId) {
         if (event.type === 'node_start') {
-          updateNodeExecutionStatus(event.nodeId, 'running');
+          updateNodeExecutionStatusSafe(event.nodeId, 'running');
         } else if (event.type === 'node_complete') {
-          updateNodeExecutionStatus(event.nodeId, 'completed');
+          updateNodeExecutionStatusSafe(event.nodeId, 'completed');
         } else if (event.type === 'node_error') {
-          updateNodeExecutionStatus(event.nodeId, 'failed');
+          updateNodeExecutionStatusSafe(event.nodeId, 'failed');
         }
       }
-    }, [updateNodeExecutionStatus]),
-    onComplete: useCallback(() => {
+    },
+    onComplete: () => {
       clearActiveExecution();
       if (!showExecutionPanel) toast.success('工作流执行完成');
-    }, [clearActiveExecution, showExecutionPanel]),
-    onError: useCallback((error: string) => {
+    },
+    onError: (error: string) => {
       clearActiveExecution();
       if (!showExecutionPanel) toast.error(error || '工作流执行失败');
-    }, [clearActiveExecution, showExecutionPanel]),
-    enabled: true,
+    },
+    // 当执行管理器激活时禁用 SSE 订阅
+    enabled: !executionManagerActive,
   });
 
   // 当有后台执行任务时，自动订阅执行事件
@@ -368,7 +368,8 @@ function WorkflowEditor() {
   // 基于 taskId 轮询任务状态，实时更新节点执行进度
   useEffect(() => {
     // 执行面板打开时由面板负责监控，避免重复轮询触发 429
-    if (!activeTaskId || showExecutionPanel) return;
+    // 当执行管理器激活时，由执行可视化组件统一管理状态更新，跳过轮询
+    if (!activeTaskId || showExecutionPanel || executionManagerActive) return;
 
     let isCancelled = false;
     const pollInterval = setInterval(async () => {
@@ -406,7 +407,8 @@ function WorkflowEditor() {
               'CANCELLED': 'skipped',
             };
             const mappedStatus = statusMap[log.status] || 'running';
-            updateNodeExecutionStatus(log.nodeId, mappedStatus);
+            // 使用安全的状态更新方法，避免竞态条件
+            updateNodeExecutionStatusSafe(log.nodeId, mappedStatus);
           }
         }
 
@@ -430,7 +432,7 @@ function WorkflowEditor() {
       isCancelled = true;
       clearInterval(pollInterval);
     };
-  }, [activeTaskId, activeExecutionId, updateNodeExecutionStatus, clearActiveExecution, setActiveExecution, showExecutionPanel]);
+  }, [activeTaskId, activeExecutionId, updateNodeExecutionStatusSafe, clearActiveExecution, setActiveExecution, showExecutionPanel, executionManagerActive]);
 
   // 手动保存处理
   const handleSave = useCallback(async () => {
@@ -971,10 +973,6 @@ function WorkflowEditor() {
             <DropdownMenuContent side="right" align="end" className="w-48">
               <DropdownMenuLabel>工作流工具</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => setShowHistoryPanel(true)}>
-                <History className="mr-2 h-4 w-4" />
-                执行历史
-              </DropdownMenuItem>
               <DropdownMenuItem onClick={copyApiUrl}>
                 <Link2 className="mr-2 h-4 w-4" />
                 复制 API 链接
@@ -1102,6 +1100,8 @@ function WorkflowEditor() {
                 className="!bg-white !border-none !shadow-lg !rounded-xl overflow-hidden"
                 maskColor="rgba(241, 245, 249, 0.7)"
                 nodeColor={() => "#cbd5e1"}
+                pannable
+                zoomable
               />
               <Panel
                 position="top-left"
@@ -1191,12 +1191,6 @@ function WorkflowEditor() {
         onClose={() => {
           setShowExecutionPanel(false);
         }}
-      />
-
-      <ExecutionHistoryPanel
-        workflowId={workflowId}
-        isOpen={showHistoryPanel}
-        onClose={() => setShowHistoryPanel(false)}
       />
 
       <WorkflowImportExportDialog

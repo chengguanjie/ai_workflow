@@ -19,11 +19,24 @@ export const AnimatedEdge: FC<EdgeProps> = ({
   target,
 }) => {
   const uniqueId = useId()
-  const { nodeExecutionStatus, connectedEdgeIds, selectedNodeId } = useWorkflowStore()
-
-  // Get the execution status of source and target nodes
-  const sourceStatus = nodeExecutionStatus[source] || 'idle'
-  const targetStatus = nodeExecutionStatus[target] || 'idle'
+  
+  // 使用选择器模式订阅 store，避免不必要的重新渲染
+  // 每条边只订阅其源节点和目标节点的执行状态
+  const sourceStatus = useWorkflowStore(
+    (state) => state.nodeExecutionStatus[source] || 'idle'
+  )
+  const targetStatus = useWorkflowStore(
+    (state) => state.nodeExecutionStatus[target] || 'idle'
+  )
+  const connectedEdgeIds = useWorkflowStore((state) => state.connectedEdgeIds)
+  const selectedNodeId = useWorkflowStore((state) => state.selectedNodeId)
+  
+  // 检查是否处于执行模式 - 使用选择器检查是否有任何节点正在运行
+  const isExecutionMode = useWorkflowStore((state) => 
+    Object.values(state.nodeExecutionStatus).some(
+      status => status === 'running' || status === 'pending'
+    )
+  )
 
   // Determine if this edge is active (source completed/running and target is running/pending)
   const isActive = useMemo(() => {
@@ -32,13 +45,6 @@ export const AnimatedEdge: FC<EdgeProps> = ({
       (targetStatus === 'running' || targetStatus === 'pending')
     )
   }, [sourceStatus, targetStatus])
-
-  // Check if we're in execution mode (any node is running)
-  const isExecutionMode = useMemo(() => {
-    return Object.values(nodeExecutionStatus).some(
-      status => status === 'running' || status === 'pending'
-    )
-  }, [nodeExecutionStatus])
 
   const isSelected = connectedEdgeIds.includes(id)
   const hasSelection = !!selectedNodeId

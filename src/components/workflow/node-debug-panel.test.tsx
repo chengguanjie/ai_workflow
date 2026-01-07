@@ -163,7 +163,12 @@ describe('NodeDebugPanel provider modality regression', () => {
     // 这里只做冒烟测试，不再强制校验 image-gen）
     storeState.debugNodeId = 'n-image'
     rerender(<NodeDebugPanel />)
-    // 只要没有报错即可
+    // Wait a tick to ensure async effects settle before test completes (avoid act warnings)
+    await waitFor(() => {
+      const providerCalls = (global.fetch as any).mock.calls
+        .map(([u]: any[]) => u)
+        .filter((u: unknown) => typeof u === 'string' && u.toString().startsWith('/api/ai/providers'))
+      expect(providerCalls.length).toBeGreaterThan(0)
+    })
   })
 })
-

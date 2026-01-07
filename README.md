@@ -177,11 +177,56 @@ pnpm lint               # 运行 ESLint 检查
 
 ## 📚 文档
 
+- [API 文档](./docs/API_DOCUMENTATION.md)
 - [功能迭代路线图](./ROADMAP.md)
 - [优化执行计划](./docs/OPTIMIZATION_PLAN.md)
 - [权限系统设计](./docs/permission-system-design.md)
 - [知识库优化方案](./docs/knowledge-base-optimization-plan.md)
 - [部署指南](./docs/zeabur-deployment.md)
+
+---
+
+## 🔌 API 使用
+
+### 快速开始
+
+项目提供了 RESTful API 供外部系统调用。使用前需要：
+
+1. **启动开发服务器**
+
+```bash
+pnpm dev
+```
+
+2. **获取 API Token**
+
+登录系统后，在「设置 → API Token」页面创建 Token，并赋予相应的权限范围（scopes）。
+
+3. **调用 API**
+
+```bash
+# 示例：获取工作流列表
+WORKFLOW_API_TOKEN="wf_your_token_here" \
+pnpm -s workflow:list:api --base-url http://localhost:3000
+```
+
+或使用 curl：
+
+```bash
+curl -X GET "http://localhost:3000/api/v1/workflows" \
+  -H "Authorization: Bearer wf_your_token_here" \
+  -H "Content-Type: application/json"
+```
+
+### API 端点
+
+- **GET /api/v1/workflows** - 获取工作流列表
+- **POST /api/v1/workflows** - 创建工作流
+- **GET /api/v1/workflows/[id]** - 获取工作流详情
+- **PUT /api/v1/workflows/[id]** - 更新工作流
+- **POST /api/v1/workflows/[id]/execute** - 执行工作流
+
+详细 API 文档请参考 [API_DOCUMENTATION.md](./docs/API_DOCUMENTATION.md)
 
 ---
 

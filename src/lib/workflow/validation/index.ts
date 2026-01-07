@@ -61,3 +61,20 @@ export {
   registerValidator,
   getValidator,
 } from './type-validators'
+
+// 提示词契约校验（按提示词推断输出类型/字段）
+export {
+  inferExpectedType,
+  extractExpectedJsonKeys,
+  getPromptContract,
+  validateNodeOutputAgainstPrompt,
+  validateWorkflowOutputsAgainstPrompts,
+  fixInputVariableReferences,
+  fixExpectedOutputTypesFromPrompts,
+} from './prompt-contract'
+
+export type {
+  PromptExpectedType,
+  PromptContract,
+  PromptViolation,
+} from './prompt-contract'

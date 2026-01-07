@@ -65,4 +65,40 @@ describe('replaceVariables', () => {
                                     const missingRes = replaceVariables('Missing: {{User Input.missing}}', context)
                                     expect(missingRes).toBe('Missing: ')
                   })
+
+                  it('should support result/结果 alias in full references', () => {
+                                    const context = createMockContext({
+                                                      'AI Node': { 结果: 'hello' }
+                                    })
+
+                                    expect(replaceVariables('Value: {{AI Node.result}}', context)).toBe('Value: hello')
+                  })
+
+                  it('should allow accessing JSON fields inside result text', () => {
+                                    const context = createMockContext({
+                                                      'Formatter': {
+                                                                        结果: '```json\\n{\"formattedContent\":\"<p>hi</p>\",\"other\":1}\\n```'
+                                                      }
+                                    })
+
+                                    expect(replaceVariables('HTML: {{Formatter.formattedContent}}', context)).toBe('HTML: <p>hi</p>')
+                  })
+
+                  it('should allow accessing derived imageUrls from images', () => {
+                                    const context = createMockContext({
+                                                      'Image Gen': {
+                                                                        images: [
+                                                                                          { url: 'https://example.com/1.png', revisedPrompt: 'a' },
+                                                                                          { url: 'https://example.com/2.png' },
+                                                                                          { url: 'https://example.com/3.png', revisedPrompt: 'c' },
+                                                                        ],
+                                                                        结果: 'https://example.com/1.png'
+                                                      }
+                                    })
+
+                                    const res = replaceVariables('URLs: {{Image Gen.imageUrls}}', context)
+                                    expect(res).toContain('https://example.com/1.png')
+                                    expect(res).toContain('https://example.com/2.png')
+                                    expect(res).toContain('https://example.com/3.png')
+                  })
 })

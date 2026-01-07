@@ -508,6 +508,44 @@ class ExecutionQueue {
         }
       }
 
+      // 某些情况下（例如 Worker 重启/返回值丢失），BullMQ 任务已 completed 但缺少 returnvalue。
+      // 此时尝试从数据库中获取最近的已完成执行记录，作为兜底返回给轮询端。
+      if (jobStatus.jobData && (taskStatus === 'completed' || taskStatus === 'failed')) {
+        const since = new Date(Date.now() - 2 * 60 * 60 * 1000)
+        const execution = await prisma.execution.findFirst({
+          where: {
+            workflowId: jobStatus.jobData.workflowId,
+            userId: jobStatus.jobData.userId,
+            createdAt: { gte: since },
+          },
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            status: true,
+            output: true,
+            error: true,
+            duration: true,
+            totalTokens: true,
+            organizationId: true,
+          },
+        })
+
+        if (execution) {
+          return {
+            task,
+            execution: {
+              id: execution.id,
+              status: execution.status,
+              output: execution.output,
+              error: execution.error || undefined,
+              duration: execution.duration || undefined,
+              totalTokens: execution.totalTokens,
+              organizationId: execution.organizationId,
+            },
+          }
+        }
+      }
+
       return { task }
     }
 

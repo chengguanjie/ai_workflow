@@ -21,13 +21,18 @@ export async function saveNodeLog(
 ): Promise<void> {
   const dbNodeType = NODE_TYPE_DB_MAP[node.type] || 'PROCESS'
 
+  const inputSnapshot: Record<string, unknown> = {
+    config: (node.config || {}) as Record<string, unknown>,
+    runtime: result.input || null,
+  }
+
   await prisma.executionLog.create({
     data: {
       executionId,
       nodeId: node.id,
       nodeName: node.name,
       nodeType: dbNodeType,
-      input: (node.config || {}) as Prisma.InputJsonValue,
+      input: inputSnapshot as Prisma.InputJsonValue,
       output: (result.data || undefined) as Prisma.InputJsonValue,
       status: result.status === 'success' ? 'COMPLETED' : 'FAILED',
       aiProvider: result.aiProvider as unknown as AIProvider | undefined,
@@ -51,13 +56,17 @@ export async function saveNodeLogsBatch(
 ): Promise<void> {
   const logData = logs.map(({ node, result }) => {
     const dbNodeType = NODE_TYPE_DB_MAP[node.type] || 'PROCESS'
+    const inputSnapshot: Record<string, unknown> = {
+      config: (node.config || {}) as Record<string, unknown>,
+      runtime: result.input || null,
+    }
 
     return {
       executionId,
       nodeId: node.id,
       nodeName: node.name,
       nodeType: dbNodeType,
-      input: (node.config || {}) as Prisma.InputJsonValue,
+      input: inputSnapshot as Prisma.InputJsonValue,
       output: (result.data || undefined) as Prisma.InputJsonValue,
       status: result.status === 'success' ? 'COMPLETED' as const : 'FAILED' as const,
       aiProvider: result.aiProvider as unknown as AIProvider | undefined,

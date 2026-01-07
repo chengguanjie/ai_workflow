@@ -59,7 +59,9 @@ export function ExecutionHistoryPanel({
       if (!response.ok) {
         throw new Error('获取执行历史失败')
       }
-      const data = await response.json()
+      const result = await response.json()
+      // API 返回格式: { success: true, data: { executions: [...] } }
+      const data = result.data || result
       setExecutions(data.executions || [])
     } catch (err) {
       setError(err instanceof Error ? err.message : '获取执行历史失败')
@@ -74,15 +76,24 @@ export function ExecutionHistoryPanel({
     }
   }, [isOpen, fetchExecutions])
 
-  // 自动刷新运行中的执行
+  // 自动刷新：当面板打开时持续轮询
+  // 1. 如果有运行中的执行，每 3 秒刷新一次
+  // 2. 如果没有记录，每 2 秒刷新一次（等待新执行记录创建）
+  // 3. 如果有已完成的记录且没有运行中的，停止轮询
   useEffect(() => {
     if (!isOpen) return
+    
     const hasRunning = executions.some(e => e.status === 'RUNNING' || e.status === 'PENDING')
-    if (!hasRunning) return
-
-    const interval = setInterval(fetchExecutions, 3000)
-    return () => clearInterval(interval)
-  }, [isOpen, executions, fetchExecutions])
+    const hasCompleted = executions.some(e => e.status === 'COMPLETED' || e.status === 'FAILED')
+    
+    // 如果有运行中的执行，或者没有任何记录（可能正在创建），则持续轮询
+    if (hasRunning || (executions.length === 0 && !error)) {
+      const interval = setInterval(fetchExecutions, hasRunning ? 3000 : 2000)
+      return () => clearInterval(interval)
+    }
+    
+    return undefined
+  }, [isOpen, executions, fetchExecutions, error])
 
   const formatDuration = (ms: number | null): string => {
     if (ms === null) return '-'
@@ -202,6 +213,9 @@ export function ExecutionHistoryPanel({
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
               执行工作流后，记录将显示在这里
+            </p>
+            <p className="mt-2 text-xs text-muted-foreground/70">
+              正在自动刷新...
             </p>
           </div>
         ) : (

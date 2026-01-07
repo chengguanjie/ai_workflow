@@ -52,6 +52,13 @@ export {
   DouyinVideoToolExecutor,
   WechatChannelsToolExecutor,
   XiaohongshuToolExecutor,
+  MCPToolExecutor,
+  createMCPToolExecutor,
+  resolveVariables,
+  resolveVariablePath,
+  resolveVariableString,
+  validateVariableRefs,
+  containsVariableRef,
 } from './executors'
 
 // 服务
@@ -88,6 +95,7 @@ import {
   AudioTTSToolExecutor,
 } from './executors/multimodal'
 import { CodeExecutionToolExecutor } from './executors/code-execution'
+import { MCPToolExecutor } from './executors/mcp'
 
 // 工具初始化状态
 let toolsInitialized = false
@@ -154,6 +162,11 @@ export function initializeDefaultTools(): void {
   // 注册代码执行工具（受控沙箱执行）
   if (!toolRegistry.has('code_execution')) {
     toolRegistry.register(new CodeExecutionToolExecutor())
+  }
+
+  // 注册 MCP 工具执行器
+  if (!toolRegistry.has('mcp_tool')) {
+    toolRegistry.register(new MCPToolExecutor())
   }
   
   toolsInitialized = true

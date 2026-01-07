@@ -26,6 +26,15 @@ export { WechatChannelsToolExecutor } from './wechat-channels'
 export { XiaohongshuToolExecutor } from './xiaohongshu'
 export { MultimodalToolExecutor, ImageGenerationToolExecutor, VideoGenerationToolExecutor, AudioTTSToolExecutor } from './multimodal'
 export { CodeExecutionToolExecutor } from './code-execution'
+export { 
+  MCPToolExecutor, 
+  createMCPToolExecutor,
+  resolveVariables,
+  resolveVariablePath,
+  resolveVariableString,
+  validateVariableRefs,
+  containsVariableRef,
+} from './mcp'
 
 /**
  * 工具执行器注册表

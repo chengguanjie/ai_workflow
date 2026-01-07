@@ -177,15 +177,23 @@ export function ExecutionPanel({
     edges,
     setActiveExecution,
     clearNodeExecutionStatus,
-    updateNodeExecutionStatus,
+    updateNodeExecutionStatusSafe,
   } = useWorkflowStore();
 
+  // 使用 ref 存储回调函数，避免回调变化导致依赖链重新创建
+  // 这是解决 "Maximum update depth exceeded" 错误的关键
+  const onNodeStatusChangeRef = useRef(onNodeStatusChange);
+  useEffect(() => {
+    onNodeStatusChangeRef.current = onNodeStatusChange;
+  }, [onNodeStatusChange]);
+
+  // emitNodeStatus 使用 ref 访问回调，保持稳定的函数引用
   const emitNodeStatus = useCallback(
     (nodeId: string, status: NodeExecutionStatus) => {
-      updateNodeExecutionStatus(nodeId, status);
-      onNodeStatusChange?.(nodeId, status);
+      updateNodeExecutionStatusSafe(nodeId, status);
+      onNodeStatusChangeRef.current?.(nodeId, status);
     },
-    [onNodeStatusChange, updateNodeExecutionStatus],
+    [updateNodeExecutionStatusSafe],
   );
 
   // 字段类型对应的 accept 属性
@@ -396,7 +404,13 @@ export function ExecutionPanel({
     };
   }, []);
 
-  // 更新节点状态（监控模式）
+  // 使用 ref 存储 emitNodeStatus，避免 updateNodeStatus 的依赖变化
+  const emitNodeStatusRef = useRef(emitNodeStatus);
+  useEffect(() => {
+    emitNodeStatusRef.current = emitNodeStatus;
+  }, [emitNodeStatus]);
+
+  // 更新节点状态（监控模式）- 使用 ref 访问 emitNodeStatus，保持稳定引用
   const updateNodeStatus = useCallback(
     (nodeId: string, update: Partial<NodeExecutionInfo>) => {
       setNodeStates((prev) => {
@@ -408,30 +422,36 @@ export function ExecutionPanel({
         return newMap;
       });
       if (update.status) {
-        emitNodeStatus(nodeId, update.status);
+        emitNodeStatusRef.current(nodeId, update.status);
       }
     },
-    [emitNodeStatus],
+    [], // 不依赖 emitNodeStatus，通过 ref 访问
   );
 
-  // 处理 SSE 事件
+  // 使用 ref 存储 updateNodeStatus，避免 handleSSEEvent 的依赖变化
+  const updateNodeStatusRef = useRef(updateNodeStatus);
+  useEffect(() => {
+    updateNodeStatusRef.current = updateNodeStatus;
+  }, [updateNodeStatus]);
+
+  // 处理 SSE 事件 - 使用 ref 访问 updateNodeStatus，保持稳定引用
   const handleSSEEvent = useCallback(
     (event: ExecutionProgressEvent) => {
       if (event.nodeId) {
         setCurrentNodeId(event.nodeId);
         if (event.type === "node_start") {
-          updateNodeStatus(event.nodeId, {
+          updateNodeStatusRef.current(event.nodeId, {
             status: "running",
             startedAt: event.timestamp,
           });
         } else if (event.type === "node_complete") {
-          updateNodeStatus(event.nodeId, {
+          updateNodeStatusRef.current(event.nodeId, {
             status: "completed",
             completedAt: event.timestamp,
             output: event.output,
           });
         } else if (event.type === "node_error") {
-          updateNodeStatus(event.nodeId, {
+          updateNodeStatusRef.current(event.nodeId, {
             status: "failed",
             completedAt: event.timestamp,
             error: event.error,
@@ -439,7 +459,7 @@ export function ExecutionPanel({
         }
       }
     },
-    [updateNodeStatus],
+    [], // 不依赖 updateNodeStatus，通过 ref 访问
   );
 
   // 处理 SSE 完成
@@ -479,7 +499,7 @@ export function ExecutionPanel({
     setSseConnected(isConnected);
   }, [isConnected]);
 
-  // 轮询任务状态（测试模式专用）
+  // 轮询任务状态（测试模式专用）- 使用 ref 访问 updateNodeStatus，保持稳定引用
   const pollTaskStatusMonitor = useCallback(async () => {
     const tid = taskIdRef.current;
     if (!tid) return;
@@ -543,7 +563,7 @@ export function ExecutionPanel({
                   startedAt?: string;
                   completedAt?: string;
                 }) => {
-                  updateNodeStatus(log.nodeId, {
+                  updateNodeStatusRef.current(log.nodeId, {
                     nodeName: log.nodeName,
                     nodeType: log.nodeType,
                     status:
@@ -604,7 +624,7 @@ export function ExecutionPanel({
             startedAt?: string;
             completedAt?: string;
           }) => {
-            updateNodeStatus(nodeResult.nodeId, {
+            updateNodeStatusRef.current(nodeResult.nodeId, {
               status: nodeResult.status === "success" ? "completed" : "failed",
               output: nodeResult.output,
               error: nodeResult.error,
@@ -620,7 +640,7 @@ export function ExecutionPanel({
 
       if (data.currentNodeId) {
         setCurrentNodeId(data.currentNodeId);
-        updateNodeStatus(data.currentNodeId, { status: "running" });
+        updateNodeStatusRef.current(data.currentNodeId, { status: "running" });
       }
 
       if (data.status === "completed" || data.status === "failed") {
@@ -647,7 +667,7 @@ export function ExecutionPanel({
     } finally {
       pollInFlightRef.current = false;
     }
-  }, [updateNodeStatus, connectSSE, disconnectSSE, isConnected]);
+  }, [connectSSE, disconnectSSE, isConnected]); // 移除 updateNodeStatus 依赖，通过 ref 访问
 
   // 更新 pollTaskStatusMonitor ref
   useEffect(() => {
@@ -852,6 +872,8 @@ export function ExecutionPanel({
         body: JSON.stringify({
           input: inputValues,
           async: executionMode === "test" ? true : asyncMode, // 测试模式强制异步
+          // 在编辑器内执行应优先使用草稿配置，保证与当前画布/节点配置一致
+          mode: "draft",
           executionType: executionMode === "test" ? "TEST" : "NORMAL",
           isAIGeneratedInput: executionMode === "test" ? isAIGeneratedInput : false,
         }),

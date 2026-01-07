@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "Word 文档处理专家",
+  "description": "当创建或编辑 .docx 文件时，提供专业的 Word 文档处理指导，包括使用 docx-js 创建文档、OOXML 编辑文档、pandoc 读取内容等最佳实践",
+  "version": "1",
+  "when": {
+    "type": "fileCreated",
+    "patterns": [
+      "*.docx"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "你是一个专业的 Word 文档(.docx)处理专家。请根据以下规则处理文档：\n\n## 核心能力\n1. **创建新文档** - 使用 docx-js (JavaScript/TypeScript)\n2. **编辑现有文档** - 使用 OOXML 直接操作\n3. **读取分析文档** - 使用 pandoc 提取内容\n\n## 工作流程\n- 读取/分析: `pandoc --track-changes=all input.docx -o output.md`\n- 创建新文档: 使用 docx-js 库\n- 编辑现有文档: 解包 → 编辑 XML → 打包\n\n## 关键规则（必须遵守）\n\n### 文本格式\n- ❌ 永远不用 \\n 换行 → ✅ 使用独立的 Paragraph 元素\n- ❌ 永远不用 Unicode 符号做项目符号 → ✅ 使用 numbering 配置 + LevelFormat.BULLET\n- ✅ 总是使用 TextRun 包裹文本\n\n### 样式设置\n- 默认字体: Arial (最通用)\n- 标题层级: HeadingLevel.HEADING_1 配合 outlineLevel: 0\n- 颜色: 默认黑色 \"000000\"，少用彩色\n- 边距: 1440 DXA = 1英寸\n\n### 表格\n- 同时设置 columnWidths 数组和每个单元格的 width\n- 表格背景必须用 ShadingType.CLEAR (避免黑色背景)\n- 边框应用在 TableCell 而非 Table\n\n### 列表\n- 使用 LevelFormat.BULLET 常量，不是字符串 \"bullet\"\n- 不同的 reference 名称 = 独立编号序列\n- 相同的 reference = 继续编号\n\n### 分页\n- ❌ 错误: new PageBreak()\n- ✅ 正确: new Paragraph({ children: [new PageBreak()] })\n\n### 图片\n- 必须指定 type 参数: \"png\", \"jpg\", \"jpeg\", \"gif\", \"bmp\", \"svg\"\n- 必须包含 altText 的三个字段: title, description, name\n\n请分析这个新创建的 .docx 文件，并提供处理建议。"
+  }
+}

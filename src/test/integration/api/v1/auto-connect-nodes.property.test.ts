@@ -142,23 +142,23 @@ describe('V1 Auto-Connect Node Sequencing API - Property Tests', () => {
           const newWorkflowId = 'new-workflow-id'
 
           // Capture the create call data
-          let capturedCreateData: Record<string, unknown> | null = null
-          vi.mocked(prisma.workflow.create).mockImplementation(((args: { data: Record<string, unknown> }) => {
-            capturedCreateData = args.data
+          let capturedCreateData: any
+          ;(prisma.workflow.create as any).mockImplementation((args: any) => {
+            capturedCreateData = args?.data
             return Promise.resolve({
               id: newWorkflowId,
-              name: capturedCreateData.name,
-              description: capturedCreateData.description,
-              config: capturedCreateData.config,
-              category: capturedCreateData.category,
-              tags: capturedCreateData.tags,
+              name: capturedCreateData?.name,
+              description: capturedCreateData?.description,
+              config: capturedCreateData?.config,
+              category: capturedCreateData?.category,
+              tags: capturedCreateData?.tags,
               isActive: true,
-              publishStatus: capturedCreateData.publishStatus,
-              version: capturedCreateData.version,
+              publishStatus: capturedCreateData?.publishStatus,
+              version: capturedCreateData?.version,
               createdAt: new Date(),
               updatedAt: new Date(),
             })
-          }) as never)
+          })
 
           // Create request with nodes array and autoConnect=true
           const request = new NextRequest(
@@ -186,7 +186,8 @@ describe('V1 Auto-Connect Node Sequencing API - Property Tests', () => {
           expect(data.success).toBe(true)
 
           // Property 12: Verify sequential edges
-          const createdConfig = capturedCreateData?.config as WorkflowConfig
+          if (!capturedCreateData) throw new Error('expected prisma.workflow.create to be called')
+          const createdConfig = capturedCreateData.config as WorkflowConfig
           
           // Verify nodes count matches input
           expect(createdConfig.nodes.length).toBe(nodes.length)
@@ -242,23 +243,23 @@ describe('V1 Auto-Connect Node Sequencing API - Property Tests', () => {
           const newWorkflowId = 'new-workflow-id'
 
           // Capture the create call data
-          let capturedCreateData: Record<string, unknown> | null = null
-          vi.mocked(prisma.workflow.create).mockImplementation(((args: { data: Record<string, unknown> }) => {
-            capturedCreateData = args.data
+          let capturedCreateData: any
+          ;(prisma.workflow.create as any).mockImplementation((args: any) => {
+            capturedCreateData = args?.data
             return Promise.resolve({
               id: newWorkflowId,
-              name: capturedCreateData.name,
-              description: capturedCreateData.description,
-              config: capturedCreateData.config,
-              category: capturedCreateData.category,
-              tags: capturedCreateData.tags,
+              name: capturedCreateData?.name,
+              description: capturedCreateData?.description,
+              config: capturedCreateData?.config,
+              category: capturedCreateData?.category,
+              tags: capturedCreateData?.tags,
               isActive: true,
-              publishStatus: capturedCreateData.publishStatus,
-              version: capturedCreateData.version,
+              publishStatus: capturedCreateData?.publishStatus,
+              version: capturedCreateData?.version,
               createdAt: new Date(),
               updatedAt: new Date(),
             })
-          }) as never)
+          })
 
           // Create request with nodes array but autoConnect=false (default)
           const request = new NextRequest(
@@ -286,7 +287,8 @@ describe('V1 Auto-Connect Node Sequencing API - Property Tests', () => {
           expect(data.success).toBe(true)
 
           // Property 12.1: No edges when autoConnect is false
-          const createdConfig = capturedCreateData?.config as WorkflowConfig
+          if (!capturedCreateData) throw new Error('expected prisma.workflow.create to be called')
+          const createdConfig = capturedCreateData.config as WorkflowConfig
           
           // Verify nodes count matches input
           expect(createdConfig.nodes.length).toBe(nodes.length)
@@ -316,23 +318,23 @@ describe('V1 Auto-Connect Node Sequencing API - Property Tests', () => {
           const newWorkflowId = 'new-workflow-id'
 
           // Capture the create call data
-          let capturedCreateData: Record<string, unknown> | null = null
-          vi.mocked(prisma.workflow.create).mockImplementation(((args: { data: Record<string, unknown> }) => {
-            capturedCreateData = args.data
+          let capturedCreateData: any
+          ;(prisma.workflow.create as any).mockImplementation((args: any) => {
+            capturedCreateData = args?.data
             return Promise.resolve({
               id: newWorkflowId,
-              name: capturedCreateData.name,
-              description: capturedCreateData.description,
-              config: capturedCreateData.config,
-              category: capturedCreateData.category,
-              tags: capturedCreateData.tags,
+              name: capturedCreateData?.name,
+              description: capturedCreateData?.description,
+              config: capturedCreateData?.config,
+              category: capturedCreateData?.category,
+              tags: capturedCreateData?.tags,
               isActive: true,
-              publishStatus: capturedCreateData.publishStatus,
-              version: capturedCreateData.version,
+              publishStatus: capturedCreateData?.publishStatus,
+              version: capturedCreateData?.version,
               createdAt: new Date(),
               updatedAt: new Date(),
             })
-          }) as never)
+          })
 
           // Create request with single node and autoConnect=true
           const request = new NextRequest(
@@ -360,7 +362,8 @@ describe('V1 Auto-Connect Node Sequencing API - Property Tests', () => {
           expect(data.success).toBe(true)
 
           // Property 12.2: Single node means no edges
-          const createdConfig = capturedCreateData?.config as WorkflowConfig
+          if (!capturedCreateData) throw new Error('expected prisma.workflow.create to be called')
+          const createdConfig = capturedCreateData.config as WorkflowConfig
           
           // Verify single node
           expect(createdConfig.nodes.length).toBe(1)
@@ -390,23 +393,23 @@ describe('V1 Auto-Connect Node Sequencing API - Property Tests', () => {
           const newWorkflowId = 'new-workflow-id'
 
           // Capture the create call data
-          let capturedCreateData: Record<string, unknown> | null = null
-          vi.mocked(prisma.workflow.create).mockImplementation(((args: { data: Record<string, unknown> }) => {
-            capturedCreateData = args.data
+          let capturedCreateData: any
+          ;(prisma.workflow.create as any).mockImplementation((args: any) => {
+            capturedCreateData = args?.data
             return Promise.resolve({
               id: newWorkflowId,
-              name: capturedCreateData.name,
-              description: capturedCreateData.description,
-              config: capturedCreateData.config,
-              category: capturedCreateData.category,
-              tags: capturedCreateData.tags,
+              name: capturedCreateData?.name,
+              description: capturedCreateData?.description,
+              config: capturedCreateData?.config,
+              category: capturedCreateData?.category,
+              tags: capturedCreateData?.tags,
               isActive: true,
-              publishStatus: capturedCreateData.publishStatus,
-              version: capturedCreateData.version,
+              publishStatus: capturedCreateData?.publishStatus,
+              version: capturedCreateData?.version,
               createdAt: new Date(),
               updatedAt: new Date(),
             })
-          }) as never)
+          })
 
           // Create request with nodes array and autoConnect=true
           const request = new NextRequest(
@@ -434,7 +437,8 @@ describe('V1 Auto-Connect Node Sequencing API - Property Tests', () => {
           expect(data.success).toBe(true)
 
           // Property 12.3: Node order is preserved
-          const createdConfig = capturedCreateData?.config as WorkflowConfig
+          if (!capturedCreateData) throw new Error('expected prisma.workflow.create to be called')
+          const createdConfig = capturedCreateData.config as WorkflowConfig
           
           // Verify node types are in the same order as input
           for (let i = 0; i < nodes.length; i++) {

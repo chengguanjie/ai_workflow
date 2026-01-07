@@ -154,6 +154,8 @@ const processNodeSchema = baseNodeSchema.extend({
           "video",
         ])
         .optional(),
+      // 标记用户是否手动选择过输出类型，用于区分AI推断和用户选择
+      isOutputTypeManuallySet: z.boolean().optional(),
       imageSize: z.string().optional(),
       imageCount: z.number().optional(),
       imageQuality: z.enum(["standard", "hd"]).optional(),

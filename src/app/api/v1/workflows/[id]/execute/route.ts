@@ -10,6 +10,9 @@ import {
   updateTokenUsage,
 } from '@/lib/auth'
 
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 interface RouteParams {
   params: Promise<{ id: string }>
 }
@@ -58,10 +61,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     // 解析请求体
     const body = await request.json().catch(() => ({}))
-    const { input, async: asyncExecution } = body as {
+    const { input, async: asyncExecution, mode } = body as {
       input?: Record<string, unknown>
       async?: boolean
+      mode?: 'draft' | 'production'
     }
+    const executionMode = mode === 'draft' || mode === 'production' ? mode : 'production'
 
     // 更新 Token 使用统计
     await updateTokenUsage(token.id)
@@ -72,7 +77,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         workflowId,
         token.organizationId,
         token.createdById,
-        input
+        input,
+        { mode: executionMode }
       )
 
       return ApiResponse.success({
@@ -88,10 +94,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       workflowId,
       token.organizationId,
       token.createdById,
-      input
+      input,
+      { mode: executionMode }
     )
 
     return ApiResponse.success({
+      executionId: result.executionId,
       status: result.status,
       output: result.output,
       error: result.error,

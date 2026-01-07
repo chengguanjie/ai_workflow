@@ -13,19 +13,12 @@ class ResizeObserverMock {
 
 describe('OutputTypeSelector', () => {
   it('calls onTypeChange when selecting a new type', async () => {
-    // @ts-expect-error - test environment polyfill
-    global.ResizeObserver = ResizeObserverMock
-
     const onTypeChange = vi.fn()
     render(<OutputTypeSelector selectedType="text" onTypeChange={onTypeChange} />)
 
-    // Open dropdown
-    fireEvent.mouseDown(screen.getByRole('combobox'))
-
-    // Select JSON
-    fireEvent.click(await screen.findByText('JSON'))
+    const select = screen.getByRole('combobox')
+    fireEvent.change(select, { target: { value: 'json' } })
 
     expect(onTypeChange).toHaveBeenCalledWith('json')
   })
 })
-

@@ -16,6 +16,7 @@ import {
  * 简化后的节点面板只包含两个节点：
  * - 用户输入 (input)
  * - AI处理 (process)
+ * - 逻辑判断 (logic)
  */
 
 // ============================================
@@ -24,23 +25,25 @@ import {
 
 describe("Property 1: Node Panel Completeness", () => {
   /**
-   * 简化后的节点面板应该只包含 input 和 process 节点
+   * 节点面板应该包含 input / process / logic
    */
-  it("allNodeTypes should only contain input and process nodes", () => {
+  it("allNodeTypes should contain input, process and logic nodes", () => {
     const allTypes = allNodeTypes.map((n) => n.type);
     expect(allTypes).toContain("input");
     expect(allTypes).toContain("process");
-    expect(allTypes.length).toBe(2);
+    expect(allTypes).toContain("logic");
+    expect(allTypes.length).toBe(3);
   });
 
   /**
-   * primaryNodes 应该包含用户输入和AI处理节点
+   * primaryNodes 应该包含用户输入、AI处理、逻辑判断节点
    */
-  it("primaryNodes should contain input and process nodes", () => {
+  it("primaryNodes should contain input, process and logic nodes", () => {
     const primaryTypes = primaryNodes.map((n) => n.type);
     expect(primaryTypes).toContain("input");
     expect(primaryTypes).toContain("process");
-    expect(primaryTypes.length).toBe(2);
+    expect(primaryTypes).toContain("logic");
+    expect(primaryTypes.length).toBe(3);
   });
 
   /**

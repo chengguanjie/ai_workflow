@@ -168,7 +168,7 @@
     - 测试筛选功能
     - _Requirements: 6.1, 6.4_
 
-- [-] 12. Final Checkpoint - 功能完成
+- [x] 12. Final Checkpoint - 功能完成
   - 确保所有测试通过
   - 验证端到端流程
   - 如有问题请询问用户

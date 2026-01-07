@@ -205,20 +205,20 @@ describe('V1 Workflow Duplicate API - Property Tests', () => {
           } as never)
 
           // Capture the create call data
-          let capturedCreateData: Record<string, unknown> | null = null
-          vi.mocked(prisma.workflow.create).mockImplementation(async (args) => {
-            capturedCreateData = args.data as Record<string, unknown>
-            return {
+          let capturedCreateData: any
+          ;(prisma.workflow.create as any).mockImplementation((args: any) => {
+            capturedCreateData = args?.data
+            return Promise.resolve({
               id: newWorkflowId,
-              name: capturedCreateData.name,
-              description: capturedCreateData.description,
-              config: capturedCreateData.config,
-              draftConfig: capturedCreateData.draftConfig,
+              name: capturedCreateData?.name,
+              description: capturedCreateData?.description,
+              config: capturedCreateData?.config,
+              draftConfig: capturedCreateData?.draftConfig,
               publishedConfig: null,
-              publishStatus: capturedCreateData.publishStatus,
-              version: capturedCreateData.version,
-              category: capturedCreateData.category,
-              tags: capturedCreateData.tags,
+              publishStatus: capturedCreateData?.publishStatus,
+              version: capturedCreateData?.version,
+              category: capturedCreateData?.category,
+              tags: capturedCreateData?.tags,
               isActive: true,
               createdAt: new Date(),
               updatedAt: new Date(),
@@ -227,7 +227,7 @@ describe('V1 Workflow Duplicate API - Property Tests', () => {
                 name: 'Test User',
                 email: 'test@example.com',
               },
-            } as never
+            })
           })
 
           // Create request without custom name
@@ -257,10 +257,11 @@ describe('V1 Workflow Duplicate API - Property Tests', () => {
           expect(data.data.id).not.toBe(sourceWorkflow.id)
 
           // Property 6.2: Name has "(副本)" appended
-          expect(capturedCreateData?.name).toBe(`${sourceWorkflow.name} (副本)`)
+          if (!capturedCreateData) throw new Error('expected prisma.workflow.create to be called')
+          expect(capturedCreateData.name).toBe(`${sourceWorkflow.name} (副本)`)
 
           // Property 6.3: Config (nodes, edges) is identical to source
-          const createdConfig = capturedCreateData?.config as WorkflowConfig
+          const createdConfig = capturedCreateData.config as WorkflowConfig
           expect(createdConfig.nodes.length).toBe(sourceWorkflow.config.nodes.length)
           expect(createdConfig.edges.length).toBe(sourceWorkflow.config.edges.length)
 
@@ -283,14 +284,14 @@ describe('V1 Workflow Duplicate API - Property Tests', () => {
           }
 
           // Property 6.4: publishStatus is DRAFT and version is 1
-          expect(capturedCreateData?.publishStatus).toBe('DRAFT')
-          expect(capturedCreateData?.version).toBe(1)
+          expect(capturedCreateData.publishStatus).toBe('DRAFT')
+          expect(capturedCreateData.version).toBe(1)
           expect(createdConfig.version).toBe(1)
 
           // Property 6.5: Description, category, tags are copied
-          expect(capturedCreateData?.description).toBe(sourceWorkflow.description)
-          expect(capturedCreateData?.category).toBe(sourceWorkflow.category)
-          expect(capturedCreateData?.tags).toEqual(sourceWorkflow.tags)
+          expect(capturedCreateData.description).toBe(sourceWorkflow.description)
+          expect(capturedCreateData.category).toBe(sourceWorkflow.category)
+          expect(capturedCreateData.tags).toEqual(sourceWorkflow.tags)
 
           return true
         }
@@ -325,20 +326,20 @@ describe('V1 Workflow Duplicate API - Property Tests', () => {
           } as never)
 
           // Capture the create call data
-          let capturedCreateData: Record<string, unknown> | null = null
-          vi.mocked(prisma.workflow.create).mockImplementation(async (args) => {
-            capturedCreateData = args.data as Record<string, unknown>
-            return {
+          let capturedCreateData: any
+          ;(prisma.workflow.create as any).mockImplementation((args: any) => {
+            capturedCreateData = args?.data
+            return Promise.resolve({
               id: newWorkflowId,
-              name: capturedCreateData.name,
-              description: capturedCreateData.description,
-              config: capturedCreateData.config,
-              draftConfig: capturedCreateData.draftConfig,
+              name: capturedCreateData?.name,
+              description: capturedCreateData?.description,
+              config: capturedCreateData?.config,
+              draftConfig: capturedCreateData?.draftConfig,
               publishedConfig: null,
-              publishStatus: capturedCreateData.publishStatus,
-              version: capturedCreateData.version,
-              category: capturedCreateData.category,
-              tags: capturedCreateData.tags,
+              publishStatus: capturedCreateData?.publishStatus,
+              version: capturedCreateData?.version,
+              category: capturedCreateData?.category,
+              tags: capturedCreateData?.tags,
               isActive: true,
               createdAt: new Date(),
               updatedAt: new Date(),
@@ -347,7 +348,7 @@ describe('V1 Workflow Duplicate API - Property Tests', () => {
                 name: 'Test User',
                 email: 'test@example.com',
               },
-            } as never
+            })
           })
 
           // Create request with custom name
@@ -374,8 +375,9 @@ describe('V1 Workflow Duplicate API - Property Tests', () => {
           expect(data.success).toBe(true)
 
           // Custom name should be used instead of "(副本)" suffix
-          expect(capturedCreateData?.name).toBe(customName)
-          expect(capturedCreateData?.name).not.toContain('(副本)')
+          if (!capturedCreateData) throw new Error('expected prisma.workflow.create to be called')
+          expect(capturedCreateData.name).toBe(customName)
+          expect(capturedCreateData.name).not.toContain('(副本)')
 
           return true
         }
@@ -424,20 +426,20 @@ describe('V1 Workflow Duplicate API - Property Tests', () => {
           } as never)
 
           // Capture the create call data
-          let capturedCreateData: Record<string, unknown> | null = null
-          vi.mocked(prisma.workflow.create).mockImplementation(async (args) => {
-            capturedCreateData = args.data as Record<string, unknown>
-            return {
+          let capturedCreateData: any
+          ;(prisma.workflow.create as any).mockImplementation((args: any) => {
+            capturedCreateData = args?.data
+            return Promise.resolve({
               id: newWorkflowId,
-              name: capturedCreateData.name,
-              description: capturedCreateData.description,
-              config: capturedCreateData.config,
-              draftConfig: capturedCreateData.draftConfig,
+              name: capturedCreateData?.name,
+              description: capturedCreateData?.description,
+              config: capturedCreateData?.config,
+              draftConfig: capturedCreateData?.draftConfig,
               publishedConfig: null,
-              publishStatus: capturedCreateData.publishStatus,
-              version: capturedCreateData.version,
-              category: capturedCreateData.category,
-              tags: capturedCreateData.tags,
+              publishStatus: capturedCreateData?.publishStatus,
+              version: capturedCreateData?.version,
+              category: capturedCreateData?.category,
+              tags: capturedCreateData?.tags,
               isActive: true,
               createdAt: new Date(),
               updatedAt: new Date(),
@@ -446,7 +448,7 @@ describe('V1 Workflow Duplicate API - Property Tests', () => {
                 name: 'Test User',
                 email: 'test@example.com',
               },
-            } as never
+            })
           })
 
           // Create request
@@ -472,10 +474,11 @@ describe('V1 Workflow Duplicate API - Property Tests', () => {
           expect(data.success).toBe(true)
 
           // Version should always be 1
-          expect(capturedCreateData?.version).toBe(1)
+          if (!capturedCreateData) throw new Error('expected prisma.workflow.create to be called')
+          expect(capturedCreateData.version).toBe(1)
 
           // Config version should also be 1
-          const createdConfig = capturedCreateData?.config as WorkflowConfig
+          const createdConfig = capturedCreateData.config as WorkflowConfig
           expect(createdConfig.version).toBe(1)
 
           return true
@@ -526,20 +529,20 @@ describe('V1 Workflow Duplicate API - Property Tests', () => {
           } as never)
 
           // Capture the create call data
-          let capturedCreateData: Record<string, unknown> | null = null
-          vi.mocked(prisma.workflow.create).mockImplementation(async (args) => {
-            capturedCreateData = args.data as Record<string, unknown>
-            return {
+          let capturedCreateData: any
+          ;(prisma.workflow.create as any).mockImplementation((args: any) => {
+            capturedCreateData = args?.data
+            return Promise.resolve({
               id: newWorkflowId,
-              name: capturedCreateData.name,
-              description: capturedCreateData.description,
-              config: capturedCreateData.config,
-              draftConfig: capturedCreateData.draftConfig,
+              name: capturedCreateData?.name,
+              description: capturedCreateData?.description,
+              config: capturedCreateData?.config,
+              draftConfig: capturedCreateData?.draftConfig,
               publishedConfig: null,
-              publishStatus: capturedCreateData.publishStatus,
-              version: capturedCreateData.version,
-              category: capturedCreateData.category,
-              tags: capturedCreateData.tags,
+              publishStatus: capturedCreateData?.publishStatus,
+              version: capturedCreateData?.version,
+              category: capturedCreateData?.category,
+              tags: capturedCreateData?.tags,
               isActive: true,
               createdAt: new Date(),
               updatedAt: new Date(),
@@ -548,7 +551,7 @@ describe('V1 Workflow Duplicate API - Property Tests', () => {
                 name: 'Test User',
                 email: 'test@example.com',
               },
-            } as never
+            })
           })
 
           // Create request

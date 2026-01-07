@@ -19,7 +19,7 @@ export const NODE_DEFAULT_CONFIGS: Record<string, Record<string, unknown>> = {
     systemPrompt: "",
     userPrompt: "",
     temperature: 0.7,
-    maxTokens: 2048,
+    maxTokens: 300000,
   },
   CODE: {
     prompt: "",

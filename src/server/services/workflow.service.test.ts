@@ -24,6 +24,7 @@ vi.mock('@/lib/db', () => ({
       update: vi.fn(),
     },
   },
+  withRetry: (operation: () => Promise<unknown>) => operation(),
 }))
 
 // Arbitraries for generating test data

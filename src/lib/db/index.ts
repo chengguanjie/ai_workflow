@@ -158,8 +158,14 @@ async function gracefulShutdown() {
 }
 
 // 处理进程退出时关闭连接
-process.on("beforeExit", gracefulShutdown);
-process.on("SIGINT", gracefulShutdown);
-process.on("SIGTERM", gracefulShutdown);
+// 注意：在 Next.js 开发模式下，框架可能会启动/销毁 Worker 进程。
+// 如果在这些短生命周期进程中注册 beforeExit 并主动断开 Prisma 连接，
+// 可能导致后续请求出现 P1017（Server has closed the connection）等间歇性错误。
+// 因此仅在生产环境注册优雅退出钩子。
+if (process.env.NODE_ENV === "production") {
+  process.on("beforeExit", gracefulShutdown);
+  process.on("SIGINT", gracefulShutdown);
+  process.on("SIGTERM", gracefulShutdown);
+}
 
 export default prisma;

@@ -19,7 +19,7 @@ interface DebugRequest {
   nodeConfig?: Record<string, unknown>
 }
 
-const DEFAULT_DEBUG_TIMEOUT_MS = 200 * 1000  // 200 秒，支持多轮 AI 工具调用
+const DEFAULT_DEBUG_TIMEOUT_MS = 240 * 1000  // 240 秒，支持较慢的网关/模型响应
 
 /**
  * POST /api/workflows/[id]/nodes/[nodeId]/debug
@@ -131,6 +131,7 @@ export const POST = withAuth<ApiSuccessResponse<DebugResult>>(
         node: targetNode,
         mockInputs,
         config,
+        timeoutMs,
       }),
       timeoutPromise,
     ])

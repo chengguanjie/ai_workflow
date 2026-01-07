@@ -234,14 +234,12 @@ describe('V1 Node Delete API - Property Tests', () => {
             publishStatus,
           }
 
-          vi.mocked(prisma.workflow.findFirst).mockResolvedValue(
-            mockWorkflow as never
-          )
+          ;(prisma.workflow.findFirst as any).mockResolvedValue(mockWorkflow)
 
-          let capturedUpdateData: Record<string, unknown> | null = null
-          vi.mocked(prisma.workflow.update).mockImplementation(async (args) => {
-            capturedUpdateData = args.data as Record<string, unknown>
-            return { ...mockWorkflow, ...capturedUpdateData } as never
+          let capturedUpdateData: { config?: WorkflowConfig; publishStatus?: string } | undefined
+          ;(prisma.workflow.update as any).mockImplementation((args: any) => {
+            capturedUpdateData = args?.data
+            return Promise.resolve({ ...mockWorkflow, ...(capturedUpdateData || {}) })
           })
 
           // Create DELETE request
@@ -279,8 +277,8 @@ describe('V1 Node Delete API - Property Tests', () => {
           expect(data.data.workflowVersion).toBe(originalVersion + 1)
 
           // Verify the saved config
-          expect(capturedUpdateData).not.toBeNull()
-          const savedConfig = capturedUpdateData?.config as WorkflowConfig
+          if (!capturedUpdateData) throw new Error('expected prisma.workflow.update to be called')
+          const savedConfig = capturedUpdateData.config as WorkflowConfig
 
           // Property 2.4: Node should be removed from saved config
           const savedNodeIds = savedConfig.nodes.map((n) => n.id)

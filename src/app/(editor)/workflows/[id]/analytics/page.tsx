@@ -28,6 +28,7 @@ import {
   RefreshCw,
   DollarSign,
   ClipboardCheck,
+  History,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import dynamic from 'next/dynamic'
@@ -52,6 +53,15 @@ const AnalyticsChart = dynamic(() => import('@/components/workflow/analytics/ana
 
 // 导入测试反馈统计组件
 const TestFeedbackStatistics = dynamic(() => import('@/components/workflow/analytics/test-feedback-statistics'), {
+  loading: () => (
+    <div className="flex items-center justify-center py-12">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  ),
+})
+
+// 导入执行历史列表组件
+const ExecutionHistoryList = dynamic(() => import('@/components/workflow/analytics/execution-history-list'), {
   loading: () => (
     <div className="flex items-center justify-center py-12">
       <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -396,7 +406,7 @@ export default function WorkflowAnalyticsPage() {
       {/* 内容 */}
       <div className="container mx-auto px-6 py-6">
         <Tabs defaultValue="execution" className="space-y-6">
-          <TabsList className="grid w-full max-w-4xl grid-cols-5">
+          <TabsList className="grid w-full max-w-5xl grid-cols-6">
             <TabsTrigger value="execution" className="flex items-center gap-2">
               <BarChart3 className="h-4 w-4" />
               执行统计
@@ -412,6 +422,10 @@ export default function WorkflowAnalyticsPage() {
             <TabsTrigger value="cost" className="flex items-center gap-2">
               <DollarSign className="h-4 w-4" />
               成本分析
+            </TabsTrigger>
+            <TabsTrigger value="history" className="flex items-center gap-2">
+              <History className="h-4 w-4" />
+              执行历史
             </TabsTrigger>
             <TabsTrigger value="analytics" className="flex items-center gap-2">
               <TrendingUp className="h-4 w-4" />
@@ -953,6 +967,21 @@ export default function WorkflowAnalyticsPage() {
                 )}
               </div>
             )}
+          </TabsContent>
+
+          {/* 执行历史标签页 */}
+          <TabsContent value="history">
+            <Card>
+              <CardHeader>
+                <CardTitle>执行历史</CardTitle>
+                <CardDescription>
+                  查看工作流的执行记录，包括状态、耗时、Token消耗等信息
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ExecutionHistoryList workflowId={workflowId} period={period} />
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* 数据分析标签页 */}

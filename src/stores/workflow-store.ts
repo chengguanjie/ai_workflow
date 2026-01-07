@@ -129,6 +129,11 @@ interface WorkflowState {
   // 最近一次执行（用于默认展示）
   latestExecutionId: string | null;
 
+  // 执行管理器状态（用于协调多个事件源）
+  executionManagerActive: boolean;  // 是否有组件正在管理执行状态
+  currentRunningNodeId: string | null;  // 当前正在执行的节点 ID
+  statusUpdateTimestamps: Record<string, number>;  // 状态更新时间戳
+
   // 操作方法
   setWorkflow: (
     config: WorkflowConfig & {
@@ -215,6 +220,16 @@ interface WorkflowState {
   clearActiveExecution: () => void;
   setLatestExecutionId: (executionId: string | null) => void;
 
+  // 执行管理器操作
+  setExecutionManagerActive: (active: boolean) => void;
+  updateNodeExecutionStatusSafe: (
+    nodeId: string,
+    status: "pending" | "running" | "completed" | "failed" | "skipped" | "paused",
+    timestamp?: number
+  ) => void;
+  clearRunningNodes: () => void;
+  finalizeExecution: (success: boolean) => void;
+
   // 自动布局
   autoLayout: (direction?: "TB" | "LR") => void;
 
@@ -258,6 +273,10 @@ const initialState = {
   activeExecutionId: null as string | null,
   activeTaskId: null as string | null,
   latestExecutionId: null as string | null,
+  // 执行管理器状态
+  executionManagerActive: false,
+  currentRunningNodeId: null as string | null,
+  statusUpdateTimestamps: {} as Record<string, number>,
 };
 
 export const useWorkflowStore = create<WorkflowState>()(
@@ -1127,6 +1146,11 @@ export const useWorkflowStore = create<WorkflowState>()(
 
       // 执行状态操作
       updateNodeExecutionStatus: (nodeId, status) => {
+        // 添加相等性检查，避免不必要的状态更新导致重新渲染
+        const currentStatus = get().nodeExecutionStatus[nodeId];
+        if (currentStatus === status) {
+          return; // 状态未变化，跳过更新
+        }
         set({
           nodeExecutionStatus: {
             ...get().nodeExecutionStatus,
@@ -1207,6 +1231,107 @@ export const useWorkflowStore = create<WorkflowState>()(
 
       setLatestExecutionId: (executionId) => {
         set({ latestExecutionId: executionId });
+      },
+
+      // 执行管理器操作
+      setExecutionManagerActive: (active) => {
+        set({ executionManagerActive: active });
+      },
+
+      // 安全的状态更新方法，实现去重、时间戳验证、状态机验证和单一 running 节点保证
+      updateNodeExecutionStatusSafe: (nodeId, status, timestamp = Date.now()) => {
+        const state = get();
+        const currentStatus = state.nodeExecutionStatus[nodeId];
+        const lastTimestamp = state.statusUpdateTimestamps[nodeId] || 0;
+
+        // 1. 相同状态去重 - 避免不必要的重新渲染
+        if (currentStatus === status) {
+          return;
+        }
+
+        // 2. 时间戳验证 - 忽略过时的更新
+        if (timestamp < lastTimestamp) {
+          return;
+        }
+
+        // 3. 状态机验证 - 终态（completed/failed）不能回退到 running
+        if ((currentStatus === 'completed' || currentStatus === 'failed') && status === 'running') {
+          return;
+        }
+
+        // 4. 单一 running 节点保证
+        if (status === 'running' && state.currentRunningNodeId && state.currentRunningNodeId !== nodeId) {
+          // 将之前的 running 节点标记为 completed（假设正常完成）
+          set({
+            nodeExecutionStatus: {
+              ...state.nodeExecutionStatus,
+              [state.currentRunningNodeId]: 'completed',
+              [nodeId]: status,
+            },
+            currentRunningNodeId: nodeId,
+            statusUpdateTimestamps: {
+              ...state.statusUpdateTimestamps,
+              [state.currentRunningNodeId]: timestamp,
+              [nodeId]: timestamp,
+            },
+          });
+          return;
+        }
+
+        // 5. 正常更新
+        set({
+          nodeExecutionStatus: {
+            ...state.nodeExecutionStatus,
+            [nodeId]: status,
+          },
+          currentRunningNodeId: status === 'running' ? nodeId : 
+            (state.currentRunningNodeId === nodeId ? null : state.currentRunningNodeId),
+          statusUpdateTimestamps: {
+            ...state.statusUpdateTimestamps,
+            [nodeId]: timestamp,
+          },
+        });
+      },
+
+      // 清除所有 running 状态的节点
+      clearRunningNodes: () => {
+        const state = get();
+        const newStatus = { ...state.nodeExecutionStatus };
+        
+        // 将所有 running 状态的节点重置为 pending
+        Object.keys(newStatus).forEach((nodeId) => {
+          if (newStatus[nodeId] === 'running') {
+            newStatus[nodeId] = 'pending';
+          }
+        });
+
+        set({
+          nodeExecutionStatus: newStatus,
+          currentRunningNodeId: null,
+        });
+      },
+
+      // 执行完成时的清理方法
+      finalizeExecution: (success) => {
+        const state = get();
+        const newStatus = { ...state.nodeExecutionStatus };
+        
+        // 将所有 running 节点标记为 completed 或 failed
+        Object.keys(newStatus).forEach((nodeId) => {
+          if (newStatus[nodeId] === 'running') {
+            newStatus[nodeId] = success ? 'completed' : 'failed';
+          }
+          // 如果执行失败，将 pending 节点也重置
+          if (!success && newStatus[nodeId] === 'pending') {
+            // pending 节点保持 pending 状态，不需要改变
+          }
+        });
+
+        set({
+          nodeExecutionStatus: newStatus,
+          currentRunningNodeId: null,
+          executionManagerActive: false,
+        });
       },
 
       // 自动布局 - 使用 dagre 算法，确保节点不重叠

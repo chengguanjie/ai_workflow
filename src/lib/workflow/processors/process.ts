@@ -9,9 +9,161 @@ import { aiService } from '@/lib/ai'
 import { prisma } from '@/lib/db'
 import { safeDecryptApiKey } from '@/lib/crypto'
 import { getRelevantContext } from '@/lib/knowledge/search'
+import { estimateTokenCount } from '@/lib/ai/token-utils'
+import { formatNetworkError, isFormattedNetworkError, isRetryableNetworkError } from '@/lib/http/fetch-with-timeout'
 
 export class ProcessNodeProcessor implements NodeProcessor {
   nodeType = 'PROCESS'
+
+  private extractJsonFromText(text: string): string | null {
+    const trimmed = text.trim()
+    const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+    if (fenceMatch?.[1]) {
+      const candidate = fenceMatch[1].trim()
+      if (candidate.startsWith('{') || candidate.startsWith('[')) return candidate
+    }
+
+    // Find first JSON object/array substring with simple bracket matching.
+    const startIndex = (() => {
+      const obj = trimmed.indexOf('{')
+      const arr = trimmed.indexOf('[')
+      if (obj === -1) return arr
+      if (arr === -1) return obj
+      return Math.min(obj, arr)
+    })()
+    if (startIndex === -1) return null
+
+    const startChar = trimmed[startIndex]
+    const openChar = startChar
+    const closeChar = startChar === '{' ? '}' : ']'
+
+    let depth = 0
+    let inString = false
+    let escape = false
+
+    for (let i = startIndex; i < trimmed.length; i++) {
+      const ch = trimmed[i]
+
+      if (inString) {
+        if (escape) {
+          escape = false
+          continue
+        }
+        if (ch === '\\') {
+          escape = true
+          continue
+        }
+        if (ch === '"') {
+          inString = false
+        }
+        continue
+      }
+
+      if (ch === '"') {
+        inString = true
+        continue
+      }
+
+      if (ch === openChar) depth++
+      if (ch === closeChar) depth--
+
+      if (depth === 0) {
+        return trimmed.slice(startIndex, i + 1)
+      }
+    }
+
+    return null
+  }
+
+  private normalizeOutputContent(content: string, expectedOutputType?: unknown): string {
+    const expected = typeof expectedOutputType === 'string' ? expectedOutputType : undefined
+    if (!expected) return content
+
+    if (expected === 'json') {
+      const extracted = this.extractJsonFromText(content)
+      if (!extracted) return content
+      try {
+        const parsed = JSON.parse(extracted)
+        return JSON.stringify(parsed)
+      } catch {
+        return content
+      }
+    }
+
+    if (expected === 'html') {
+      const trimmed = content.trim()
+      const fenceMatch = trimmed.match(/```(?:html)?\s*([\s\S]*?)\s*```/i)
+      if (fenceMatch?.[1]) return fenceMatch[1].trim()
+      const firstTag = trimmed.indexOf('<')
+      if (firstTag !== -1) return trimmed.slice(firstTag)
+      return content
+    }
+
+    return content
+  }
+
+  private normalizeMaxTokens(configMaxTokens: unknown): number | undefined {
+    if (typeof configMaxTokens !== 'number') return undefined
+    if (!Number.isFinite(configMaxTokens) || configMaxTokens <= 0) return undefined
+
+    // Guardrail: overly-large maxTokens often causes gateway/provider instability.
+    // Prefer provider/model defaults instead of passing unrealistic values (e.g. 300000).
+    const HARD_CAP = 16_384
+    if (configMaxTokens > HARD_CAP) return undefined
+    return Math.floor(configMaxTokens)
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms))
+  }
+
+  private async callChatWithRetry(
+    doCall: () => Promise<Awaited<ReturnType<typeof aiService.chat>>>,
+    context: ExecutionContext,
+    label: string
+  ): Promise<Awaited<ReturnType<typeof aiService.chat>>> {
+    const maxAttempts = 3
+
+    let lastError: unknown
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await doCall()
+      } catch (err) {
+        lastError = err
+        if (!isRetryableNetworkError(err)) {
+          throw err
+        }
+        if (attempt >= maxAttempts) {
+          throw err
+        }
+        const delay = 1500 * Math.pow(2, attempt - 1)
+        context.addLog?.(
+          'warning',
+          `${label} 网络错误，${Math.round(delay)}ms 后重试（${attempt}/${maxAttempts}）`,
+          'AI_RETRY',
+          { attempt, maxAttempts }
+        )
+        await this.sleep(delay)
+      }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error(`${label} 失败`)
+  }
+
+  private mergeContinuation(current: string, next: string): string {
+    if (!current) return next
+    if (!next) return current
+
+    // Avoid obvious duplication: trim overlapping suffix/prefix (up to 400 chars).
+    const maxWindow = 400
+    const suffix = current.slice(-maxWindow)
+    for (let overlap = Math.min(suffix.length, next.length); overlap >= 20; overlap--) {
+      if (suffix.slice(-overlap) === next.slice(0, overlap)) {
+        return current + next.slice(overlap)
+      }
+    }
+    return current + next
+  }
 
   async process(
     node: NodeConfig,
@@ -20,6 +172,12 @@ export class ProcessNodeProcessor implements NodeProcessor {
     const startedAt = new Date()
     const processNode = node as ProcessNodeConfig
 
+    let provider: string | undefined
+    let model: string | undefined
+    let temperature: number | undefined
+    let maxTokens: number | undefined
+    let userPromptText = ''
+
     try {
       // 1. 获取 AI 配置
       context.addLog?.('step', '正在加载 AI 服务商配置...', 'CONFIG')
@@ -27,6 +185,7 @@ export class ProcessNodeProcessor implements NodeProcessor {
         processNode.config?.aiConfigId,
         context
       )
+      provider = aiConfig?.provider
 
       if (!aiConfig) {
         // 提供更详细的错误信息
@@ -76,7 +235,7 @@ export class ProcessNodeProcessor implements NodeProcessor {
       const userContentParts = createContentPartsFromText(rawUserPrompt, context)
 
       // 提取纯文本用于日志记录和 RAG 检索
-      const userPromptText = userContentParts
+      userPromptText = userContentParts
         .map(p => p.type === 'text' ? p.text : `[${p.type}]`)
         .join('')
 
@@ -136,11 +295,19 @@ export class ProcessNodeProcessor implements NodeProcessor {
         messages.push({ role: 'user', content: userContentParts })
       }
 
-      const model = processNode.config?.model || aiConfig.defaultModel
-      const temperature = processNode.config?.temperature ?? 0.7
-      // 如果用户没有指定 maxTokens 或设置为 -1（无限制），传递 undefined 让 API 使用模型默认最大值
+      model = processNode.config?.model || aiConfig.defaultModel
+      temperature = processNode.config?.temperature ?? 0.7
+
+      // maxTokens：用户配置的是“期望上限”，但必须被模型上下文限制所约束
+      // 当前策略：不向服务商传递 maxTokens，让模型/网关自行决定输出长度。
       const configMaxTokens = processNode.config?.maxTokens
-      const maxTokens = (configMaxTokens === undefined || configMaxTokens === -1) ? undefined : configMaxTokens
+      maxTokens = this.normalizeMaxTokens(configMaxTokens)
+      if (typeof configMaxTokens === 'number' && configMaxTokens > 0 && maxTokens === undefined) {
+        context.addLog?.('warning', `maxTokens=${configMaxTokens} 过大，已忽略并使用模型默认值`, 'MODEL_CONFIG', {
+          requestedMaxTokens: configMaxTokens,
+          effectiveMaxTokens: null,
+        })
+      }
 
       // 记录详细的模型配置信息，便于问题诊断
       context.addLog?.('info', '模型配置详情', 'MODEL_CONFIG', {
@@ -160,21 +327,138 @@ export class ProcessNodeProcessor implements NodeProcessor {
       })
 
       // 调用 AI
-      const response = await aiService.chat(
-        aiConfig.provider,
-        {
-          model,
-          messages,
-          temperature,
-          maxTokens,
-        },
-        aiConfig.apiKey,
-        aiConfig.baseUrl
+      let response: Awaited<ReturnType<typeof aiService.chat>>
+      try {
+        response = await this.callChatWithRetry(
+          () =>
+            aiService.chat(
+              aiConfig.provider,
+              {
+                model,
+                messages,
+                temperature,
+                maxTokens,
+              },
+              aiConfig.apiKey,
+              aiConfig.baseUrl
+            ),
+          context,
+          'AI 调用失败'
+        )
+      } catch (err) {
+        if (isFormattedNetworkError(err)) {
+          throw err
+        }
+        if (isRetryableNetworkError(err)) {
+          throw formatNetworkError(err, 'AI 调用失败')
+        }
+        throw err
+      }
+
+      // Auto-continue for truncated responses to avoid incomplete HTML/JSON blocks.
+      const totalUsage = {
+        promptTokens: response.usage.promptTokens,
+        completionTokens: response.usage.completionTokens,
+        totalTokens: response.usage.totalTokens,
+      }
+
+      let mergedContent = response.content
+      let mergedFinishReason = response.finishReason
+      let segments = 1
+
+      const isTruncated =
+        mergedFinishReason === 'length' ||
+        mergedFinishReason === 'max_tokens' ||
+        (typeof maxTokens === 'number' && maxTokens > 0 && response.usage.completionTokens >= maxTokens)
+
+      if (isTruncated) {
+        const maxSegments = 4
+        context.addLog?.('warning', '检测到输出可能被截断，尝试自动续写拼接完整内容', 'AI_CALL', {
+          finishReason: mergedFinishReason,
+          maxTokens: maxTokens ?? '(default)',
+          completionTokens: response.usage.completionTokens,
+          maxSegments,
+        })
+
+        let continuationMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | any[] }> = [
+          ...messages,
+          { role: 'assistant', content: mergedContent },
+        ]
+
+        while (segments < maxSegments) {
+          segments++
+          continuationMessages = [
+            ...continuationMessages,
+            {
+              role: 'user',
+              content:
+                '请继续输出剩余内容：从上次结束处无缝续写，不要重复前文；保持与之前完全一致的输出格式（包括代码块/JSON/HTML/Markdown等）。'
+            },
+          ]
+
+          let next: Awaited<ReturnType<typeof aiService.chat>>
+          try {
+            next = await this.callChatWithRetry(
+              () =>
+                aiService.chat(
+                  aiConfig.provider,
+                  { model, messages: continuationMessages, temperature, maxTokens },
+                  aiConfig.apiKey,
+                  aiConfig.baseUrl
+                ),
+              context,
+              'AI 续写失败'
+            )
+          } catch (err) {
+            if (isFormattedNetworkError(err)) {
+              throw err
+            }
+            if (isRetryableNetworkError(err)) {
+              throw formatNetworkError(err, 'AI 续写失败')
+            }
+            throw err
+          }
+
+          totalUsage.promptTokens += next.usage.promptTokens
+          totalUsage.completionTokens += next.usage.completionTokens
+          totalUsage.totalTokens += next.usage.totalTokens
+
+          mergedContent = this.mergeContinuation(mergedContent, next.content)
+          mergedFinishReason = next.finishReason
+
+          const stillTruncated =
+            mergedFinishReason === 'length' ||
+            mergedFinishReason === 'max_tokens' ||
+            (typeof maxTokens === 'number' && maxTokens > 0 && next.usage.completionTokens >= maxTokens)
+
+          continuationMessages = [
+            ...continuationMessages,
+            { role: 'assistant', content: next.content },
+          ]
+
+          if (!stillTruncated) break
+        }
+      }
+
+      response = {
+        ...response,
+        content: mergedContent,
+        finishReason: mergedFinishReason,
+        usage: totalUsage,
+        wasAutoContinued: segments > 1,
+        segments,
+      }
+
+      const normalizedContent = this.normalizeOutputContent(
+        response.content,
+        processNode.config?.expectedOutputType
       )
 
       context.addLog?.('success', 'AI 处理完成', 'AI_CALL', {
         tokens: response.usage,
-        outputPreview: response.content.slice(0, 100) + '...'
+        finishReason: response.finishReason,
+        segments: response.segments ?? 1,
+        outputPreview: normalizedContent.slice(0, 100) + '...'
       })
 
       return {
@@ -182,9 +466,28 @@ export class ProcessNodeProcessor implements NodeProcessor {
         nodeName: node.name,
         nodeType: node.type,
         status: 'success',
+        input: {
+          provider: aiConfig.provider,
+          model: model!,
+          temperature: temperature!,
+          maxTokens: maxTokens ?? null,
+          systemPrompt,
+          userPrompt: userPromptText,
+          messageCount: messages.length,
+        },
         data: {
-          结果: response.content,
+          结果: normalizedContent,
+          // 兼容旧模板/引用：支持 {{节点.result}}
+          result: normalizedContent,
           model: response.model,
+          _meta: {
+            finishReason: response.finishReason,
+            segments: response.segments ?? 1,
+            wasAutoContinued: response.wasAutoContinued ?? false,
+            requestedMaxTokens: configMaxTokens ?? null,
+            effectiveMaxTokens: maxTokens ?? null,
+            truncated: response.finishReason === 'length' || response.finishReason === 'max_tokens',
+          },
         },
         startedAt,
         completedAt: new Date(),
@@ -209,6 +512,13 @@ export class ProcessNodeProcessor implements NodeProcessor {
         nodeName: node.name,
         nodeType: node.type,
         status: 'error',
+        input: {
+          provider: provider ?? null,
+          model: model ?? null,
+          temperature: temperature ?? null,
+          maxTokens: maxTokens ?? null,
+          userPrompt: userPromptText || null,
+        },
         data: {},
         error: errorMessage,
         startedAt,

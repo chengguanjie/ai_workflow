@@ -18,6 +18,8 @@ import {
   Bell,
   Wrench,
   Music,
+  Server,
+  Plug,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,8 +44,10 @@ import { ClaudeSkillDialog, type ClaudeSkill } from "./claude-skill-dialog";
 import { AIGenerateButton } from "./ai-generate-button";
 import { VariableInput } from "./variable-input";
 import { VariableTextarea } from "./variable-textarea";
+import { MCPToolConfig } from "./mcp-tool-config";
 import { useWorkflowStore } from "@/stores/workflow-store";
 import { SHENSUAN_MODELS, SHENSUAN_DEFAULT_MODELS } from "@/lib/ai/types";
+import { MODELSCOPE_MCP_PRESETS } from "@/lib/mcp/types";
 
 // 工具类型定义
 export interface ToolConfig {
@@ -69,6 +73,8 @@ export type ToolType =
   | "notification-feishu"
   | "notification-dingtalk"
   | "notification-wecom"
+  | "mcp-server"
+  | "mcp-modelscope"
   | "custom";
 
 // 工具元数据
@@ -165,6 +171,18 @@ const TOOL_METADATA: Record<
     description: "发送消息到企业微信群机器人",
     color: "text-green-600",
   },
+  "mcp-server": {
+    label: "MCP 服务",
+    icon: Server,
+    description: "连接 MCP 服务器调用外部工具",
+    color: "text-cyan-500",
+  },
+  "mcp-modelscope": {
+    label: "魔搭 MCP",
+    icon: Plug,
+    description: "使用魔搭平台 MCP 服务（预设配置）",
+    color: "text-violet-500",
+  },
   custom: {
     label: "自定义工具",
     icon: Settings,
@@ -181,6 +199,8 @@ const TOOL_ORDER: ToolType[] = [
   "code-execution",
   "http-request",
   "claude-skill",
+  "mcp-modelscope",
+  "mcp-server",
   "feishu-bitable",
   "douyin-video",
   "wechat-channels",
@@ -231,6 +251,23 @@ export function ToolsSection({ tools, onToolsChange }: ToolsSectionProps) {
     }
 
     let config: Record<string, unknown> = getDefaultConfig(type);
+
+    // 对 MCP 工具类型，设置特定的默认配置
+    if (type === "mcp-modelscope") {
+      // 魔搭 MCP 预设：使用第一个预设作为默认
+      const firstPresetKey = Object.keys(MODELSCOPE_MCP_PRESETS)[0];
+      const firstPreset = MODELSCOPE_MCP_PRESETS[firstPresetKey];
+      if (firstPreset) {
+        config = {
+          ...config,
+          presetType: firstPresetKey,
+          serverUrl: firstPreset.url,
+          serverName: firstPreset.name,
+          transport: 'http',
+          authType: 'api-key',
+        };
+      }
+    }
 
     // 对多模态相关工具，根据当前节点的 userPrompt 生成一个更贴合场景的默认提示词模板
     if (type === "image-gen-ai" || type === "video-gen-ai" || type === "audio-tts-ai") {
@@ -642,6 +679,28 @@ function getDefaultConfig(type: ToolType): Record<string, unknown> {
         mentionedList: [],
         mentionedMobileList: [],
       };
+    case "mcp-server":
+      return {
+        serverUrl: "",
+        serverName: "",
+        transport: "http",
+        authType: "none",
+        apiKey: "",
+        timeout: 30000,
+        selectedTools: [],
+        presetType: "",
+      };
+    case "mcp-modelscope":
+      return {
+        serverUrl: "",
+        serverName: "",
+        transport: "http",
+        authType: "api-key",
+        apiKey: "",
+        timeout: 30000,
+        selectedTools: [],
+        presetType: "",
+      };
     case "custom":
       return {
         script: "",
@@ -743,6 +802,14 @@ function ToolConfigPanel({
           config={config}
           onConfigChange={onConfigChange}
         />
+      );
+    case "mcp-server":
+      return (
+        <MCPToolConfig config={config} onConfigChange={onConfigChange} />
+      );
+    case "mcp-modelscope":
+      return (
+        <MCPToolConfig config={config} onConfigChange={onConfigChange} />
       );
     case "custom":
       return (

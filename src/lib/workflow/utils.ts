@@ -39,6 +39,104 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   return current
 }
 
+function stripMarkdownCodeFence(text: string): string {
+  const trimmed = text.trim()
+  if (!trimmed.startsWith('```')) return trimmed
+
+  // ```json\n{...}\n```
+  const lines = trimmed.split('\n')
+  if (lines.length < 3) return trimmed
+  if (!lines[0].startsWith('```')) return trimmed
+  if (!lines[lines.length - 1].startsWith('```')) return trimmed
+  return lines.slice(1, -1).join('\n').trim()
+}
+
+function tryParseJsonLike(text: string): unknown | null {
+  const candidate = stripMarkdownCodeFence(text)
+  if (!candidate) return null
+
+  try {
+    return JSON.parse(candidate)
+  } catch {
+    // Heuristic: parse the largest {...} block if response has leading/trailing prose.
+    const start = candidate.indexOf('{')
+    const end = candidate.lastIndexOf('}')
+    if (start === -1 || end === -1 || end <= start) return null
+    const slice = candidate.slice(start, end + 1)
+    try {
+      return JSON.parse(slice)
+    } catch {
+      return null
+    }
+  }
+}
+
+function buildImageUrlsFromImages(images: Array<{ url?: string; revisedPrompt?: string }>): Array<{
+  index: number
+  url: string
+  description?: string
+}> {
+  return images
+    .filter((img) => typeof img.url === 'string' && img.url)
+    .map((img, index) => ({
+      index: index + 1,
+      url: img.url as string,
+      description: img.revisedPrompt || `图片${index + 1}`,
+    }))
+}
+
+/**
+ * 解析节点输出字段值（带兼容逻辑）
+ * - 兼容 result/结果 的字段别名
+ * - 当节点输出为 JSON 字符串（常见：AI 输出）时，允许用 {{节点.xxx}} 直接取 JSON 字段
+ * - 当节点输出包含 images 时，允许用 {{节点.imageUrls}} 取可用 URL 列表
+ */
+function resolveNodeFieldValue(
+  nodeData: Record<string, unknown>,
+  fieldPath: string
+): unknown {
+  const direct = fieldPath.includes('.')
+    ? getNestedValue(nodeData, fieldPath)
+    : nodeData[fieldPath]
+  if (direct !== undefined) return direct
+
+  // Common alias: result <-> 结果
+  if (fieldPath === 'result' && nodeData['结果'] !== undefined) return nodeData['结果']
+  if (fieldPath === '结果' && nodeData['result'] !== undefined) return nodeData['result']
+
+  // Convenience: imageUrls derived from images
+  if (fieldPath === 'imageUrls' || fieldPath === 'image_urls') {
+    const images = nodeData.images
+    if (Array.isArray(images) && images.length > 0) {
+      return {
+        ...(typeof nodeData === 'object' ? nodeData : {}),
+        imageUrls: buildImageUrlsFromImages(images as Array<{ url?: string; revisedPrompt?: string }>),
+      }
+    }
+  }
+
+  // If the node "result" is actually a JSON string, allow dot-access into it.
+  const rawText =
+    (typeof nodeData['结果'] === 'string' && nodeData['结果']) ||
+    (typeof nodeData['result'] === 'string' && nodeData['result']) ||
+    null
+  if (!rawText) return undefined
+
+  const parsed = tryParseJsonLike(rawText)
+  if (!parsed || typeof parsed !== 'object') return undefined
+  const parsedObj = parsed as Record<string, unknown>
+
+  const fromParsed = fieldPath.includes('.')
+    ? getNestedValue(parsedObj, fieldPath)
+    : parsedObj[fieldPath]
+  if (fromParsed !== undefined) return fromParsed
+
+  if (fieldPath === 'result' && parsedObj['结果'] !== undefined) return parsedObj['结果']
+  if (fieldPath === '结果' && parsedObj['result'] !== undefined) return parsedObj['result']
+
+  return undefined
+}
+
 /**
  * 解析文本中的变量引用
  */
@@ -339,21 +437,22 @@ export function replaceVariables(
 
   // 2. 处理完整格式 {{节点名.字段名}}
   result = result.replace(VARIABLE_PATTERN, (match, nodeName, fieldPath) => {
-    const nodeOutput = findNodeOutputByNameOrId(nodeName.trim(), context)
+    const nodeNameOrId = nodeName.trim()
+    const nodeOutput = findNodeOutputByNameOrId(nodeNameOrId, context)
+    const globalValue = context.globalVariables?.[nodeNameOrId]
+    const data =
+      nodeOutput?.data ||
+      (globalValue && typeof globalValue === 'object' && !Array.isArray(globalValue)
+        ? (globalValue as Record<string, unknown>)
+        : undefined)
 
-    if (!nodeOutput) {
+    if (!data) {
       console.warn(`Variable reference not found: ${match}`)
       return match
     }
 
     const trimmedPath = fieldPath.trim()
-    let value: unknown
-
-    if (trimmedPath.includes('.')) {
-      value = getNestedValue(nodeOutput.data, trimmedPath)
-    } else {
-      value = nodeOutput.data[trimmedPath]
-    }
+    const value = resolveNodeFieldValue(data, trimmedPath)
 
     if (value === undefined || value === null) {
       console.warn(`Field not found in node output: ${match}`)
@@ -369,14 +468,19 @@ export function replaceVariables(
 
   // 再处理简化格式 {{节点名}}（不含点号）
   result = result.replace(SIMPLE_VARIABLE_PATTERN, (match, nodeName) => {
-    const nodeOutput = findNodeOutputByNameOrId(nodeName.trim(), context)
+    const nodeNameOrId = nodeName.trim()
+    const nodeOutput = findNodeOutputByNameOrId(nodeNameOrId, context)
+    const globalValue = context.globalVariables?.[nodeNameOrId]
 
-    if (!nodeOutput) {
+    let value: unknown
+    if (nodeOutput) {
+      value = getDefaultOutputValue(nodeOutput)
+    } else if (globalValue !== undefined) {
+      value = globalValue
+    } else {
       console.warn(`Variable reference not found (simple format): ${match}`)
       return match
     }
-
-    const value = getDefaultOutputValue(nodeOutput)
 
     if (value === undefined || value === null) {
       console.warn(`No output found for node: ${match}`)
@@ -485,6 +589,8 @@ export function sanitizeFileName(fileName: string): string {
 
 /**
  * 根据拓扑排序获取节点执行顺序
+ * 
+ * 特殊处理 GROUP 节点：GROUP 节点必须在其所有子节点执行完成后才执行
  */
 export function getExecutionOrder(
   nodes: NodeConfig[],
@@ -507,6 +613,28 @@ export function getExecutionOrder(
     adjList.set(edge.source, targets)
 
     inDegree.set(edge.target, (inDegree.get(edge.target) || 0) + 1)
+  }
+
+  // 特殊处理 GROUP 节点：添加从子节点到 GROUP 节点的隐式依赖
+  for (const node of nodes) {
+    if (node.type === 'GROUP') {
+      const groupConfig = node.config as { childNodeIds?: string[] } | undefined
+      const childNodeIds = groupConfig?.childNodeIds || []
+      
+      // 找到最后一个子节点（按执行顺序）
+      // GROUP 节点依赖其最后一个子节点
+      if (childNodeIds.length > 0) {
+        const lastChildId = childNodeIds[childNodeIds.length - 1]
+        
+        // 添加从最后一个子节点到 GROUP 节点的边
+        const targets = adjList.get(lastChildId) || []
+        if (!targets.includes(node.id)) {
+          targets.push(node.id)
+          adjList.set(lastChildId, targets)
+          inDegree.set(node.id, (inDegree.get(node.id) || 0) + 1)
+        }
+      }
+    }
   }
 
   // 拓扑排序（Kahn's algorithm）
@@ -1063,12 +1191,15 @@ export function createContentPartsFromText(
       const fieldPath = varContent.substring(dotIndex + 1).trim()
       const nodeOutput = findNodeOutputByNameOrId(nodeName, context)
 
-      if (nodeOutput) {
-        if (fieldPath.includes('.')) {
-          value = getNestedValue(nodeOutput.data, fieldPath)
-        } else {
-          value = nodeOutput.data[fieldPath]
-        }
+      const globalValue = context.globalVariables?.[nodeName]
+      const data =
+        nodeOutput?.data ||
+        (globalValue && typeof globalValue === 'object' && !Array.isArray(globalValue)
+          ? (globalValue as Record<string, unknown>)
+          : undefined)
+
+      if (data) {
+        value = resolveNodeFieldValue(data, fieldPath)
       } else {
         console.warn(`Variable reference not found in createContentParts: ${match[0]}`)
         value = match[0]
@@ -1078,8 +1209,12 @@ export function createContentPartsFromText(
       const nodeName = varContent
       const nodeOutput = findNodeOutputByNameOrId(nodeName, context)
 
+      const globalValue = context.globalVariables?.[nodeName]
+
       if (nodeOutput) {
         value = getDefaultOutputValue(nodeOutput)
+      } else if (globalValue !== undefined) {
+        value = globalValue
       } else {
         console.warn(`Variable reference not found (simple format) in createContentParts: ${match[0]}`)
         value = match[0]

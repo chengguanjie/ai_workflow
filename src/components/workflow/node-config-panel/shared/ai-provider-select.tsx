@@ -11,7 +11,7 @@ import type { ModelModality } from '@/lib/ai/types'
 // 无限制输出的特殊值（使用模型最大上下文长度）
 export const UNLIMITED_TOKENS = -1
 // 默认 token 限制
-export const DEFAULT_MAX_TOKENS = 10000
+export const DEFAULT_MAX_TOKENS = 300000
 
 interface AIProviderSelectProps {
   aiConfigId?: string

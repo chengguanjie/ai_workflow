@@ -18,7 +18,7 @@ import type {
   EmbeddingResponse
 } from '../types'
 import { getModelModality } from '../types'
-import { fetchWithTimeout, formatNetworkError, isRetryableNetworkError } from '@/lib/http/fetch-with-timeout'
+import { fetchWithTimeout, formatNetworkError } from '@/lib/http/fetch-with-timeout'
 
 const DEFAULT_SHENSUAN_BASE_URL = process.env.SHENSUAN_BASE_URL || 'https://router.shengsuanyun.com/api/v1'
 
@@ -73,17 +73,26 @@ export class ShensuanProvider implements AIProvider {
       requestBody.max_tokens = request.maxTokens
     }
 
-    const response = await fetchWithTimeout(`${url}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(requestBody),
-      timeoutMs: 90_000,
-      retries: 2,
-      retryDelay: 2000,
-    })
+    let response: Response
+    try {
+      response = await fetchWithTimeout(`${url}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+          // 部分 OpenAI 兼容网关在连接池复用时会出现 `other side closed`，
+          // 显式关闭 keep-alive 可以显著降低此类偶发错误。
+          Connection: 'close',
+        },
+        body: JSON.stringify(requestBody),
+        timeoutMs: 90_000,
+        retries: 3,
+        retryDelay: 2000,
+      })
+    } catch (fetchError) {
+      throw formatNetworkError(fetchError, 'AI 对话请求失败')
+    }
 
     if (!response.ok) {
       const error = await response.text()

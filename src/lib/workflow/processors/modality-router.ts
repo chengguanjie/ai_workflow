@@ -651,6 +651,7 @@ export function formatModalityOutput(output: ModalityOutput): Record<string, unk
     case 'text':
       return {
         结果: output.content,
+        result: output.content,
         model: output.model
       }
 
@@ -659,6 +660,15 @@ export function formatModalityOutput(output: ModalityOutput): Record<string, unk
         images: output.images,
         // 兼容：第一张图片 URL 作为主结果
         结果: output.images[0]?.url || '',
+        result: output.images[0]?.url || '',
+        // 便于下游直接引用三张配图：{{节点.imageUrls}}
+        imageUrls: output.images
+          .filter((img) => img.url)
+          .map((img, index) => ({
+            index: index + 1,
+            url: img.url,
+            description: img.revisedPrompt || `图片${index + 1}`,
+          })),
         model: output.model,
         prompt: output.prompt
       }
@@ -668,6 +678,7 @@ export function formatModalityOutput(output: ModalityOutput): Record<string, unk
         videos: output.videos,
         // 兼容：第一个视频 URL 作为主结果
         结果: output.videos[0]?.url || '',
+        result: output.videos[0]?.url || '',
         taskId: output.taskId,
         model: output.model,
         prompt: output.prompt
@@ -677,6 +688,7 @@ export function formatModalityOutput(output: ModalityOutput): Record<string, unk
       return {
         audio: output.audio,
         结果: output.audio.url,
+        result: output.audio.url,
         model: output.model,
         text: output.text
       }
@@ -684,6 +696,7 @@ export function formatModalityOutput(output: ModalityOutput): Record<string, unk
     case 'audio-transcription':
       return {
         结果: output.text,
+        result: output.text,
         segments: output.segments,
         language: output.language,
         model: output.model
@@ -693,6 +706,7 @@ export function formatModalityOutput(output: ModalityOutput): Record<string, unk
       return {
         embeddings: output.embeddings,
         结果: `向量嵌入完成，共 ${output.embeddings.length} 个，维度 ${output.dimensions}`,
+        result: `向量嵌入完成，共 ${output.embeddings.length} 个，维度 ${output.dimensions}`,
         model: output.model,
         dimensions: output.dimensions
       }

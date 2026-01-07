@@ -19,11 +19,17 @@ import { replaceVariables, createContentPartsFromText, replaceVariablesInConfig 
 import { prisma } from '@/lib/db'
 import { safeDecryptApiKey } from '@/lib/crypto'
 import { getRelevantContext } from '@/lib/knowledge/search'
+import { estimateTokenCount } from '@/lib/ai/token-utils'
 import { OpenAIProvider } from '@/lib/ai/providers/openai'
 import { AnthropicProvider } from '@/lib/ai/providers/anthropic'
 import { ensureImportedFilesFromContext } from '../imported-files'
 import { buildRagQuery } from '../rag'
-import { isRetryableNetworkError, getNetworkErrorHint } from '@/lib/http/fetch-with-timeout'
+import {
+  formatNetworkError,
+  getNetworkErrorHint,
+  isFormattedNetworkError,
+  isRetryableNetworkError,
+} from '@/lib/http/fetch-with-timeout'
 import {
   functionCallingService,
   toolRegistry,
@@ -72,12 +78,116 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
   private openaiProvider = new OpenAIProvider()
   private anthropicProvider = new AnthropicProvider()
 
+  private extractJsonFromText(text: string): string | null {
+    const trimmed = text.trim()
+    const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+    if (fenceMatch?.[1]) {
+      const candidate = fenceMatch[1].trim()
+      if (candidate.startsWith('{') || candidate.startsWith('[')) return candidate
+    }
+
+    const startIndex = (() => {
+      const obj = trimmed.indexOf('{')
+      const arr = trimmed.indexOf('[')
+      if (obj === -1) return arr
+      if (arr === -1) return obj
+      return Math.min(obj, arr)
+    })()
+    if (startIndex === -1) return null
+
+    const openChar = trimmed[startIndex]
+    const closeChar = openChar === '{' ? '}' : ']'
+
+    let depth = 0
+    let inString = false
+    let escape = false
+
+    for (let i = startIndex; i < trimmed.length; i++) {
+      const ch = trimmed[i]
+
+      if (inString) {
+        if (escape) {
+          escape = false
+          continue
+        }
+        if (ch === '\\') {
+          escape = true
+          continue
+        }
+        if (ch === '"') {
+          inString = false
+        }
+        continue
+      }
+
+      if (ch === '"') {
+        inString = true
+        continue
+      }
+
+      if (ch === openChar) depth++
+      if (ch === closeChar) depth--
+
+      if (depth === 0) {
+        return trimmed.slice(startIndex, i + 1)
+      }
+    }
+
+    return null
+  }
+
+  private normalizeOutputContent(content: string, expectedOutputType?: unknown): string {
+    const expected = typeof expectedOutputType === 'string' ? expectedOutputType : undefined
+    if (!expected) return content
+
+    if (expected === 'json') {
+      const extracted = this.extractJsonFromText(content)
+      if (!extracted) return content
+      try {
+        const parsed = JSON.parse(extracted)
+        return JSON.stringify(parsed)
+      } catch {
+        return content
+      }
+    }
+
+    if (expected === 'html') {
+      const trimmed = content.trim()
+      const fenceMatch = trimmed.match(/```(?:html)?\s*([\s\S]*?)\s*```/i)
+      if (fenceMatch?.[1]) return fenceMatch[1].trim()
+      const firstTag = trimmed.indexOf('<')
+      if (firstTag !== -1) return trimmed.slice(firstTag)
+      return content
+    }
+
+    return content
+  }
+
+  private normalizeMaxTokens(configMaxTokens: unknown): number | undefined {
+    if (typeof configMaxTokens !== 'number') return undefined
+    if (!Number.isFinite(configMaxTokens) || configMaxTokens <= 0) return undefined
+
+    // Guardrail: overly-large maxTokens often causes gateway/provider instability.
+    const HARD_CAP = 16_384
+    if (configMaxTokens > HARD_CAP) return undefined
+    return Math.floor(configMaxTokens)
+  }
+
   async process(
     node: NodeConfig,
     context: ExecutionContext
   ): Promise<NodeOutput> {
     const startedAt = new Date()
     const processNode = node as ProcessNodeWithToolsConfig
+
+    let provider: string | undefined
+    let model: string | undefined
+    let temperature: number | undefined
+    let maxTokens: number | undefined
+    let systemPrompt = ''
+    let userPromptText = ''
+    let toolChoice: 'auto' | 'none' | 'required' | undefined
+    let maxRounds: number | undefined
 
     // 确保工具已初始化
     initializeDefaultTools()
@@ -89,6 +199,7 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
         processNode.config?.aiConfigId,
         context
       )
+      provider = aiConfig?.provider
 
       if (!aiConfig) {
         throw new Error(
@@ -102,7 +213,7 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
       })
 
       // 2. 构建系统提示词
-      let systemPrompt = processNode.config?.systemPrompt || ''
+      systemPrompt = processNode.config?.systemPrompt || ''
       context.addLog?.('step', '正在构建系统提示词...', 'PROMPT')
 
       await ensureImportedFilesFromContext(context)
@@ -131,7 +242,7 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
       context.addLog?.('step', '正在解析用户提示词变量 (支持多模态)...', 'VARIABLE')
 
       const userContentParts = createContentPartsFromText(rawUserPrompt, context)
-      const userPromptText = userContentParts
+      userPromptText = userContentParts
         .map(p => p.type === 'text' ? p.text : `[${p.type}]`)
         .join('')
 
@@ -193,7 +304,7 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
         ? enabledToolNames
         : processNode.config?.enabledTools
 
-      const model = processNode.config?.model || aiConfig.defaultModel
+      model = processNode.config?.model || aiConfig.defaultModel
       const { openaiTools, claudeTools, toolDescriptions } = this.prepareToolsWithDescriptions(
         enableToolCalling,
         finalEnabledTools,
@@ -243,7 +354,7 @@ ${toolListText}${toolConfigText}
         messages.push({ role: 'user', content: userContentParts })
       }
 
-      const maxRounds = processNode.config?.maxToolCallRounds ?? 5 // default increased
+      maxRounds = processNode.config?.maxToolCallRounds ?? 5 // default increased
 
       // 如果启用了生成类工具（图片/视频/音频），自动使用 required 模式确保工具被调用
       const generativeTools = ['image_gen_ai', 'video_gen_ai', 'audio_gen_ai']
@@ -251,6 +362,7 @@ ${toolListText}${toolConfigText}
       const effectiveToolChoice = hasGenerativeTool 
         ? 'required' as const
         : (processNode.config?.toolChoice || 'auto') as 'auto' | 'none' | 'required'
+      toolChoice = effectiveToolChoice
 
       // 7. 执行带工具的 AI 调用
       context.addLog?.('step', '开始执行 AI 处理 (带工具支持)...', 'EXECUTE', {
@@ -277,8 +389,15 @@ ${toolListText}${toolConfigText}
 
       // 如果用户没有指定 maxTokens 或设置为 -1（无限制），传递 undefined 让 API 使用模型默认最大值
       const configMaxTokens = processNode.config?.maxTokens
-      const maxTokens = (configMaxTokens === undefined || configMaxTokens === -1) ? undefined : configMaxTokens
+      maxTokens = this.normalizeMaxTokens(configMaxTokens)
+      if (typeof configMaxTokens === 'number' && configMaxTokens > 0 && maxTokens === undefined) {
+        context.addLog?.('warning', `maxTokens=${configMaxTokens} 过大，已忽略并使用模型默认值`, 'MODEL_CONFIG', {
+          requestedMaxTokens: configMaxTokens,
+          effectiveMaxTokens: null,
+        })
+      }
 
+      temperature = processNode.config?.temperature ?? 0.7
       const result = await this.executeWithTools(
         aiConfig,
         model,
@@ -286,7 +405,7 @@ ${toolListText}${toolConfigText}
         openaiTools,
         claudeTools,
         effectiveToolChoice,
-        processNode.config?.temperature ?? 0.7,
+        temperature,
         maxTokens,
         maxRounds,
         context
@@ -298,12 +417,25 @@ ${toolListText}${toolConfigText}
         toolCallsCount: result.toolCallHistory.length
       })
 
+      const normalizedContent = this.normalizeOutputContent(
+        result.content,
+        processNode.config?.expectedOutputType
+      )
+
       // 基础输出数据：始终保留文本结果与工具调用历史
       const data: Record<string, unknown> = {
-        结果: result.content,
+        结果: normalizedContent,
         model: result.model,
         toolCalls: result.toolCallHistory,
         toolCallRounds: result.rounds,
+        _meta: {
+          finishReason: result.finishReason,
+          segments: result.segments ?? 1,
+          wasAutoContinued: (result.segments ?? 1) > 1,
+          requestedMaxTokens: configMaxTokens ?? null,
+          effectiveMaxTokens: maxTokens ?? null,
+          truncated: result.finishReason === 'length',
+        },
       }
 
       let outputType: OutputType | undefined
@@ -365,6 +497,18 @@ ${toolListText}${toolConfigText}
         nodeName: node.name,
         nodeType: node.type,
         status: 'success',
+        input: {
+          provider: aiConfig.provider,
+          model,
+          temperature,
+          maxTokens: maxTokens ?? null,
+          toolChoice: toolChoice ?? null,
+          maxRounds: maxRounds ?? null,
+          systemPrompt,
+          userPrompt: userPromptText,
+          messageCount: messages.length,
+          hasTools: (openaiTools.length + claudeTools.length) > 0,
+        },
         data,
         outputType,
         aiProvider: aiConfig.provider,
@@ -385,9 +529,10 @@ ${toolListText}${toolConfigText}
         const hint = getNetworkErrorHint(error)
         context.addLog?.('error', `网络连接错误: ${errorMessage}`, 'NETWORK_ERROR', {
           hint,
-          suggestion: '请检查网络连接，或稍后重试'
+          suggestion: '请检查网络连接，或稍后重试',
         })
-        if (hint) {
+
+        if (!isFormattedNetworkError(error) && hint) {
           errorMessage = `${errorMessage}\n\n可能原因: ${hint}\n\n建议: 检查网络连接是否正常，如使用代理请确认配置正确，稍后重试`
         }
       } else {
@@ -404,6 +549,16 @@ ${toolListText}${toolConfigText}
         nodeName: node.name,
         nodeType: node.type,
         status: 'error',
+        input: {
+          provider: provider ?? null,
+          model: model ?? null,
+          temperature: temperature ?? null,
+          maxTokens: maxTokens ?? null,
+          toolChoice: toolChoice ?? null,
+          maxRounds: maxRounds ?? null,
+          systemPrompt: systemPrompt || null,
+          userPrompt: userPromptText || null,
+        },
         data: {},
         error: errorMessage,
         startedAt,
@@ -636,6 +791,8 @@ ${toolListText}${toolConfigText}
     usage: { promptTokens: number; completionTokens: number; totalTokens: number }
     toolCallHistory: Array<{ call: ToolCall; result: ToolCallResult }>
     rounds: number
+    finishReason: ChatResponseWithTools['finishReason']
+    segments?: number
   }> {
     const toolCallHistory: Array<{ call: ToolCall; result: ToolCallResult }> = []
     let messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | any[]; tool_calls?: ToolCall[] }> = [...initialMessages]
@@ -666,16 +823,27 @@ ${toolListText}${toolConfigText}
       const startTime = Date.now()
 
       // 调用 AI
-      const response = await this.callAIWithTools(
-        aiConfig,
-        model,
-        messages,
-        openaiTools,
-        claudeTools,
-        toolChoice,
-        temperature,
-        maxTokens
-      )
+      let response: ChatResponseWithTools
+      try {
+        response = await this.callAIWithTools(
+          aiConfig,
+          model,
+          messages,
+          openaiTools,
+          claudeTools,
+          toolChoice,
+          temperature,
+          maxTokens
+        )
+      } catch (err) {
+        if (isFormattedNetworkError(err)) {
+          throw err
+        }
+        if (isRetryableNetworkError(err)) {
+          throw formatNetworkError(err, 'AI 调用失败')
+        }
+        throw err
+      }
 
       console.log(`[PROCESS_WITH_TOOLS] 第 ${rounds} 轮 AI 响应完成，耗时 ${Date.now() - startTime}ms`)
 
@@ -797,13 +965,157 @@ ${toolListText}${toolConfigText}
       }
     }
 
+    // 如果最终是因为长度截断，自动续写拼接，确保输出完整
+    let finalContent = lastResponse?.content || ''
+    let finalModel = lastResponse?.model || model
+    let finalFinishReason = lastResponse?.finishReason || 'stop'
+    let segments = 1
+
+    if (this.isTruncationFinishReason(finalFinishReason)) {
+      const continued = await this.autoContinueFinalText({
+        aiConfig,
+        model,
+        temperature,
+        maxTokens,
+        initialMessages,
+        contentSoFar: finalContent,
+        context,
+      })
+
+      finalContent = continued.content
+      finalModel = continued.model
+      finalFinishReason = continued.finishReason
+      segments = continued.segments
+
+      totalUsage.promptTokens += continued.usage.promptTokens
+      totalUsage.completionTokens += continued.usage.completionTokens
+      totalUsage.totalTokens += continued.usage.totalTokens
+    }
+
     return {
-      content: lastResponse?.content || '',
-      model: lastResponse?.model || model,
+      content: finalContent,
+      model: finalModel,
       usage: totalUsage,
       toolCallHistory,
       rounds,
+      finishReason: finalFinishReason,
+      segments,
     }
+  }
+
+  private isTruncationFinishReason(reason: string | undefined): boolean {
+    const r = (reason || '').toLowerCase()
+    return r === 'length' || r === 'max_tokens' || r.includes('max_tokens') || r.includes('length')
+  }
+
+  private extractMaxTokenHintFromError(message: string): number | null {
+    const patterns: RegExp[] = [
+      /\bmax[_\s-]?tokens?\b[^0-9]{0,40}\b(?:<=|less than or equal to)\s*(\d{2,7})/i,
+      /\bbetween\s+1\s+and\s+(\d{2,7})\b/i,
+    ]
+    for (const re of patterns) {
+      const m = message.match(re)
+      if (m?.[1]) {
+        const n = Number(m[1])
+        if (Number.isFinite(n) && n > 0) return n
+      }
+    }
+    return null
+  }
+
+  private async autoContinueFinalText(options: {
+    aiConfig: AIConfigCache
+    model: string
+    temperature: number
+    maxTokens: number | undefined
+    initialMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | any[]; tool_calls?: ToolCall[] }>
+    contentSoFar: string
+    context: ExecutionContext
+  }): Promise<{
+    content: string
+    model: string
+    usage: { promptTokens: number; completionTokens: number; totalTokens: number }
+    finishReason: ChatResponseWithTools['finishReason']
+    segments: number
+  }> {
+    const maxSegments = 20
+    const tailChars = 4000
+    const overlapProbeChars = 2000
+
+    let merged = options.contentSoFar || ''
+    let segments = 1
+    let totalUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+    let lastFinishReason: ChatResponseWithTools['finishReason'] = 'length'
+    let lastModel = options.model
+
+    while (segments < maxSegments && this.isTruncationFinishReason(lastFinishReason)) {
+      const tail = merged.slice(-tailChars)
+
+      const systemMsg = options.initialMessages.find(m => m.role === 'system')
+      const lastUserMsg = [...options.initialMessages].reverse().find(m => m.role === 'user')
+      const userSummary =
+        typeof lastUserMsg?.content === 'string'
+          ? lastUserMsg.content.slice(0, 2000)
+          : '[non-text user content]'
+
+      const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+        ...(systemMsg && typeof systemMsg.content === 'string' ? [{ role: 'system' as const, content: systemMsg.content }] : []),
+        {
+          role: 'user' as const,
+          content:
+            `任务指令（摘要）：\n${userSummary}\n\n` +
+            `请继续输出，从上一次输出的末尾继续，不要重复已输出内容。\n` +
+            `上一次输出的末尾如下（不要重复这段）：\n${tail}\n\n` +
+            `直接续写正文，不要解释。`,
+        },
+      ]
+
+      const next = await this.callAIWithToolsAdaptive({
+        aiConfig: options.aiConfig,
+        model: options.model,
+        messages,
+        openaiTools: [],
+        claudeTools: [],
+        toolChoice: 'none',
+        temperature: options.temperature,
+        maxTokens: options.maxTokens,
+      })
+
+      const nextContent = next.content || ''
+      const probe = merged.slice(-overlapProbeChars)
+      const deduped = this.removeLeadingOverlap(probe, nextContent)
+      merged += deduped
+
+      totalUsage.promptTokens += next.usage.promptTokens
+      totalUsage.completionTokens += next.usage.completionTokens
+      totalUsage.totalTokens += next.usage.totalTokens
+
+      segments++
+      lastFinishReason = next.finishReason
+      lastModel = next.model
+      options.context.addLog?.('info', `输出被截断，已自动续写拼接 (段 ${segments})`, 'MODEL_CONFIG', {
+        model: options.model,
+        finishReason: next.finishReason,
+      })
+    }
+
+    return {
+      content: merged,
+      model: lastModel,
+      usage: totalUsage,
+      finishReason: this.isTruncationFinishReason(lastFinishReason) ? lastFinishReason : 'stop',
+      segments,
+    }
+  }
+
+  private removeLeadingOverlap(prevTail: string, next: string): string {
+    if (!prevTail || !next) return next
+    const max = Math.min(prevTail.length, next.length, 2000)
+    for (let len = max; len >= 50; len--) {
+      const suffix = prevTail.slice(-len)
+      if (next.startsWith(suffix)) return next.slice(len)
+    }
+    return next
   }
 
   /**
@@ -862,52 +1174,117 @@ ${toolListText}${toolConfigText}
     temperature: number,
     maxTokens: number | undefined
   ): Promise<ChatResponseWithTools> {
-    const isClaudeProvider = this.isClaudeFormat(aiConfig.provider, model)
+    return this.callAIWithToolsAdaptive({
+      aiConfig,
+      model,
+      messages,
+      openaiTools,
+      claudeTools,
+      toolChoice,
+      temperature,
+      maxTokens,
+    })
+  }
+
+  private async callAIWithToolsAdaptive(options: {
+    aiConfig: AIConfigCache
+    model: string
+    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | any[]; tool_calls?: ToolCall[] }>
+    openaiTools: OpenAITool[]
+    claudeTools: ClaudeTool[]
+    toolChoice: 'auto' | 'none' | 'required'
+    temperature: number
+    maxTokens: number | undefined
+  }): Promise<ChatResponseWithTools> {
+    const isClaudeProvider = this.isClaudeFormat(options.aiConfig.provider, options.model)
 
     console.log('[callAIWithTools] API 选择:', {
-      provider: aiConfig.provider,
-      model,
+      provider: options.aiConfig.provider,
+      model: options.model,
       isClaudeProvider,
       willUseEndpoint: isClaudeProvider ? '/v1/messages' : '/v1/chat/completions',
-      toolCount: isClaudeProvider ? claudeTools.length : openaiTools.length,
+      toolCount: isClaudeProvider ? options.claudeTools.length : options.openaiTools.length,
     })
 
-    if (isClaudeProvider) {
-      // Claude 的 tool_choice 格式不同
-      let claudeToolChoice: { type: 'auto' | 'any' | 'tool'; name?: string } | undefined
-      if (toolChoice === 'required') {
-        claudeToolChoice = { type: 'any' }
-      } else if (toolChoice === 'auto') {
-        claudeToolChoice = { type: 'auto' }
-      }
-      // toolChoice === 'none' 时不传 tool_choice
+    let currentMax = options.maxTokens
+    let attempt = 0
+    const maxAttempts = 6
 
-      return this.anthropicProvider.chatWithTools(
-        {
-          model,
-          messages,
-          tools: claudeTools,
-          tool_choice: claudeToolChoice,
-          temperature,
-          maxTokens,
-        },
-        aiConfig.apiKey,
-        aiConfig.baseUrl
-      )
+    while (attempt < maxAttempts) {
+      attempt++
+      try {
+        if (isClaudeProvider) {
+          // Claude 的 tool_choice 格式不同
+          let claudeToolChoice: { type: 'auto' | 'any' | 'tool'; name?: string } | undefined
+          if (options.toolChoice === 'required') {
+            claudeToolChoice = { type: 'any' }
+          } else if (options.toolChoice === 'auto') {
+            claudeToolChoice = { type: 'auto' }
+          }
+          // toolChoice === 'none' 时不传 tool_choice
+
+          return await this.anthropicProvider.chatWithTools(
+            {
+              model: options.model,
+              messages: options.messages,
+              tools: options.claudeTools,
+              tool_choice: claudeToolChoice,
+              temperature: options.temperature,
+              maxTokens: currentMax,
+            },
+            options.aiConfig.apiKey,
+            options.aiConfig.baseUrl
+          )
+        }
+
+        // 默认使用 OpenAI 兼容格式
+        return await this.openaiProvider.chatWithTools(
+          {
+            model: options.model,
+            messages: options.messages,
+            tools: options.openaiTools,
+            tool_choice: options.toolChoice,
+            temperature: options.temperature,
+            maxTokens: currentMax,
+          },
+          options.aiConfig.apiKey,
+          options.aiConfig.baseUrl
+        )
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        const hinted = this.extractMaxTokenHintFromError(msg)
+        if (hinted && hinted > 0) {
+          const next = Math.max(1, hinted)
+          if (next === currentMax) throw err
+          currentMax = next
+          continue
+        }
+
+        const looksTokenRelated =
+          msg.toLowerCase().includes('max_tokens') ||
+          msg.toLowerCase().includes('maximum context') ||
+          msg.toLowerCase().includes('context length') ||
+          msg.toLowerCase().includes('too many tokens')
+
+        if (!looksTokenRelated) throw err
+        if (!currentMax || currentMax <= 1) throw err
+
+        currentMax = Math.max(1, Math.floor(currentMax / 2))
+      }
     }
 
-    // 默认使用 OpenAI 兼容格式
+    // Should not reach here
     return this.openaiProvider.chatWithTools(
       {
-        model,
-        messages,
-        tools: openaiTools,
-        tool_choice: toolChoice,
-        temperature,
-        maxTokens,
+        model: options.model,
+        messages: options.messages,
+        tools: options.openaiTools,
+        tool_choice: options.toolChoice,
+        temperature: options.temperature,
+        maxTokens: currentMax,
       },
-      aiConfig.apiKey,
-      aiConfig.baseUrl
+      options.aiConfig.apiKey,
+      options.aiConfig.baseUrl
     )
   }
 

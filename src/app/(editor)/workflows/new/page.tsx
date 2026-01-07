@@ -342,7 +342,7 @@ function WorkflowEditor() {
             >
               <Background gap={15} />
               <Controls />
-              <MiniMap />
+              <MiniMap pannable zoomable />
               <Panel
                 position="top-left"
                 className="text-xs text-muted-foreground"

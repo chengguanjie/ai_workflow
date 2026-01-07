@@ -4,6 +4,9 @@
  * SSE 执行进度订阅 Hook
  *
  * 订阅工作流执行的实时进度事件
+ * 
+ * 注意：使用 useRef 存储回调函数以避免无限循环
+ * 当回调函数变化时不会导致 connect/disconnect 函数重新创建
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
@@ -66,8 +69,32 @@ export function useExecutionStream(
 
   const eventSourceRef = useRef<EventSource | null>(null)
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // 使用 ref 存储回调函数，避免回调变化导致 connect 函数重新创建
+  // 这是解决 "Maximum update depth exceeded" 错误的关键
+  const onEventRef = useRef(onEvent)
+  const onCompleteRef = useRef(onComplete)
+  const onErrorRef = useRef(onError)
+  const enabledRef = useRef(enabled)
+  
+  // 同步更新 ref 值
+  useEffect(() => {
+    onEventRef.current = onEvent
+  }, [onEvent])
+  
+  useEffect(() => {
+    onCompleteRef.current = onComplete
+  }, [onComplete])
+  
+  useEffect(() => {
+    onErrorRef.current = onError
+  }, [onError])
+  
+  useEffect(() => {
+    enabledRef.current = enabled
+  }, [enabled])
 
-  // 清理函数
+  // 清理函数 - 不依赖任何外部变量
   const cleanup = useCallback(() => {
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current)
@@ -80,17 +107,17 @@ export function useExecutionStream(
     setIsConnected(false)
   }, [])
 
-  // 断开连接
+  // 断开连接 - 稳定的函数引用
   const disconnect = useCallback(() => {
     cleanup()
     setLastEvent(null)
     setError(null)
   }, [cleanup])
 
-  // 连接到 SSE 流
+  // 连接到 SSE 流 - 使用 ref 访问回调，避免依赖变化
   const connect = useCallback(
     (executionId: string) => {
-      if (!enabled) return
+      if (!enabledRef.current) return
 
       // 清理之前的连接
       cleanup()
@@ -111,15 +138,15 @@ export function useExecutionStream(
             const data: ExecutionProgressEvent = JSON.parse(event.data)
             setLastEvent(data)
 
-            // 调用外部回调
-            onEvent?.(data)
+            // 通过 ref 调用外部回调，避免闭包捕获旧值
+            onEventRef.current?.(data)
 
             // 检查执行是否完成
             if (data.type === 'execution_complete' || data.type === 'execution_error') {
               if (data.type === 'execution_complete') {
-                onComplete?.(data)
+                onCompleteRef.current?.(data)
               } else {
-                onError?.(data.error || '执行失败')
+                onErrorRef.current?.(data.error || '执行失败')
               }
               // 完成后自动关闭连接
               cleanup()
@@ -142,16 +169,16 @@ export function useExecutionStream(
           // 连接错误，设置错误状态
           const errorMessage = 'SSE 连接失败'
           setError(errorMessage)
-          onError?.(errorMessage)
+          onErrorRef.current?.(errorMessage)
           cleanup()
         }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : '无法连接到执行流'
         setError(errorMessage)
-        onError?.(errorMessage)
+        onErrorRef.current?.(errorMessage)
       }
     },
-    [enabled, cleanup, onEvent, onComplete, onError]
+    [cleanup] // 只依赖 cleanup，不依赖回调函数
   )
 
   // 组件卸载时清理

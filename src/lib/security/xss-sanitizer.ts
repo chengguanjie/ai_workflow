@@ -101,6 +101,8 @@ export function sanitizeHtml(html: string, options?: SanitizeHtmlOptions): strin
   const allowedTags = options?.allowedTags ?? DEFAULT_ALLOWED_TAGS
   const allowedAttributes = options?.allowedAttributes ?? DEFAULT_ALLOWED_ATTRIBUTES
 
+  const allowDataUri = Boolean(options?.allowDataUri)
+
   // Build DOMPurify configuration
   const config: Record<string, unknown> = {
     ALLOWED_TAGS: allowedTags,
@@ -119,28 +121,44 @@ export function sanitizeHtml(html: string, options?: SanitizeHtmlOptions): strin
   }
 
   // Disable data: URIs unless explicitly allowed
-  if (!options?.allowDataUri) {
-    config.ALLOW_UNKNOWN_PROTOCOLS = false
-  }
+  config.ALLOW_UNKNOWN_PROTOCOLS = false
+
+  // Explicitly restrict allowed URI schemes (defense-in-depth)
+  // - Allows: http(s), mailto, tel
+  // - Allows relative URLs and plain text (no scheme)
+  // - Optionally allows data:image/* when allowDataUri=true (still blocks data:text/html)
+  config.ALLOWED_URI_REGEXP = allowDataUri
+    ? /^(?:(?:https?|mailto|tel):|data:image\/|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i
+    : /^(?:(?:https?|mailto|tel):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i
 
   // Add hook to sanitize style attributes
-  DOMPurify.addHook('uponSanitizeAttribute', (node: Element, data: { attrName: string; attrValue: string }) => {
+  DOMPurify.addHook('uponSanitizeAttribute', (_node: Element, data: { attrName: string; attrValue: string; keepAttr?: boolean }) => {
     if (data.attrName === 'style') {
       data.attrValue = sanitizeCssInline(data.attrValue)
     }
     // Remove javascript: from href/src
-    if (data.attrName === 'href' || data.attrName === 'src') {
-      const value = data.attrValue.toLowerCase().trim()
-      if (value.startsWith('javascript:') || value.startsWith('vbscript:')) {
+    if (data.attrName === 'href' || data.attrName === 'src' || data.attrName === 'xlink:href') {
+      const value = (data.attrValue || '').toLowerCase().trim()
+      const isJs = value.startsWith('javascript:') || value.startsWith('vbscript:')
+      const isBadData = value.startsWith('data:text/html') || value.startsWith('data:application/xhtml+xml')
+      const isAnyData = value.startsWith('data:')
+
+      if (isJs || isBadData || (!allowDataUri && isAnyData)) {
         data.attrValue = ''
+        data.keepAttr = false
       }
     }
   })
 
-  const result = DOMPurify.sanitize(html, config) as string
+  let result = DOMPurify.sanitize(html, config) as string
 
   // Remove the hook after use to avoid affecting other calls
   DOMPurify.removeHook('uponSanitizeAttribute')
+
+  // Final hardening pass: strip dangerous URL schemes in case DOMPurify implementation changes.
+  result = result
+    .replace(/\b(href|src)\s*=\s*(["'])\s*(?:javascript|vbscript)\s*:[\s\S]*?\2/gi, '$1=""')
+    .replace(/\b(href|src)\s*=\s*(["'])\s*data\s*:\s*text\/html[\s\S]*?\2/gi, '$1=""')
 
   return result
 }

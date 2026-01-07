@@ -62,6 +62,7 @@ export function ProcessNodeConfigPanel({
     userPrompt?: string
     temperature?: number
     maxTokens?: number
+    isMaxTokensManuallySet?: boolean
     tools?: ToolConfig[] // 工具配置
     enableToolCalling?: boolean // 是否启用工具调用
     // 多模态配置
@@ -81,6 +82,7 @@ export function ProcessNodeConfigPanel({
     transcriptionFormat?: string
     embeddingDimensions?: number
     expectedOutputType?: OutputType
+    isOutputTypeManuallySet?: boolean // 标记用户是否手动选择过输出类型
   } || {}
 
   // Avoid stale-closure updates from async effects overwriting user-edited config (e.g. expectedOutputType).
@@ -115,6 +117,15 @@ export function ProcessNodeConfigPanel({
 
           // 在调用 onUpdate 之前获取最新的配置，避免覆盖用户在 fetch 期间做出的选择
           const latestConfig = processConfigRef.current
+          const latestModel = latestConfig.model
+          const defaultProvider = data.data?.defaultProvider || providerList[0]
+          const providerFromConfig = latestConfig.aiConfigId
+            ? providerList.find((p: AIProviderConfig) => p.id === latestConfig.aiConfigId)
+            : undefined
+          const providerForModel = latestModel
+            ? providerList.find((p: AIProviderConfig) => p.models.includes(latestModel))
+            : undefined
+          const selectedProvider = providerFromConfig || providerForModel || defaultProvider
 
           // 如果节点已经有 model 配置，不要覆盖它
           // 只有在以下情况才设置默认值：
@@ -123,28 +134,28 @@ export function ProcessNodeConfigPanel({
           // 3. 或者用户主动切换了 modality
           const hasExistingModel = !!latestConfig.model
           if (hasExistingModel) {
-            // 节点已有 model 配置，只需检查 aiConfigId 是否需要设置
-            if (!latestConfig.aiConfigId && data.data?.defaultProvider) {
+            // 节点已有 model 配置：修复/补全 aiConfigId（必须是可用配置）
+            if (selectedProvider?.id && selectedProvider.id !== latestConfig.aiConfigId) {
               // 重新获取最新配置，确保不覆盖用户的选择
               const freshConfig = processConfigRef.current
               updateConfig({
                 ...freshConfig,
                 modality: FIXED_MODALITY,
-                aiConfigId: data.data.defaultProvider.id,
+                aiConfigId: selectedProvider.id,
               })
             }
           } else {
             // 节点没有 model 配置时，为其设置文本模态的默认模型
-            if (data.data?.defaultProvider) {
+            if (selectedProvider) {
               const defaultModel =
                 SHENSUAN_DEFAULT_MODELS[FIXED_MODALITY] ||
-                data.data.defaultProvider.defaultModel
+                selectedProvider.defaultModel
               // 重新获取最新配置，确保不覆盖用户的选择
               const freshConfig = processConfigRef.current
               updateConfig({
                 ...freshConfig,
                 modality: FIXED_MODALITY,
-                aiConfigId: data.data.defaultProvider.id,
+                aiConfigId: selectedProvider.id,
                 model: defaultModel,
               })
             }
@@ -185,13 +196,18 @@ export function ProcessNodeConfigPanel({
 
   /**
    * 根据当前的 userPrompt 和 tools，尝试自动推断一个更贴合意图的 expectedOutputType。
-   * 仅在用户尚未显式设置非默认输出类型时生效（默认 text 模态对应 json）。
+   * 仅在用户尚未手动选择输出类型时生效。
    */
   const withIntentExpectedOutputType = (
     baseConfig: typeof processConfig,
     overrides: Partial<typeof processConfig>
   ): typeof processConfig => {
     const merged = { ...baseConfig, ...overrides }
+
+    // 如果用户已手动选择过输出类型，则不进行自动推断覆盖
+    if (merged.isOutputTypeManuallySet) {
+      return merged
+    }
 
     const guessed = guessOutputTypeFromPromptAndTools({
       userPrompt: merged.userPrompt,
@@ -203,7 +219,7 @@ export function ProcessNodeConfigPanel({
     const currentExpected = merged.expectedOutputType as OutputType | undefined
     const defaultForText = MODALITY_TO_OUTPUT_TYPE[FIXED_MODALITY]
 
-    // 如果之前没有设置，或者仍然是文本模态的默认 json，则用意图推断的结果覆盖
+    // 如果之前没有设置，或者仍然是文本模态的默认值，则用意图推断的结果覆盖
     if (!currentExpected || currentExpected === defaultForText) {
       return {
         ...merged,
@@ -211,14 +227,25 @@ export function ProcessNodeConfigPanel({
       }
     }
 
-    // 用户已经有了明确的非默认选择，则不强制覆盖
-    return merged
+    // 已有非默认输出类型设置（可能是之前AI推断的），可以继续推断更新
+    return {
+      ...merged,
+      expectedOutputType: guessed,
+    }
   }
 
   const handleChange = (key: string, value: unknown) => {
     // 使用 ref 获取最新配置，避免闭包问题
     const latestConfig = processConfigRef.current
     let nextConfig: typeof processConfig = { ...latestConfig, [key]: value }
+
+    if (key === 'maxTokens') {
+      nextConfig = {
+        ...latestConfig,
+        maxTokens: value as number,
+        isMaxTokensManuallySet: true,
+      }
+    }
 
     // 当用户修改 userPrompt 时，尝试基于提示词 + 工具配置推断期望输出类型
     if (key === 'userPrompt') {
@@ -242,7 +269,18 @@ export function ProcessNodeConfigPanel({
     // 使用 ref 获取最新配置
     const latestConfig = processConfigRef.current
 
-    // 只有当还没有设置 expectedOutputType 时，才会自动写入，避免覆盖用户手工选择
+    // 如果用户已手动选择过输出类型，只同步 modality，不覆盖 expectedOutputType
+    if (latestConfig.isOutputTypeManuallySet) {
+      if (latestConfig.modality !== nextModality) {
+        updateConfig({
+          ...latestConfig,
+          modality: nextModality,
+        })
+      }
+      return
+    }
+
+    // 只有当还没有设置 expectedOutputType 时，才会自动写入
     if (!latestConfig.expectedOutputType) {
       updateConfig({
         ...latestConfig,
@@ -251,7 +289,7 @@ export function ProcessNodeConfigPanel({
       })
     } else if (latestConfig.modality !== nextModality) {
       // 如果之前的模态和现在不一致，同时当前的 expectedOutputType 仍然是旧模态默认值，
-      // 则认为用户没有手动修改过，可以安全地跟随模态更新。
+      // 则认为是AI自动推断的，可以安全地跟随模态更新。
       const previousMapped = latestConfig.modality
         ? MODALITY_TO_OUTPUT_TYPE[latestConfig.modality as ModelModality]
         : undefined
@@ -262,10 +300,11 @@ export function ProcessNodeConfigPanel({
           expectedOutputType: mapped,
         })
       } else {
-        // 用户已经手动调整过输出类型，只同步 modality，不再强制覆盖 expectedOutputType
+        // 非默认值但不是用户手动设置（可能是之前AI推断的），可以更新
         updateConfig({
           ...latestConfig,
           modality: nextModality,
+          expectedOutputType: mapped,
         })
       }
     }
@@ -343,6 +382,8 @@ export function ProcessNodeConfigPanel({
     updateConfig({
       ...latestConfig,
       expectedOutputType: type,
+      // 标记用户已手动选择输出类型，后续不再自动覆盖
+      isOutputTypeManuallySet: true,
     })
   }, [updateConfig])
 
@@ -468,7 +509,7 @@ export function ProcessNodeConfigPanel({
                         <Input
                           type="number"
                           min="1"
-                          max="128000"
+                          max="300000"
                           value={processConfig.maxTokens || DEFAULT_MAX_TOKENS}
                           onChange={(e) => handleChange('maxTokens', parseInt(e.target.value))}
                           className="flex-1"
@@ -494,7 +535,7 @@ export function ProcessNodeConfigPanel({
                     <p className="text-xs text-muted-foreground">
                       {processConfig.maxTokens === UNLIMITED_TOKENS 
                         ? "无限制模式：使用模型最大输出长度，可能增加成本和响应时间" 
-                        : "建议值：10000。点击右侧按钮可启用无限制输出"}
+                        : `默认值：${DEFAULT_MAX_TOKENS}。点击右侧按钮可启用无限制输出`}
                     </p>
                   </div>
                 </div>

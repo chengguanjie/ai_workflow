@@ -5,7 +5,7 @@
 
 import { prisma } from '@/lib/db'
 import { Prisma, ExecutionType } from '@prisma/client'
-import type { WorkflowConfig, NodeConfig, EdgeConfig, ParallelErrorStrategy } from '@/types/workflow'
+import type { WorkflowConfig, NodeConfig, EdgeConfig, ParallelErrorStrategy, ProcessNodeConfig } from '@/types/workflow'
 import type {
   ExecutionContext,
   ExecutionResult,
@@ -32,6 +32,48 @@ import {
 } from './engine/executor'
 import { WorkflowErrorHandler } from './error-handler'
 import { calculateTokenCostUSD } from '@/lib/ai/cost'
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+/**
+ * 将 PROCESS 节点的静态知识库(knowledgeItems)注入到 globalVariables，
+ * 以支持在提示词中使用 `{{节点名.知识库.条目名}}` 形式引用。
+ *
+ * 同时写入 node.name 与 node.id 两个 key，兼容按名称/ID 引用。
+ */
+function seedStaticKnowledgeIntoGlobals(
+  nodes: WorkflowConfig['nodes'],
+  globalVariables: Record<string, unknown>
+): void {
+  for (const node of nodes) {
+    if (node.type !== 'PROCESS') continue
+    const processNode = node as ProcessNodeConfig
+    const knowledgeItems = processNode.config?.knowledgeItems || []
+    if (!Array.isArray(knowledgeItems) || knowledgeItems.length === 0) continue
+
+    const knowledgeMap: Record<string, unknown> = {}
+    for (const item of knowledgeItems) {
+      if (!item || typeof item !== 'object') continue
+      const name = (item as any).name
+      const content = (item as any).content
+      if (typeof name === 'string' && name.trim() && typeof content === 'string') {
+        knowledgeMap[name.trim()] = content
+      }
+    }
+    if (Object.keys(knowledgeMap).length === 0) continue
+
+    const keyCandidates = [node.name, node.id].filter(Boolean)
+    for (const key of keyCandidates) {
+      const existing = globalVariables[key]
+      const container = isRecord(existing) ? existing : {}
+      const existingKb = isRecord(container['知识库']) ? (container['知识库'] as Record<string, unknown>) : {}
+      container['知识库'] = { ...existingKb, ...knowledgeMap }
+      globalVariables[key] = container
+    }
+  }
+}
 
 /**
  * 执行选项
@@ -272,6 +314,7 @@ export class WorkflowEngine {
       )
 
       this.applyInitialInput(context, initialInput)
+      seedStaticKnowledgeIntoGlobals(this.config.nodes, context.globalVariables)
 
       let result: {
         totalTokens: number
@@ -959,7 +1002,11 @@ export async function executeWorkflow(
   let config: WorkflowConfig
 
   if (mode === 'production') {
-    const rawConfig = workflow.publishedConfig || workflow.config
+    // Use publishedConfig only when the workflow is actually published.
+    // For DRAFT/DRAFT_MODIFIED, `publishedConfig` may be stale and should not override the latest config.
+    const rawConfig = workflow.publishStatus === 'PUBLISHED'
+      ? (workflow.publishedConfig || workflow.config)
+      : workflow.config
     config = rawConfig as unknown as WorkflowConfig
   } else {
     const rawConfig = workflow.draftConfig || workflow.config

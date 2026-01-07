@@ -11,7 +11,8 @@ import { PrismaClient } from '@prisma/client'
 const prisma = new PrismaClient()
 
 // API Token - 用于执行工作流
-const API_TOKEN = 'wf_xIQi-ljimvi3LudxmHXpU7Fjy3g_VVAaLpaZLq39NXI'
+// 注意：不要把 Token 硬编码进仓库；请通过环境变量提供
+const API_TOKEN = process.env.WORKFLOW_API_TOKEN || process.env.API_TOKEN || ''
 
 // 基础 URL
 const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://127.0.0.1:3100'
@@ -366,7 +367,11 @@ function printDetailedOutput(log: NodeLog) {
 async function main() {
   try {
     console.log('\n🚀 开始通过 API Token 测试工作流\n')
-    console.log(`API Token: ${API_TOKEN.substring(0, 20)}...`)
+    if (!API_TOKEN) {
+      console.error('❌ 缺少 API Token：请设置环境变量 WORKFLOW_API_TOKEN')
+      process.exit(1)
+    }
+    console.log(`API Token: ${API_TOKEN.substring(0, 8)}...`)
     console.log(`Base URL: ${BASE_URL}\n`)
 
     // 1. 通过 Token 查找组织信息
