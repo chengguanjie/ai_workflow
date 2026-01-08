@@ -22,6 +22,8 @@ processors.set('CODE', codeNodeProcessor)
 processors.set('OUTPUT', outputNodeProcessor)
 processors.set('LOGIC', logicNodeProcessor)
 processors.set('GROUP', groupNodeProcessor)
+// MERGE 类型使用 logic 处理器的 merge 模式
+processors.set('MERGE', logicNodeProcessor)
 
 /**
  * 获取节点处理器

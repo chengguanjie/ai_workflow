@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
       return ApiResponse.error("缺少执行ID", 400);
     }
 
-    const execution = await prisma.execution.findUnique({
+    const execution = await prisma.execution.findFirst({
       where: { 
         id: executionId,
         organizationId: session.user.organizationId,

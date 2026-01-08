@@ -119,15 +119,36 @@ const DEFAULT_MIDDLEWARE_CONFIG: RateLimitMiddlewareConfig = {
 }
 
 // Store rate limiters per endpoint type to maintain state
-const rateLimiters = new Map<string, RateLimiter>()
+// Use Redis-based limiter if available, otherwise fall back to in-memory
+const rateLimiters = new Map<string, RateLimiter | import('@/lib/api/rate-limiter-redis').RedisRateLimiter>()
 
 /**
  * Gets or creates a rate limiter for the given configuration
+ * Uses Redis-based limiter if Redis is available, otherwise falls back to in-memory
  */
-function getRateLimiter(name: string, config: RateLimitConfig): RateLimiter {
+async function getRateLimiter(
+  name: string,
+  config: RateLimitConfig
+): Promise<RateLimiter | import('@/lib/api/rate-limiter-redis').RedisRateLimiter> {
   const key = `${name}-${config.windowMs}-${config.maxRequests}`
   
   if (!rateLimiters.has(key)) {
+    // Try to use Redis-based limiter if Redis is available
+    try {
+      const { isRedisConfigured } = await import('@/lib/redis')
+      const { createRedisRateLimiter } = await import('@/lib/api/rate-limiter-redis')
+      
+      if (isRedisConfigured()) {
+        const redisLimiter = createRedisRateLimiter(config, `ratelimit:${name}:`)
+        rateLimiters.set(key, redisLimiter)
+        return redisLimiter
+      }
+    } catch (error) {
+      // Redis not available, fall back to in-memory
+      // Silently fail - in-memory limiter will be used
+    }
+    
+    // Fall back to in-memory limiter
     rateLimiters.set(key, new RateLimiter(config))
   }
   
@@ -278,14 +299,16 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   const rateLimitConfig = endpointConfig?.config || config.defaultConfig
   const rateLimiterName = endpointConfig?.name || 'default'
   
-  // Get or create rate limiter
-  const rateLimiter = getRateLimiter(rateLimiterName, rateLimitConfig)
+  // Get or create rate limiter (may be async if using Redis)
+  const rateLimiter = await getRateLimiter(rateLimiterName, rateLimitConfig)
   
   // Create unique identifier combining IP and endpoint type
   const identifier = `${clientIP}:${rateLimiterName}`
   
-  // Check rate limit
-  const result = rateLimiter.check(identifier)
+  // Check rate limit (Redis limiter returns Promise)
+  const result = 'check' in rateLimiter && typeof rateLimiter.check === 'function'
+    ? await (rateLimiter.check(identifier) as Promise<RateLimitResult>)
+    : (rateLimiter as RateLimiter).check(identifier)
   
   // If rate limit exceeded, return 429 response
   if (!result.allowed) {
@@ -312,21 +335,32 @@ export const config = {
 /**
  * Utility function to clear all rate limiters (for testing)
  */
-export function clearAllRateLimiters(): void {
-  rateLimiters.forEach(limiter => limiter.destroy())
+export async function clearAllRateLimiters(): Promise<void> {
+  for (const limiter of rateLimiters.values()) {
+    if ('destroy' in limiter && typeof limiter.destroy === 'function') {
+      limiter.destroy()
+    } else if ('clear' in limiter && typeof limiter.clear === 'function') {
+      await (limiter.clear() as Promise<void>)
+    }
+  }
   rateLimiters.clear()
 }
 
 /**
  * Utility function to get rate limiter stats (for monitoring)
  */
-export function getRateLimiterStats(): Record<string, { size: number; config: RateLimitConfig }> {
-  const stats: Record<string, { size: number; config: RateLimitConfig }> = {}
+export function getRateLimiterStats(): Record<string, { size: number; config: RateLimitConfig; usingRedis?: boolean }> {
+  const stats: Record<string, { size: number; config: RateLimitConfig; usingRedis?: boolean }> = {}
   
   rateLimiters.forEach((limiter, key) => {
+    const isRedis = 'isUsingRedis' in limiter && typeof limiter.isUsingRedis === 'function'
+      ? limiter.isUsingRedis()
+      : false
+    
     stats[key] = {
-      size: limiter.size,
+      size: 'size' in limiter ? limiter.size : 0,
       config: limiter.getConfig(),
+      usingRedis: isRedis,
     }
   })
   

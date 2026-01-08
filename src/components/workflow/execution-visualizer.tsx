@@ -81,12 +81,16 @@ export function ExecutionVisualizer({
   onClose,
   onNodeStatusChange,
 }: ExecutionVisualizerProps) {
-  const { 
+  const {
     nodes,
     updateNodeExecutionStatus,
+    updateNodeExecutionStatusSafe,
     updateNodeExecutionDetails,
     initNodeExecutionDetails,
     clearNodeExecutionStatus,
+    setExecutionManagerActive,
+    finalizeExecution,
+    updateNodeExecutionResult,
   } = useWorkflowStore()
   const [state, setState] = useState<ExecutionVisualizerState>({
     isExecuting: false,
@@ -125,6 +129,9 @@ export function ExecutionVisualizer({
   // 初始化
   useEffect(() => {
     if (isOpen) {
+      // 组件挂载时激活执行管理器，禁用其他事件源
+      setExecutionManagerActive(true)
+      
       const initial: Record<string, string> = {}
       inputFields.forEach((field) => {
         initial[field.fieldName] = field.defaultValue
@@ -148,7 +155,14 @@ export function ExecutionVisualizer({
         currentNodeId: null,
       })
     }
-  }, [isOpen]) // eslint-disable-line react-hooks/exhaustive-deps
+    
+    // 组件卸载时停用执行管理器
+    return () => {
+      if (isOpen) {
+        setExecutionManagerActive(false)
+      }
+    }
+  }, [isOpen, setExecutionManagerActive]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 清理
   useEffect(() => {
@@ -194,8 +208,8 @@ export function ExecutionVisualizer({
             status: 'running',
             startedAt: event.timestamp,
           })
-          // 更新 store 中的执行状态和详情
-          updateNodeExecutionStatus(event.nodeId, 'running')
+          // 使用安全的状态更新方法，确保单一 running 节点
+          updateNodeExecutionStatusSafe(event.nodeId, 'running')
           updateNodeExecutionDetails(event.nodeId, {
             triggered: true,
             inputStatus: event.inputStatus || 'valid',
@@ -209,10 +223,16 @@ export function ExecutionVisualizer({
             completedAt: event.timestamp,
             output: event.output,
           })
-          // 更新 store 中的执行状态和详情
-          updateNodeExecutionStatus(event.nodeId, 'completed')
+          // 使用安全的状态更新方法
+          updateNodeExecutionStatusSafe(event.nodeId, 'completed')
           updateNodeExecutionDetails(event.nodeId, {
             outputStatus: event.outputStatus || 'valid',
+          })
+          // 同步执行结果到全局 Store，使节点调试面板能够显示输出
+          updateNodeExecutionResult(event.nodeId, {
+            status: 'success',
+            output: event.output || {},
+            duration: 0, // 后端事件暂不包含 duration
           })
         } else if (event.type === 'node_error') {
           updateNodeStatus(event.nodeId, {
@@ -221,13 +241,20 @@ export function ExecutionVisualizer({
             error: event.error,
             errorDetail: event.errorDetail,
           })
-          // 更新 store 中的执行状态和详情
-          updateNodeExecutionStatus(event.nodeId, 'failed')
+          // 使用安全的状态更新方法
+          updateNodeExecutionStatusSafe(event.nodeId, 'failed')
           updateNodeExecutionDetails(event.nodeId, {
             inputStatus: event.inputStatus,
             outputStatus: event.outputStatus,
             inputError: event.inputError,
             outputError: event.outputError,
+          })
+          // 同步执行错误到全局 Store，使节点调试面板能够显示错误
+          updateNodeExecutionResult(event.nodeId, {
+            status: 'error',
+            output: {},
+            error: event.error,
+            duration: 0,
           })
         }
       }
@@ -241,7 +268,7 @@ export function ExecutionVisualizer({
         }))
       }
     },
-    [updateNodeStatus, updateNodeExecutionStatus, updateNodeExecutionDetails]
+    [updateNodeStatus, updateNodeExecutionStatusSafe, updateNodeExecutionDetails, updateNodeExecutionResult]
   )
 
   // 处理 SSE 完成
@@ -254,9 +281,11 @@ export function ExecutionVisualizer({
         currentNodeId: null,
       }))
       setSseConnected(false)
+      // 执行完成时调用 finalizeExecution，确保没有节点仍处于 running 状态
+      finalizeExecution(true)
       toast.success('工作流执行完成')
     },
-    []
+    [finalizeExecution]
   )
 
   // 处理 SSE 错误
@@ -268,10 +297,13 @@ export function ExecutionVisualizer({
         // 启动轮询作为备用
         if (pollingRef.current) clearInterval(pollingRef.current)
         pollingRef.current = setInterval(() => pollTaskStatusRef.current(), 2000)
+      } else {
+        // 如果不是执行中状态，调用 finalizeExecution 清理状态
+        finalizeExecution(false)
       }
       setSseConnected(false)
     },
-    [state.isExecuting]
+    [state.isExecuting, finalizeExecution]
   )
 
   // SSE Hook
@@ -346,8 +378,9 @@ export function ExecutionVisualizer({
             startedAt?: string
             completedAt?: string
           }) => {
+            const mappedStatus = nodeResult.status === 'success' ? 'completed' : 'failed'
             updateNodeStatus(nodeResult.nodeId, {
-              status: nodeResult.status === 'success' ? 'completed' : 'failed',
+              status: mappedStatus,
               output: nodeResult.output,
               error: nodeResult.error,
               duration: nodeResult.duration,
@@ -356,6 +389,8 @@ export function ExecutionVisualizer({
               startedAt: nodeResult.startedAt,
               completedAt: nodeResult.completedAt,
             })
+            // 使用安全的状态更新方法
+            updateNodeExecutionStatusSafe(nodeResult.nodeId, mappedStatus)
           }
         )
       }
@@ -364,6 +399,8 @@ export function ExecutionVisualizer({
       if (data.currentNodeId) {
         setState((prev) => ({ ...prev, currentNodeId: data.currentNodeId }))
         updateNodeStatus(data.currentNodeId, { status: 'running' })
+        // 使用安全的状态更新方法，确保单一 running 节点
+        updateNodeExecutionStatusSafe(data.currentNodeId, 'running')
       }
 
       // 检查是否完成
@@ -383,6 +420,9 @@ export function ExecutionVisualizer({
           error: data.error || data.result?.error,
         }))
 
+        // 执行完成时调用 finalizeExecution，确保没有节点仍处于 running 状态
+        finalizeExecution(data.status === 'completed')
+
         if (data.status === 'completed') {
           toast.success('工作流执行完成')
         } else {
@@ -394,7 +434,7 @@ export function ExecutionVisualizer({
     } finally {
       pollInFlightRef.current = false
     }
-  }, [updateNodeStatus, useSSE, connectSSE])
+  }, [updateNodeStatus, useSSE, connectSSE, finalizeExecution, updateNodeExecutionStatusSafe])
 
   // 更新 pollTaskStatus ref（用于 SSE 错误回退）
   useEffect(() => {

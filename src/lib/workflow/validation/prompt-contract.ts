@@ -80,11 +80,22 @@ export function inferExpectedType(systemPrompt?: string, userPrompt?: string): P
   const templateKeys = extractExpectedJsonKeys(systemPrompt, userPrompt)
   if (templateKeys.length > 0) return 'json'
 
-  // Avoid false positives for phrases like “不要输出 JSON”.
+  const negatesJson =
+    /(不要|不用|禁止|勿|不需要|不得)\s*(输出|返回|提供|给出)?\s*json/.test(combined) ||
+    /(不要|不用|禁止|勿|不需要|不得)\s*json\s*(格式|format|对象)?/.test(combined)
+
+  const wantsHtmlOnly =
+    /(只|仅|务必只|必须只)\s*(输出|返回)\s*.*html/.test(combined) ||
+    /(只|仅|务必只|必须只)\s*.*html\s*(输出|返回)/.test(combined)
+
+  if (wantsHtmlOnly) return 'html'
+
   const wantsJsonOutput =
-    /(?<!不要)(?<!不)输出\s*json/.test(combined) ||
-    combined.includes('json格式') ||
-    combined.includes('json format')
+    !negatesJson &&
+    (/(输出|返回|提供|给出)\s*(纯)?\s*json/.test(combined) ||
+      /json\s*(格式|format|对象)/.test(combined) ||
+      combined.includes('json format') ||
+      combined.includes('json格式'))
 
   if (
     wantsJsonOutput

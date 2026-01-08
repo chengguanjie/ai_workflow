@@ -27,13 +27,13 @@
     - **Property 1: Single Running Node Invariant**
     - **Validates: Requirements 1.1, 1.2, 1.3**
 
-- [ ] 2. 更新执行可视化组件
-  - [ ] 2.1 修改 execution-visualizer.tsx 使用新的状态管理
+- [x] 2. 更新执行可视化组件
+  - [x] 2.1 修改 execution-visualizer.tsx 使用新的状态管理
     - 在组件挂载时调用 `setExecutionManagerActive(true)`
     - 在组件卸载时调用 `setExecutionManagerActive(false)`
     - 使用 `updateNodeExecutionStatusSafe` 替代 `updateNodeExecutionStatus`
     - _Requirements: 2.1, 2.2_
-  - [ ] 2.2 在执行完成/失败时调用 `finalizeExecution`
+  - [x] 2.2 在执行完成/失败时调用 `finalizeExecution`
     - 在 `handleSSEComplete` 中调用 `finalizeExecution(true)`
     - 在 `handleSSEError` 中调用 `finalizeExecution(false)`
     - _Requirements: 4.1, 4.2_

@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
+import { useSafeSearchParams } from '@/hooks/use-safe-search-params'
 import {
   Search,
   Clock,
@@ -81,7 +82,7 @@ const statusIcons: Record<string, React.ReactNode> = {
 
 export default function ApplicationsPage() {
   const router = useRouter()
-  const searchParams = useSearchParams()
+  const searchParams = useSafeSearchParams()
 
   const [applications, setApplications] = useState<Application[]>([])
   const [pagination, setPagination] = useState<Pagination>({

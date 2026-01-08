@@ -420,8 +420,10 @@ export function validateNodeInput(options: InputValidatorOptions): InputValidati
   }
 
   // 3. PROCESS 节点额外验证变量引用
-  if (node.type === 'PROCESS') {
+  // PROCESS_WITH_TOOLS 与 PROCESS 使用同一套 prompt 字段，也应参与变量校验
+  if (node.type === 'PROCESS' || node.type === 'PROCESS_WITH_TOOLS') {
     const processNode = node as ProcessNodeConfig
+    // 对于 PROCESS_WITH_TOOLS，类型断言依旧可用（两者 config 结构兼容 userPrompt/systemPrompt）
     const userPrompt = processNode.config?.userPrompt || ''
     const systemPrompt = processNode.config?.systemPrompt || ''
     const combinedText = `${userPrompt}\n${systemPrompt}`

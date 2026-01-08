@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, useCallback, useRef } from "react"
-import { useParams } from "next/navigation"
+import { useSafeParams } from "@/hooks/use-safe-params"
 import Image from 'next/image'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -84,8 +84,8 @@ interface UploadedFile {
 }
 
 export default function PublicFormPage() {
-  const params = useParams()
-  const token = params.token as string
+  const params = useSafeParams<{ token: string }>()
+  const token = params.token
 
   const [formInfo, setFormInfo] = useState<FormInfo | null>(null)
   const [loading, setLoading] = useState(true)

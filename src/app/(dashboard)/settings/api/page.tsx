@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -30,16 +30,14 @@ import {
   Clock,
   Activity,
   AlertTriangle,
-  Code,
-  ChevronDown,
 } from 'lucide-react'
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
+import {
+  generateExecuteSnippet,
+  generateListSnippet,
+  type SnippetLang,
+} from '@/components/settings/api-snippet-generator'
 
 interface ApiToken {
   id: string
@@ -69,19 +67,15 @@ export default function ApiPage() {
   const [showTokenDialog, setShowTokenDialog] = useState(false)
   const [newToken, setNewToken] = useState<ApiToken | null>(null)
   const [copied, setCopied] = useState(false)
-  const [selectedWorkflow, setSelectedWorkflow] = useState<string>('')
+  const [selectedWorkflow, setSelectedWorkflow] = useState<string>('_list')
+  const [selectedTokenId, setSelectedTokenId] = useState<string>('')
+  const [apiLang, setApiLang] = useState<SnippetLang>('js_fetch')
 
   const [formData, setFormData] = useState({
     name: '',
     expiresIn: 'never',
   })
 
-  // 折叠状态
-  const [openSections, setOpenSections] = useState({
-    listApi: true,
-    executeApi: true,
-    fullExample: false,
-  })
 
   useEffect(() => {
     loadData()
@@ -97,17 +91,19 @@ export default function ApiPage() {
       if (tokensRes.ok) {
         const result = await tokensRes.json()
         // ApiResponse.success 返回 { success: true, data: { tokens: [...] } }
-        setTokens(result.data?.tokens || [])
+        const nextTokens = result.data?.tokens || []
+        setTokens(nextTokens)
+        if (nextTokens.length > 0) {
+          setSelectedTokenId(nextTokens[0].id)
+        }
       }
 
       if (workflowsRes.ok) {
         const data = await workflowsRes.json()
-        // workflows API 可能使用不同的响应格式，保持兼容
-        const workflows = data.data?.workflows || data.workflows || []
+        // workflows API 返回 { success: true, data: [...] } 格式
+        const workflows = Array.isArray(data.data) ? data.data : []
         setWorkflows(workflows)
-        if (workflows.length > 0) {
-          setSelectedWorkflow(workflows[0].id)
-        }
+        // 默认保持 _list 模式，用户可以选择具体工作流
       }
     } catch (error) {
       console.error('Failed to load data:', error)
@@ -194,77 +190,31 @@ export default function ApiPage() {
     return window.location.origin
   }
 
-  const getListApiEndpoint = () => `${getBaseUrl()}/api/v1/workflows`
+  const selectedToken = useMemo(
+    () => tokens.find(t => t.id === selectedTokenId) || null,
+    [tokens, selectedTokenId]
+  )
 
-  const getExecuteApiEndpoint = () => {
-    return `${getBaseUrl()}/api/v1/workflows/${selectedWorkflow || '{workflow_id}'}/execute`
+  const snippetCtx = useMemo(() => {
+    return {
+      baseUrl: getBaseUrl(),
+      token: selectedToken?.token || `${selectedToken?.prefix || 'YOUR_API_TOKEN'}...`,
+      workflowId: selectedWorkflow || '{workflow_id}',
+      exampleBody: {
+        input: { text: '你的输入内容' },
+        async: false,
+      },
+    }
+  }, [selectedToken, selectedWorkflow])
+
+  const isListMode = selectedWorkflow === '_list'
+
+  const getCodeExample = () => {
+    if (isListMode) {
+      return generateListSnippet(apiLang, { baseUrl: snippetCtx.baseUrl, token: snippetCtx.token })
+    }
+    return generateExecuteSnippet(apiLang, snippetCtx)
   }
-
-  // 代码示例生成
-  const getListCurlExample = () => `curl '${getListApiEndpoint()}' \\
-  -H 'Authorization: Bearer YOUR_API_TOKEN'`
-
-  const getListJsExample = () => `const response = await fetch('${getListApiEndpoint()}', {
-  headers: {
-    'Authorization': 'Bearer YOUR_API_TOKEN',
-  },
-});
-
-const { data: workflows } = await response.json();
-console.log(workflows);
-// 输出: [{ id: "xxx", name: "工作流名称", ... }, ...]`
-
-  const getExecuteCurlExample = () => `curl -X POST '${getExecuteApiEndpoint()}' \\
-  -H 'Authorization: Bearer YOUR_API_TOKEN' \\
-  -H 'Content-Type: application/json' \\
-  -d '{
-    "input": {
-      "text": "你的输入内容"
-    },
-    "async": false
-  }'`
-
-  const getExecuteJsExample = () => `const response = await fetch('${getExecuteApiEndpoint()}', {
-  method: 'POST',
-  headers: {
-    'Authorization': 'Bearer YOUR_API_TOKEN',
-    'Content-Type': 'application/json',
-  },
-  body: JSON.stringify({
-    input: { text: '你的输入内容' },
-    async: false  // 设为 true 可异步执行
-  }),
-});
-
-const result = await response.json();
-console.log(result);`
-
-  const getFullExample = () => `// 完整示例：先获取工作流列表，再执行指定工作流
-const TOKEN = 'YOUR_API_TOKEN';
-const BASE_URL = '${getBaseUrl()}';
-
-// 1. 获取工作流列表
-const listRes = await fetch(\`\${BASE_URL}/api/v1/workflows\`, {
-  headers: { 'Authorization': \`Bearer \${TOKEN}\` }
-});
-const { data: workflows } = await listRes.json();
-console.log('工作流列表:', workflows);
-
-// 2. 执行第一个工作流
-const workflowId = workflows[0].id;
-const execRes = await fetch(\`\${BASE_URL}/api/v1/workflows/\${workflowId}/execute\`, {
-  method: 'POST',
-  headers: {
-    'Authorization': \`Bearer \${TOKEN}\`,
-    'Content-Type': 'application/json',
-  },
-  body: JSON.stringify({
-    input: { text: '你好' },
-    async: false
-  }),
-});
-const result = await execRes.json();
-console.log('执行结果:', result);`
 
   if (loading) {
     return (
@@ -283,334 +233,88 @@ console.log('执行结果:', result);`
         </p>
       </div>
 
-      {/* API 1: 获取工作流列表 */}
-      <Collapsible
-        open={openSections.listApi}
-        onOpenChange={(open) => setOpenSections(prev => ({ ...prev, listApi: open }))}
-      >
-        <Card>
-          <CollapsibleTrigger asChild>
-            <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Code className="h-5 w-5" />
-                    API 1：获取工作流列表
-                  </CardTitle>
-                  <CardDescription className="mt-1.5">
-                    获取当前组织下的所有工作流，用于查询可执行的工作流 ID
-                  </CardDescription>
-                </div>
-                <ChevronDown className={`h-5 w-5 text-muted-foreground transition-transform duration-200 ${openSections.listApi ? 'rotate-180' : ''}`} />
-              </div>
-            </CardHeader>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <CardContent className="space-y-4 pt-0">
-              <div className="space-y-2">
-                <Label>API 端点</Label>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 bg-muted px-3 py-2 rounded text-sm font-mono break-all">
-                    GET {getListApiEndpoint()}
-                  </code>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => copyToClipboard(`GET ${getListApiEndpoint()}`)}
-                    title="复制"
-                  >
-                    <Copy className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
+      {/* 快捷生成：一键复制可运行的调用代码（填充 Token/WorkflowId/BaseUrl） */}
+      <Card>
+        <CardHeader>
+          <CardTitle>快捷调用代码（推荐）</CardTitle>
+          <CardDescription>
+            选择一个 Token 和工作流后，复制下方代码即可直接在 AI IDE / 脚本里调用，无需再手动拼 URL 或查 ID。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap gap-4">
+            <div className="space-y-2">
+              <Label>Token</Label>
+              <Select value={selectedTokenId} onValueChange={setSelectedTokenId}>
+                <SelectTrigger className="w-[300px]">
+                  <SelectValue placeholder="选择 Token" />
+                </SelectTrigger>
+                <SelectContent>
+                  {tokens.map(t => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name} ({t.prefix}...)
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>cURL 示例</Label>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => copyToClipboard(getListCurlExample())}
-                  >
-                    <Copy className="mr-1 h-3 w-3" />
-                    复制代码
-                  </Button>
-                </div>
-                <div className="bg-muted rounded-lg p-4 overflow-x-auto">
-                  <pre className="text-sm font-mono whitespace-pre-wrap break-all">
-{getListCurlExample()}
-                  </pre>
-                </div>
-              </div>
+            <div className="space-y-2">
+              <Label>工作流</Label>
+              <Select value={selectedWorkflow} onValueChange={setSelectedWorkflow}>
+                <SelectTrigger className="w-[300px]">
+                  <SelectValue placeholder="选择工作流" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_list" className="text-muted-foreground">
+                    获取工作流列表
+                  </SelectItem>
+                  {workflows.length > 0 && (
+                    <div className="my-1 h-px bg-border" />
+                  )}
+                  {workflows.map(wf => (
+                    <SelectItem key={wf.id} value={wf.id}>
+                      {wf.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>JavaScript 示例</Label>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => copyToClipboard(getListJsExample())}
-                  >
-                    <Copy className="mr-1 h-3 w-3" />
-                    复制代码
-                  </Button>
-                </div>
-                <div className="bg-muted rounded-lg p-4 overflow-x-auto">
-                  <pre className="text-sm font-mono whitespace-pre-wrap break-all">
-{getListJsExample()}
-                  </pre>
-                </div>
-              </div>
+            <div className="space-y-2">
+              <Label>语言</Label>
+              <Select value={apiLang} onValueChange={(v) => setApiLang(v as SnippetLang)}>
+                <SelectTrigger className="w-[220px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="js_fetch">JavaScript (fetch)</SelectItem>
+                  <SelectItem value="node_axios">Node.js (axios)</SelectItem>
+                  <SelectItem value="python_requests">Python (requests)</SelectItem>
+                  <SelectItem value="curl">cURL</SelectItem>
+                  <SelectItem value="go">Go</SelectItem>
+                  <SelectItem value="java">Java</SelectItem>
+                  <SelectItem value="php">PHP</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
 
-              <div className="space-y-2">
-                <Label>响应示例</Label>
-                <div className="bg-muted rounded-lg p-4 overflow-x-auto">
-                  <pre className="text-sm font-mono whitespace-pre-wrap">
-{`{
-  "success": true,
-  "data": [
-    {
-      "id": "cm5abc123xyz",
-      "name": "我的工作流",
-      "description": "工作流描述",
-      "isActive": true,
-      "publishStatus": "PUBLISHED",
-      "createdAt": "2024-01-01T00:00:00.000Z"
-    }
-  ],
-  "pagination": {
-    "page": 1,
-    "pageSize": 20,
-    "total": 1
-  }
-}`}
-                  </pre>
-                </div>
-              </div>
-            </CardContent>
-          </CollapsibleContent>
-        </Card>
-      </Collapsible>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>{isListMode ? '一键复制：获取工作流列表' : '一键复制：执行工作流'}</Label>
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => copyToClipboard(getCodeExample())}>
+                <Copy className="mr-1 h-3 w-3" />
+                复制代码
+              </Button>
+            </div>
+            <div className="bg-muted rounded-lg p-4 overflow-x-auto">
+              <pre className="text-sm font-mono whitespace-pre-wrap break-all">{getCodeExample()}</pre>
+            </div>
+          </div>
 
-      {/* API 2: 执行单个工作流 */}
-      <Collapsible
-        open={openSections.executeApi}
-        onOpenChange={(open) => setOpenSections(prev => ({ ...prev, executeApi: open }))}
-      >
-        <Card>
-          <CollapsibleTrigger asChild>
-            <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Code className="h-5 w-5" />
-                    API 2：执行单个工作流
-                  </CardTitle>
-                  <CardDescription className="mt-1.5">
-                    执行指定的工作流，获取 AI 处理结果
-                  </CardDescription>
-                </div>
-                <ChevronDown className={`h-5 w-5 text-muted-foreground transition-transform duration-200 ${openSections.executeApi ? 'rotate-180' : ''}`} />
-              </div>
-            </CardHeader>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <CardContent className="space-y-4 pt-0">
-              {workflows.length > 0 && (
-                <div className="space-y-2">
-                  <Label>选择工作流（自动填充 ID）</Label>
-                  <Select value={selectedWorkflow} onValueChange={setSelectedWorkflow}>
-                    <SelectTrigger className="w-[300px]">
-                      <SelectValue placeholder="选择工作流" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {workflows.map(wf => (
-                        <SelectItem key={wf.id} value={wf.id}>{wf.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <Label>API 端点</Label>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 bg-muted px-3 py-2 rounded text-sm font-mono break-all">
-                    POST {getExecuteApiEndpoint()}
-                  </code>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => copyToClipboard(`POST ${getExecuteApiEndpoint()}`)}
-                    title="复制"
-                  >
-                    <Copy className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>cURL 示例</Label>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => copyToClipboard(getExecuteCurlExample())}
-                  >
-                    <Copy className="mr-1 h-3 w-3" />
-                    复制代码
-                  </Button>
-                </div>
-                <div className="bg-muted rounded-lg p-4 overflow-x-auto">
-                  <pre className="text-sm font-mono whitespace-pre-wrap break-all">
-{getExecuteCurlExample()}
-                  </pre>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>JavaScript 示例</Label>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => copyToClipboard(getExecuteJsExample())}
-                  >
-                    <Copy className="mr-1 h-3 w-3" />
-                    复制代码
-                  </Button>
-                </div>
-                <div className="bg-muted rounded-lg p-4 overflow-x-auto">
-                  <pre className="text-sm font-mono whitespace-pre-wrap break-all">
-{getExecuteJsExample()}
-                  </pre>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label>请求参数说明</Label>
-                <div className="bg-muted rounded-lg p-4 overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left py-2 font-medium">参数</th>
-                        <th className="text-left py-2 font-medium">类型</th>
-                        <th className="text-left py-2 font-medium">说明</th>
-                      </tr>
-                    </thead>
-                    <tbody className="font-mono">
-                      <tr className="border-b">
-                        <td className="py-2">input</td>
-                        <td className="py-2 text-muted-foreground">object</td>
-                        <td className="py-2 font-sans">传递给工作流的输入变量</td>
-                      </tr>
-                      <tr>
-                        <td className="py-2">async</td>
-                        <td className="py-2 text-muted-foreground">boolean</td>
-                        <td className="py-2 font-sans">
-                          <code className="text-xs bg-background px-1 rounded">false</code> 同步执行，等待结果返回；
-                          <code className="text-xs bg-background px-1 rounded">true</code> 异步执行，立即返回 taskId
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label>响应示例（同步模式）</Label>
-                <div className="bg-muted rounded-lg p-4 overflow-x-auto">
-                  <pre className="text-sm font-mono whitespace-pre-wrap">
-{`{
-  "success": true,
-  "data": {
-    "executionId": "exec_xxx",
-    "status": "COMPLETED",
-    "output": {
-      "result": "AI 处理的结果内容..."
-    },
-    "duration": 1234,
-    "totalTokens": 500,
-    "promptTokens": 300,
-    "completionTokens": 200
-  }
-}`}
-                  </pre>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label>响应示例（异步模式）</Label>
-                <div className="bg-muted rounded-lg p-4 overflow-x-auto">
-                  <pre className="text-sm font-mono whitespace-pre-wrap">
-{`{
-  "success": true,
-  "data": {
-    "taskId": "task_xxx",
-    "status": "pending",
-    "message": "任务已加入队列",
-    "pollUrl": "/api/v1/tasks/task_xxx"
-  }
-}`}
-                  </pre>
-                </div>
-              </div>
-            </CardContent>
-          </CollapsibleContent>
-        </Card>
-      </Collapsible>
-
-      {/* 完整示例 */}
-      <Collapsible
-        open={openSections.fullExample}
-        onOpenChange={(open) => setOpenSections(prev => ({ ...prev, fullExample: open }))}
-      >
-        <Card>
-          <CollapsibleTrigger asChild>
-            <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Code className="h-5 w-5" />
-                    完整调用示例
-                  </CardTitle>
-                  <CardDescription className="mt-1.5">
-                    先获取工作流列表，再执行指定工作流的完整流程
-                  </CardDescription>
-                </div>
-                <ChevronDown className={`h-5 w-5 text-muted-foreground transition-transform duration-200 ${openSections.fullExample ? 'rotate-180' : ''}`} />
-              </div>
-            </CardHeader>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <CardContent className="pt-0">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>JavaScript 完整示例</Label>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => copyToClipboard(getFullExample())}
-                  >
-                    <Copy className="mr-1 h-3 w-3" />
-                    复制代码
-                  </Button>
-                </div>
-                <div className="bg-muted rounded-lg p-4 overflow-x-auto">
-                  <pre className="text-sm font-mono whitespace-pre-wrap break-all">
-{getFullExample()}
-                  </pre>
-                </div>
-              </div>
-            </CardContent>
-          </CollapsibleContent>
-        </Card>
-      </Collapsible>
+        </CardContent>
+      </Card>
 
       {/* Token 列表 */}
       <div className="space-y-4">

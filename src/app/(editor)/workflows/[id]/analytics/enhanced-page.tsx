@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useParams } from 'next/navigation'
+import { useSafeParams } from '@/hooks/use-safe-params'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -94,8 +94,8 @@ const AGGREGATION_TYPES = [
 ]
 
 export default function EnhancedAnalyticsPage() {
-  const params = useParams()
-  const workflowId = params.id as string
+  const params = useSafeParams<{ id: string }>()
+  const workflowId = params.id
 
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)

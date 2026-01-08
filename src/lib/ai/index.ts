@@ -22,6 +22,7 @@ import { openRouterProvider } from './providers/openrouter'
 import { openAIProvider } from './providers/openai'
 import { anthropicProvider } from './providers/anthropic'
 import { estimateTokenCount, getModelContextLimit, MODEL_CONTEXT_LIMITS } from './token-utils'
+import { mockChat } from './mock'
 
 export * from './types'
 
@@ -57,6 +58,19 @@ class AIService {
     apiKey: string,
     baseUrl?: string
   ): Promise<ChatResponse> {
+    // Local mock mode (offline demo / tests)
+    // Triggered by:
+    // - AI_MOCK=true
+    // - model starts with "mock-"
+    // - apiKey starts with "mock"
+    if (
+      process.env.AI_MOCK === 'true' ||
+      /^mock[\w-]*/i.test(String(request.model || '')) ||
+      /^mock[\w-]*/i.test(String(apiKey || ''))
+    ) {
+      return mockChat(request)
+    }
+
     const provider = this.getProvider(providerType)
     const model = request.model
     const totalInputTokens = this.estimateMessageTokens(request.messages || [])
@@ -209,9 +223,12 @@ class AIService {
       return { ...first, wasAutoContinued: false, segments: 1 }
     }
 
-    const maxSegments = 20
+    const maxSegmentsEnv = Number(process.env.AI_AUTOCONTINUE_MAX_SEGMENTS || '')
+    const maxSegments = Number.isFinite(maxSegmentsEnv) && maxSegmentsEnv > 0 ? Math.floor(maxSegmentsEnv) : 8
     const tailChars = 4000
     const overlapProbeChars = 2000
+    const maxMergedChars = 200_000
+    const maxTotalTokens = 120_000
 
     let merged = first.content || ''
     let segments = 1
@@ -220,6 +237,9 @@ class AIService {
     let lastModel = first.model
 
     while (segments < maxSegments && this.isTruncationFinishReason(lastFinishReason)) {
+      if (merged.length >= maxMergedChars) break
+      if ((totalUsage.totalTokens || 0) >= maxTotalTokens) break
+
       const tail = merged.slice(-tailChars)
       const continuationPrompt =
         `请继续输出，从上一次输出的末尾继续，不要重复已输出内容。\n` +
@@ -252,6 +272,7 @@ class AIService {
       const nextContent = next.content || ''
       const probe = merged.slice(-overlapProbeChars)
       const deduped = this.removeLeadingOverlap(probe, nextContent)
+      if (deduped.trim().length < 20) break
       merged += deduped
 
       totalUsage = {

@@ -14,7 +14,7 @@ import type { OutputType } from '@/lib/workflow/debug-panel/types'
 // Basic Types
 // ============================================
 
-export type NodeType = 'INPUT' | 'PROCESS' | 'CODE' | 'OUTPUT' | 'LOGIC'
+export type NodeType = 'INPUT' | 'PROCESS' | 'CODE' | 'OUTPUT' | 'LOGIC' | 'GROUP'
 
 export type AIProviderType = 'SHENSUAN' | 'OPENROUTER' | 'OPENAI' | 'ANTHROPIC' | 'BAIDU_WENXIN' | 'ALIYUN_TONGYI' | 'XUNFEI_SPARK' | 'STABILITYAI'
 
@@ -339,6 +339,21 @@ export interface OutputNodeConfig extends BaseNodeConfig {
 }
 
 // ============================================
+// GROUP Node Configuration
+
+export interface GroupNodeConfigData {
+  /** 子节点 ID 列表（按预期执行顺序排列） */
+  childNodeIds?: string[]
+  /** 分组描述 */
+  description?: string
+}
+
+export interface GroupNodeConfig extends BaseNodeConfig {
+  type: 'GROUP'
+  config: GroupNodeConfigData
+}
+
+// ============================================
 // LOGIC Node Configuration
 // ============================================
 
@@ -478,6 +493,7 @@ export type NodeConfig =
   | ProcessNodeConfig
   | CodeNodeConfig
   | OutputNodeConfig
+  | GroupNodeConfig
   | LogicNodeConfig
 
 /**
@@ -488,6 +504,7 @@ export type NodeConfigData =
   | ProcessNodeConfigData
   | CodeNodeConfigData
   | OutputNodeConfigData
+  | GroupNodeConfigData
   | LogicNodeConfigData
 
 // ============================================

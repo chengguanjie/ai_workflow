@@ -64,7 +64,7 @@ const navItems = [
 ]
 
 export function ConsoleSidebar() {
-  const pathname = usePathname()
+  const pathname = usePathname() ?? ''
 
   return (
     <aside className="fixed left-0 top-0 z-40 h-screen w-64 border-r bg-background">

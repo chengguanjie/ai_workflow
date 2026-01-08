@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect } from 'react'
-import { useParams } from 'next/navigation'
+import { useSafeParams } from '@/hooks/use-safe-params'
 import { Button } from '@/components/ui/button'
 import {
   ArrowLeft,
@@ -78,8 +78,8 @@ interface ExecutionDetail {
 }
 
 export default function ExecutionDetailPage() {
-  const params = useParams()
-  const executionId = params.id as string
+  const params = useSafeParams<{ id: string }>()
+  const executionId = params.id
 
   const [execution, setExecution] = useState<ExecutionDetail | null>(null)
   const [isLoading, setIsLoading] = useState(true)

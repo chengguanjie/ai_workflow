@@ -112,7 +112,8 @@ export function ProcessNodeConfigPanel({
         const res = await fetch(`/api/ai/providers?modality=${FIXED_MODALITY}`)
         if (res.ok) {
           const data = await res.json()
-          const providerList = data.data?.providers || []
+          const rawProviders = data?.data?.providers
+          const providerList = Array.isArray(rawProviders) ? rawProviders : []
           setProviders(providerList)
 
           // 在调用 onUpdate 之前获取最新的配置，避免覆盖用户在 fetch 期间做出的选择
@@ -123,7 +124,7 @@ export function ProcessNodeConfigPanel({
             ? providerList.find((p: AIProviderConfig) => p.id === latestConfig.aiConfigId)
             : undefined
           const providerForModel = latestModel
-            ? providerList.find((p: AIProviderConfig) => p.models.includes(latestModel))
+            ? providerList.find((p: AIProviderConfig) => Array.isArray((p as any).models) && (p as any).models.includes(latestModel))
             : undefined
           const selectedProvider = providerFromConfig || providerForModel || defaultProvider
 

@@ -24,7 +24,8 @@ export async function GET() {
     await seedOfficialTemplates()
     return ApiResponse.success({ message: '官方模板库已成功重构并同步！' });
   } catch (error) {
-    console.error('同步失败:', error);
+    const { logError } = await import('@/lib/security/safe-logger')
+    logError('同步失败', error instanceof Error ? error : undefined)
     return ApiResponse.error('同步失败: ' + String(error), 500);
   }
 }

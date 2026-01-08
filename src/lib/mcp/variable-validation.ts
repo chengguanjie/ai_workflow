@@ -220,27 +220,31 @@ export function validateForUI(
   value: unknown,
   availableVariables: AvailableVariable[]
 ): ValidationResult {
-  // Build a variables context from available variables
-  const variables: Record<string, unknown> = {}
-  
-  for (const av of availableVariables) {
-    // Parse the path and set a placeholder value
-    const parts = av.path.split('.')
-    let current = variables
-    
-    for (let i = 0; i < parts.length - 1; i++) {
-      const part = parts[i]
-      if (!(part in current) || typeof current[part] !== 'object' || current[part] === null || Array.isArray(current[part])) {
-        current[part] = {}
-      }
-      current = current[part] as Record<string, unknown>
-    }
-    
-    // Set the final value (use a placeholder to indicate existence)
-    current[parts[parts.length - 1]] = `__placeholder_${av.path}__`
-  }
+  // ----- Revised logic: exact-path validation only -----
+  // Build a Set for quick existence checks
+  const availableSet = new Set(availableVariables.map(v => v.path))
 
-  return validateVariableRefs(value, variables)
+  // Extract refs using core helper
+  const refs = extractVariableRefs(value)
+
+  const variablesResults: VariableValidationResult[] = refs.map(path => {
+    const exists = availableSet.has(path)
+    return {
+      path,
+      exists,
+      value: undefined,
+      error: exists ? undefined : `变量 "${path}" 不存在于工作流上下文中`,
+    }
+  })
+
+  const missingVariables = variablesResults.filter(r => !r.exists).map(r => r.path)
+
+  return {
+    isValid: missingVariables.length === 0,
+    variables: variablesResults,
+    missingVariables,
+    errors: variablesResults.filter(r => r.error).map(r => r.error as string),
+  }
 }
 
 /**

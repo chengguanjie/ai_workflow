@@ -15,6 +15,7 @@ import { Queue, Worker, Job, QueueEvents } from 'bullmq'
 import { getRedisConnection, isRedisConfigured } from '@/lib/redis'
 import { executeWorkflow } from './engine'
 import { prisma } from '@/lib/db'
+import { createHash } from 'crypto'
 
 /**
  * 执行模式类型
@@ -91,6 +92,20 @@ class BullMQQueueManager {
     }
 
     try {
+      if (process.env.NODE_ENV !== 'production') {
+        const key = process.env.ENCRYPTION_KEY || ''
+        const salt = process.env.ENCRYPTION_SALT || ''
+        console.log('[BullMQ] Env snapshot', {
+          pid: process.pid,
+          hasEncryptionKey: Boolean(key),
+          encryptionKeyLength: key.length || null,
+          encryptionKeyHash8: key ? createHash('sha256').update(key).digest('hex').slice(0, 8) : null,
+          hasEncryptionSalt: Boolean(salt),
+          encryptionSaltLength: salt.length || null,
+          encryptionSaltHash8: salt ? createHash('sha256').update(salt).digest('hex').slice(0, 8) : null,
+        })
+      }
+
       // 创建队列
       this.queue = new Queue<WorkflowJobData, WorkflowJobResult>(QUEUE_NAME, {
         connection,

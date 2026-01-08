@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
+import { useSafeParams } from '@/hooks/use-safe-params'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -110,9 +111,9 @@ interface WorkflowNode {
 }
 
 export default function AnalyticsConfigPage() {
-  const params = useParams()
+  const params = useSafeParams<{ id: string }>()
   const _router = useRouter()
-  const workflowId = params.id as string
+  const workflowId = params.id
   const queryClient = useQueryClient()
 
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)

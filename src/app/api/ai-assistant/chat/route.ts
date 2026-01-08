@@ -96,6 +96,32 @@ const REFINEMENT_PROMPT = `你是一个工作流架构师。用户正在审查�
 
 请只输出 JSON 和简短的修改说明，不要啰嗦。`;
 
+const TEST_DATA_GENERATION_PROMPT = `你是一个工作流测试数据生成器。你的任务是：根据【当前工作流画布状态】里 INPUT 节点的 fields，为该工作流生成一份“尽可能真实”的测试输入，并立即触发测试。
+
+## 规则
+
+1. **必须输出 json:actions 代码块**，并且仅包含一个对象，格式如下：
+
+\`\`\`json:actions
+{
+  "phase": "testing",
+  "testRequest": {
+    "autoGenerate": true,
+    "testInput": {
+      "fieldName": "value"
+    }
+  }
+}
+\`\`\`
+
+2. **testInput 字段名必须与 INPUT.fields[].name 完全一致**，不要自作主张新增/改名字段。
+3. **生成要合理**：
+   - 如果存在名为 text/content/article 的文本字段：填入一段“微信公众号文章二创”场景的文章内容（可为摘要+正文片段），避免过长（建议 < 2000 字）。
+   - 其他字段（如 title、style、tone、audience、length、language 等）按常见工作流语义生成。
+4. 除 json:actions 外，你可以在代码块前用一句话说明“已生成测试输入并开始测试”，不要输出多余 JSON 或 Markdown。
+
+请用中文回答。`;
+
 interface QuestionOption {
   id: string;
   label: string;
@@ -218,18 +244,20 @@ function parseAIResponse(content: string): ParsedResponse {
 export async function POST(request: NextRequest) {
   const requestId = Math.random().toString(36).substring(7);
   const startTime = Date.now();
-  console.log(`[AI Chat][${requestId}] 收到请求`);
+  const { logDebug, logWarn } = await import('@/lib/security/safe-logger')
+  logDebug(`[AI Chat][${requestId}] 收到请求`);
 
   try {
     const session = await auth();
 
     if (!session?.user?.organizationId) {
-      console.log(`[AI Chat][${requestId}] 未授权访问`);
+      logWarn(`[AI Chat][${requestId}] 未授权访问`);
       return ApiResponse.error("未授权", 401);
     }
 
-    console.log(
-      `[AI Chat][${requestId}] 用户: ${session.user.id}, 组织: ${session.user.organizationId}`,
+    logDebug(
+      `[AI Chat][${requestId}] 用户请求`,
+      { userId: session.user.id, organizationId: session.user.organizationId },
     );
 
     const body = await request.json();
@@ -246,7 +274,7 @@ export async function POST(request: NextRequest) {
       nodeConfig,
     } = body;
 
-    console.log(`[AI Chat][${requestId}] 请求参数:`, {
+    logDebug(`[AI Chat][${requestId}] 请求参数`, {
       mode,
       model,
       messageLength: message?.length,
@@ -255,8 +283,8 @@ export async function POST(request: NextRequest) {
       hasNodeConfig: !!nodeConfig,
     });
 
-    if (!message && mode !== "optimization" && mode !== "refinement" && mode !== "test_analysis" && mode !== "node_diagnosis") {
-      console.log(`[AI Chat][${requestId}] 消息为空`);
+    if (!message && mode !== "optimization" && mode !== "refinement" && mode !== "test_analysis" && mode !== "node_diagnosis" && mode !== "test_data_generation") {
+      logWarn(`[AI Chat][${requestId}] 消息为空`);
       return ApiResponse.error("消息不能为空", 400);
     }
 
@@ -297,15 +325,16 @@ export async function POST(request: NextRequest) {
     }
 
     if (!apiKey) {
-      console.log(`[AI Chat][${requestId}] 未找到 API Key 配置`);
+      logWarn(`[AI Chat][${requestId}] 未找到 API Key 配置`);
       return ApiResponse.error("未配置AI服务，请先在设置中配置AI服务商", 400);
     }
 
-    console.log(`[AI Chat][${requestId}] 使用 API Key:`, {
+    logDebug(`[AI Chat][${requestId}] 使用 API Key`, {
       id: apiKey.id,
       provider: apiKey.provider,
       name: apiKey.name,
       hasBaseUrl: !!apiKey.baseUrl,
+      // 不记录实际的API密钥
     });
 
     // FETCH LEARNING PATTERNS
@@ -337,6 +366,8 @@ export async function POST(request: NextRequest) {
       systemPrompt = TEST_ANALYSIS_PROMPT;
     } else if (mode === "node_diagnosis") {
       systemPrompt = NODE_DIAGNOSIS_PROMPT;
+    } else if (mode === "test_data_generation") {
+      systemPrompt = TEST_DATA_GENERATION_PROMPT;
     }
 
     let systemContent = systemPrompt;
@@ -399,6 +430,11 @@ export async function POST(request: NextRequest) {
       messages.push({
         role: "user",
         content: "请根据上面提供的节点配置信息进行深度诊断，分析可能的问题原因并给出修复建议。",
+      });
+    } else if (mode === "test_data_generation") {
+      messages.push({
+        role: "user",
+        content: message || "请为当前工作流生成测试输入并立即触发测试。",
       });
     } else {
       messages.push({ role: "user", content: message });
@@ -479,6 +515,9 @@ export async function POST(request: NextRequest) {
         const workflow = await prisma.workflow.findUnique({
           where: { id: body.workflowId },
         });
+        if (!workflow || workflow.organizationId !== session.user.organizationId) {
+          return ApiResponse.error("工作流不存在", 404);
+        }
 
         const config = workflow?.config as { nodes?: Array<{ id: string; name?: string; type?: string }> } | null;
         const workflowNodes = config?.nodes || [];
@@ -565,14 +604,11 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     const totalDuration = Date.now() - startTime;
-    console.error(
-      `[AI Chat][${requestId}] 请求失败 (耗时 ${totalDuration}ms):`,
+    const { logError } = await import('@/lib/security/safe-logger')
+    logError(
+      `[AI Chat][${requestId}] 请求失败 (耗时 ${totalDuration}ms)`,
+      error instanceof Error ? error : undefined,
     );
-    console.error(`[AI Chat][${requestId}] 错误详情:`, {
-      name: error instanceof Error ? error.name : 'Unknown',
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack?.split('\n').slice(0, 5).join('\n') : undefined,
-    });
     if (error instanceof AIAssistantError) {
       return ApiResponse.error(error.userMessage, 500);
     }

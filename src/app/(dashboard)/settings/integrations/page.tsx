@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSafeSearchParams } from '@/hooks/use-safe-search-params'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -31,7 +31,7 @@ const INTEGRATIONS: Array<{
 ]
 
 export default function IntegrationsSettingsPage() {
-  const searchParams = useSearchParams()
+  const searchParams = useSafeSearchParams()
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<IntegrationId | null>(null)
   const [statuses, setStatuses] = useState<Record<IntegrationId, IntegrationStatus | null>>({

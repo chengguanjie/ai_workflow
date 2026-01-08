@@ -49,6 +49,19 @@ const nextConfig: NextConfig = {
     'dockerode',
     'bullmq',
   ],
+
+  // Webpack配置 - 排除Node.js内置模块在客户端构建
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      // 客户端构建时排除fs和path模块
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        path: false,
+      }
+    }
+    return config
+  },
 }
 
 export default nextConfig

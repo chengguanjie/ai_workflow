@@ -3,13 +3,13 @@
  */
 
 import type { NodeConfig, ProcessNodeConfig } from '@/types/workflow'
+import type { ContentPart } from '@/lib/ai/types'
 import type { NodeProcessor, NodeOutput, ExecutionContext, AIConfigCache } from '../types'
-import { replaceVariables, createContentPartsFromText } from '../utils'
+import { createContentPartsFromText } from '../utils'
 import { aiService } from '@/lib/ai'
 import { prisma } from '@/lib/db'
 import { safeDecryptApiKey } from '@/lib/crypto'
 import { getRelevantContext } from '@/lib/knowledge/search'
-import { estimateTokenCount } from '@/lib/ai/token-utils'
 import { formatNetworkError, isFormattedNetworkError, isRetryableNetworkError } from '@/lib/http/fetch-with-timeout'
 
 export class ProcessNodeProcessor implements NodeProcessor {
@@ -104,12 +104,9 @@ export class ProcessNodeProcessor implements NodeProcessor {
 
   private normalizeMaxTokens(configMaxTokens: unknown): number | undefined {
     if (typeof configMaxTokens !== 'number') return undefined
+    // 当值 <= 0（包括 -1 表示无限制）时，返回 undefined 让 API 使用模型默认最大值
     if (!Number.isFinite(configMaxTokens) || configMaxTokens <= 0) return undefined
-
-    // Guardrail: overly-large maxTokens often causes gateway/provider instability.
-    // Prefer provider/model defaults instead of passing unrealistic values (e.g. 300000).
-    const HARD_CAP = 16_384
-    if (configMaxTokens > HARD_CAP) return undefined
+    // 不再设置硬性上限，尊重用户配置，让模型本身决定限制
     return Math.floor(configMaxTokens)
   }
 
@@ -271,17 +268,33 @@ export class ProcessNodeProcessor implements NodeProcessor {
 
           if (ragContext) {
             // ...
+            const sources = Array.from(ragContext.matchAll(/\[来源:\s*([^\]]+)\]/g))
+              .map((m) => String(m[1] || '').trim())
+              .filter(Boolean)
+            context.addLog?.('info', '知识库检索完成', 'RAG', {
+              sources: Array.from(new Set(sources)).slice(0, 10),
+              contextChars: ragContext.length,
+              contextPreview: ragContext.slice(0, 300) + (ragContext.length > 300 ? '...' : ''),
+            })
             systemPrompt = `${systemPrompt}\n\n## 知识库检索结果\n${ragContext}`
+          } else {
+            context.addLog?.('warning', '知识库检索无结果（继续执行）', 'RAG', {
+              knowledgeBaseId,
+              query: userPromptText,
+            })
           }
           // ...
-        } catch (err) {
-          // ...
+        } catch {
+          // RAG 检索失败时继续执行，不中断流程
+          context.addLog?.('warning', '知识库检索失败（已忽略，继续执行）', 'RAG', {
+            knowledgeBaseId,
+            query: userPromptText,
+          })
         }
       }
 
       // 5. 构建消息并调用 AI
-      // 类型定义需要根据 ai/types.ts 更新，支持 ContentPart[]
-      const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | any[] }> = []
+      const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | ContentPart[] }> = []
 
       if (systemPrompt.trim()) {
         messages.push({ role: 'system', content: systemPrompt })
@@ -334,7 +347,7 @@ export class ProcessNodeProcessor implements NodeProcessor {
             aiService.chat(
               aiConfig.provider,
               {
-                model,
+                model: model!,
                 messages,
                 temperature,
                 maxTokens,
@@ -355,110 +368,29 @@ export class ProcessNodeProcessor implements NodeProcessor {
         throw err
       }
 
-      // Auto-continue for truncated responses to avoid incomplete HTML/JSON blocks.
-      const totalUsage = {
-        promptTokens: response.usage.promptTokens,
-        completionTokens: response.usage.completionTokens,
-        totalTokens: response.usage.totalTokens,
-      }
-
-      let mergedContent = response.content
-      let mergedFinishReason = response.finishReason
-      let segments = 1
-
-      const isTruncated =
-        mergedFinishReason === 'length' ||
-        mergedFinishReason === 'max_tokens' ||
-        (typeof maxTokens === 'number' && maxTokens > 0 && response.usage.completionTokens >= maxTokens)
-
-      if (isTruncated) {
-        const maxSegments = 4
-        context.addLog?.('warning', '检测到输出可能被截断，尝试自动续写拼接完整内容', 'AI_CALL', {
-          finishReason: mergedFinishReason,
-          maxTokens: maxTokens ?? '(default)',
-          completionTokens: response.usage.completionTokens,
-          maxSegments,
-        })
-
-        let continuationMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | any[] }> = [
-          ...messages,
-          { role: 'assistant', content: mergedContent },
-        ]
-
-        while (segments < maxSegments) {
-          segments++
-          continuationMessages = [
-            ...continuationMessages,
-            {
-              role: 'user',
-              content:
-                '请继续输出剩余内容：从上次结束处无缝续写，不要重复前文；保持与之前完全一致的输出格式（包括代码块/JSON/HTML/Markdown等）。'
-            },
-          ]
-
-          let next: Awaited<ReturnType<typeof aiService.chat>>
-          try {
-            next = await this.callChatWithRetry(
-              () =>
-                aiService.chat(
-                  aiConfig.provider,
-                  { model, messages: continuationMessages, temperature, maxTokens },
-                  aiConfig.apiKey,
-                  aiConfig.baseUrl
-                ),
-              context,
-              'AI 续写失败'
-            )
-          } catch (err) {
-            if (isFormattedNetworkError(err)) {
-              throw err
-            }
-            if (isRetryableNetworkError(err)) {
-              throw formatNetworkError(err, 'AI 续写失败')
-            }
-            throw err
-          }
-
-          totalUsage.promptTokens += next.usage.promptTokens
-          totalUsage.completionTokens += next.usage.completionTokens
-          totalUsage.totalTokens += next.usage.totalTokens
-
-          mergedContent = this.mergeContinuation(mergedContent, next.content)
-          mergedFinishReason = next.finishReason
-
-          const stillTruncated =
-            mergedFinishReason === 'length' ||
-            mergedFinishReason === 'max_tokens' ||
-            (typeof maxTokens === 'number' && maxTokens > 0 && next.usage.completionTokens >= maxTokens)
-
-          continuationMessages = [
-            ...continuationMessages,
-            { role: 'assistant', content: next.content },
-          ]
-
-          if (!stillTruncated) break
-        }
-      }
-
-      response = {
-        ...response,
-        content: mergedContent,
-        finishReason: mergedFinishReason,
-        usage: totalUsage,
-        wasAutoContinued: segments > 1,
-        segments,
-      }
-
       const normalizedContent = this.normalizeOutputContent(
         response.content,
         processNode.config?.expectedOutputType
       )
 
+      const finalContent =
+        processNode.config?.expectedOutputType === 'json'
+          ? await this.repairInvalidJsonOutputIfNeeded(
+              aiConfig,
+              model!,
+              temperature!,
+              maxTokens,
+              response.content,
+              normalizedContent,
+              context
+            )
+          : normalizedContent
+
       context.addLog?.('success', 'AI 处理完成', 'AI_CALL', {
         tokens: response.usage,
         finishReason: response.finishReason,
         segments: response.segments ?? 1,
-        outputPreview: normalizedContent.slice(0, 100) + '...'
+        outputPreview: finalContent.slice(0, 100) + '...'
       })
 
       return {
@@ -476,9 +408,9 @@ export class ProcessNodeProcessor implements NodeProcessor {
           messageCount: messages.length,
         },
         data: {
-          结果: normalizedContent,
+          结果: finalContent,
           // 兼容旧模板/引用：支持 {{节点.result}}
-          result: normalizedContent,
+          result: finalContent,
           model: response.model,
           _meta: {
             finishReason: response.finishReason,
@@ -525,6 +457,73 @@ export class ProcessNodeProcessor implements NodeProcessor {
         completedAt: new Date(),
         duration: Date.now() - startedAt.getTime(),
       }
+    }
+  }
+
+  private async repairInvalidJsonOutputIfNeeded(
+    aiConfig: { provider: AIConfigCache['provider']; apiKey: string; baseUrl: string; defaultModel: string },
+    model: string,
+    temperature: number,
+    maxTokens: number | undefined,
+    rawContent: string,
+    normalizedContent: string,
+    context: ExecutionContext
+  ): Promise<string> {
+    const extracted = this.extractJsonFromText(normalizedContent) || this.extractJsonFromText(rawContent)
+    if (!extracted) return normalizedContent
+    try {
+      const parsed = JSON.parse(extracted)
+      return JSON.stringify(parsed)
+    } catch {
+      // fall through
+    }
+
+    context.addLog?.('warning', '检测到 JSON 输出不合法，尝试自动修复为严格 JSON', 'AI_CALL')
+
+    let repaired: Awaited<ReturnType<typeof aiService.chat>>
+    try {
+      repaired = await this.callChatWithRetry(
+        () =>
+          aiService.chat(
+            aiConfig.provider,
+            {
+              model,
+              temperature: Math.min(0.2, temperature),
+              maxTokens: maxTokens && maxTokens > 0 ? Math.min(maxTokens, 4096) : 4096,
+              messages: [
+                {
+                  role: 'system',
+                  content:
+                    '你是一个严格的 JSON 修复器。你的任务是将输入内容修复为【单个 JSON 对象】。\n' +
+                    '- 只输出 JSON，不要 Markdown/```，不要解释文字。\n' +
+                    '- 保持原有字段结构与键名，不要新增字段。\n' +
+                    '- 修复常见问题：未转义的双引号、缺失逗号/括号、非法换行等。\n',
+                },
+                {
+                  role: 'user',
+                  content:
+                    '请将下面内容修复为严格 JSON（必须可被 JSON.parse 解析），并只输出 JSON：\n\n' +
+                    rawContent,
+                },
+              ],
+            },
+            aiConfig.apiKey,
+            aiConfig.baseUrl
+          ),
+        context,
+        'AI JSON 修复失败'
+      )
+    } catch {
+      return normalizedContent
+    }
+
+    const repairedExtracted = this.extractJsonFromText(repaired.content || '')
+    if (!repairedExtracted) return normalizedContent
+    try {
+      const parsed = JSON.parse(repairedExtracted)
+      return JSON.stringify(parsed)
+    } catch {
+      return normalizedContent
     }
   }
 

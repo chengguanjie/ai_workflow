@@ -11,7 +11,7 @@
  */
 
 import type { WorkflowConfig, NodeConfig, ProcessNodeConfig } from '@/types/workflow'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, writeFile, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Agent } from 'undici'
 import { PrismaClient } from '@prisma/client'
@@ -77,6 +77,40 @@ function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
 }
 
+async function loadEnvVarFromDotenvFiles(name: string): Promise<string> {
+  const candidates = ['.env.local', '.env']
+  for (const file of candidates) {
+    try {
+      const content = await readFile(file, 'utf8')
+      for (const rawLine of content.split(/\r?\n/)) {
+        const line = rawLine.trim()
+        if (!line || line.startsWith('#')) continue
+        const eq = line.indexOf('=')
+        if (eq <= 0) continue
+        const key = line.slice(0, eq).trim()
+        if (key !== name) continue
+        let value = line.slice(eq + 1).trim()
+        if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+          value = value.slice(1, -1)
+        }
+        if (value) return value
+      }
+    } catch {
+      // ignore missing/unreadable files
+    }
+  }
+  return ''
+}
+
+function extractApiErrorMessage(data: unknown, status: number): string {
+  if (!isObject(data)) return `HTTP ${status}`
+  const err = data['error']
+  if (typeof err === 'string' && err) return err
+  if (isObject(err) && typeof err['message'] === 'string' && err['message']) return err['message']
+  if (typeof data['message'] === 'string' && data['message']) return data['message']
+  return `HTTP ${status}`
+}
+
 async function readJsonFileIfProvided(path: string): Promise<Record<string, unknown> | undefined> {
   if (!path) return undefined
   const fs = await import('node:fs/promises')
@@ -104,11 +138,7 @@ async function apiFetch<T>(
   })
   const data = (await res.json().catch(() => null)) as unknown
   if (!res.ok) {
-    const message =
-      (isObject(data) && typeof data['error'] === 'string' && data['error']) ||
-      (isObject(data) && typeof data['message'] === 'string' && data['message']) ||
-      `HTTP ${res.status}`
-    throw new Error(`${path}: ${message}`)
+    throw new Error(`${path}: ${extractApiErrorMessage(data, res.status)}`)
   }
   return data as T
 }
@@ -299,26 +329,83 @@ async function updateWorkflowConfig(
   token: string,
   workflowId: string,
   expectedVersion: number,
-  config: WorkflowConfig
+  config: WorkflowConfig,
+  publish: boolean
 ): Promise<{ version: number }> {
-  // Ensure monotonic version bump, otherwise the API may keep the same version and hide concurrent edits.
-  config.version = expectedVersion + 1
-  const res = await apiFetch<ApiSuccess<{ id: string; version: number }>>(
-    dispatcher,
-    baseUrl,
-    token,
-    `/api/v1/workflows/${workflowId}`,
-    {
+  let nextExpected = expectedVersion
+
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    // Ensure monotonic version bump, otherwise the API may keep the same version and hide concurrent edits.
+    config.version = nextExpected + 1
+
+    const res = await fetch(`${baseUrl}/api/v1/workflows/${workflowId}`, {
       method: 'PUT',
+      dispatcher,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({
         config,
-        expectedVersion,
+        expectedVersion: nextExpected,
         forceOverwrite: false,
-        publish: false,
+        publish,
       }),
+    })
+
+    const data = (await res.json().catch(() => null)) as unknown
+
+    if (res.ok) {
+      const version =
+        isObject(data) &&
+        isObject(data['data']) &&
+        typeof (data['data'] as JsonObject)['version'] === 'number'
+          ? ((data['data'] as JsonObject)['version'] as number)
+          : null
+      if (!version) throw new Error(`/api/v1/workflows/${workflowId}: unexpected response shape`)
+      return { version }
     }
-  )
-  return { version: res.data.version }
+
+    if (res.status === 409) {
+      const latest = await getWorkflow(dispatcher, baseUrl, token, workflowId)
+      console.log(`版本冲突(期望 ${nextExpected})，已刷新到最新版本 ${latest.version}，重试写回 (${attempt}/5)...`)
+      nextExpected = latest.version
+      continue
+    }
+
+    throw new Error(`/api/v1/workflows/${workflowId}: ${extractApiErrorMessage(data, res.status)}`)
+  }
+
+  // Last resort: force overwrite after repeated version conflicts.
+  const latest = await getWorkflow(dispatcher, baseUrl, token, workflowId)
+  config.version = latest.version + 1
+  const finalRes = await fetch(`${baseUrl}/api/v1/workflows/${workflowId}`, {
+    method: 'PUT',
+    dispatcher,
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      config,
+      expectedVersion: latest.version,
+      forceOverwrite: true,
+      publish,
+    }),
+  })
+  const finalData = (await finalRes.json().catch(() => null)) as unknown
+  if (!finalRes.ok) {
+    throw new Error(`/api/v1/workflows/${workflowId}: ${extractApiErrorMessage(finalData, finalRes.status)}`)
+  }
+  const version =
+    isObject(finalData) &&
+    isObject(finalData['data']) &&
+    typeof (finalData['data'] as JsonObject)['version'] === 'number'
+      ? ((finalData['data'] as JsonObject)['version'] as number)
+      : null
+  if (!version) throw new Error(`/api/v1/workflows/${workflowId}: unexpected response shape`)
+  console.log(`⚠️ 多次版本冲突后已 forceOverwrite 写回（最新版本: ${version}）`)
+  return { version }
 }
 
 async function executeWorkflowV1(
@@ -427,7 +514,7 @@ async function waitForTaskCompletion(
       consecutiveErrors++
       const msg = err instanceof Error ? err.message : String(err)
       console.log(`任务状态查询失败(第 ${consecutiveErrors} 次): ${msg}`)
-      if (consecutiveErrors >= 5) throw err
+      if (consecutiveErrors >= 30) throw err
       await new Promise((r) => setTimeout(r, Math.min(pollIntervalMs * consecutiveErrors, 10_000)))
       continue
     }
@@ -444,7 +531,10 @@ async function waitForTaskCompletion(
       lastExecutionStatus = execStatus
     }
 
-    if (status === 'completed' || status === 'failed') return task
+    const isTaskTerminal = status === 'completed' || status === 'failed'
+    const isExecRunning = execStatus === 'RUNNING' || execStatus === 'PENDING'
+    const shouldWaitForExecution = Boolean(execStatus) && isExecRunning
+    if (isTaskTerminal && !shouldWaitForExecution) return task
 
     if (Date.now() - start > pollTimeoutMs) {
       throw new Error(`Task polling timed out after ${pollTimeoutMs}ms: taskId=${taskId}`)
@@ -452,6 +542,27 @@ async function waitForTaskCompletion(
 
     await new Promise((r) => setTimeout(r, pollIntervalMs))
   }
+}
+
+async function getExecutionDetailWithRetry(
+  dispatcher: Agent,
+  baseUrl: string,
+  token: string,
+  workflowId: string,
+  executionId: string
+) {
+  let lastErr: unknown
+  for (let attempt = 1; attempt <= 10; attempt++) {
+    try {
+      return await getExecutionDetail(dispatcher, baseUrl, token, workflowId, executionId)
+    } catch (err) {
+      lastErr = err
+      const msg = err instanceof Error ? err.message : String(err)
+      console.log(`拉取执行详情失败(第 ${attempt}/10 次): ${msg}`)
+      await new Promise((r) => setTimeout(r, 500 * attempt))
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('获取执行详情失败')
 }
 
 function fixTextLikeNodeModality(config: WorkflowConfig): { changed: boolean; changes: string[] } {
@@ -506,9 +617,17 @@ function prependIfMissing(text: string, prefix: string): string {
   return `${prefix}\n\n${text}`.trim()
 }
 
+function prependBlockIfMissing(text: string, block: string): string {
+  const needle = block.trim()
+  if (!needle) return text
+  if (text.includes(needle)) return text
+  return `${block}\n\n${text}`.trim()
+}
+
 function fixJsonOutputStrictness(
   config: WorkflowConfig,
-  violations: PromptViolation[]
+  violations: PromptViolation[],
+  failedLogs: Array<{ nodeId: string; error: string | null }>
 ): { changed: boolean; changes: string[] } {
   const changes: string[] = []
   let changed = false
@@ -522,8 +641,23 @@ function fixJsonOutputStrictness(
   ])
 
   const byId = new Map(config.nodes.map(n => [n.id, n]))
+  const byFailedId = new Map(failedLogs.map(l => [l.nodeId, l.error || '']))
+
+  function shouldHardenJsonNode(nodeId: string): boolean {
+    const err = byFailedId.get(nodeId) || ''
+    if (!err) return false
+    return (
+      err.includes('期望输出为 JSON') ||
+      err.includes('无法解析为有效 JSON') ||
+      err.toLowerCase().includes('json') && err.toLowerCase().includes('parse')
+    )
+  }
+
+  const quoteGuard =
+    '重要：为避免 JSON 解析失败，正文内容字段 (content) 中不要输出英文双引号字符 (")；如需引用请改用中文引号“”或单引号’。'
+
   for (const v of violations) {
-    if (!badKinds.has(v.kind)) continue
+    if (!badKinds.has(v.kind) && !shouldHardenJsonNode(v.nodeId)) continue
     const node = byId.get(v.nodeId)
     if (!node || node.type !== 'PROCESS') continue
     const p = node as ProcessNodeConfig
@@ -541,13 +675,15 @@ function fixJsonOutputStrictness(
     const strict = [
       '重要：你必须只输出一个 JSON 对象（以 { 开头，以 } 结尾）。',
       '不要输出 Markdown 代码块，不要使用 ```，不要输出任何解释文字、前后缀、标题。',
+      '所有字符串中的换行必须使用 \\n 转义（不要输出真实换行），引号必须正确转义，确保 JSON 可被严格解析。',
       '如果字段值未知，请输出空字符串或 null（按字段语义选择），但字段必须齐全。',
     ].join('\n')
 
     const beforeSystem = typeof p.config.systemPrompt === 'string' ? p.config.systemPrompt : ''
     const beforeUser = typeof p.config.userPrompt === 'string' ? p.config.userPrompt : ''
-    const nextSystem = prependIfMissing(beforeSystem, strict)
-    const nextUser = prependIfMissing(beforeUser, '请严格按上述 JSON 输出要求返回。')
+    let nextSystem = prependBlockIfMissing(beforeSystem, strict)
+    nextSystem = prependBlockIfMissing(nextSystem, quoteGuard)
+    const nextUser = prependBlockIfMissing(beforeUser, '请严格按上述 JSON 输出要求返回。')
 
     if (nextSystem !== beforeSystem) {
       p.config.systemPrompt = nextSystem
@@ -556,6 +692,45 @@ function fixJsonOutputStrictness(
     }
     if (nextUser !== beforeUser) {
       p.config.userPrompt = nextUser
+      changed = true
+    }
+  }
+
+  // Also harden any JSON-expected nodes that failed JSON parsing even if no prompt-violation kind was produced.
+  for (const [nodeId, err] of byFailedId) {
+    if (!shouldHardenJsonNode(nodeId)) continue
+    const node = byId.get(nodeId)
+    if (!node || node.type !== 'PROCESS') continue
+    const p = node as ProcessNodeConfig
+
+    const inferred = inferExpectedType(p.config?.systemPrompt, p.config?.userPrompt)
+    if (inferred !== 'json') continue
+    if (!p.config) p.config = {}
+
+    const strict = [
+      '重要：你必须只输出一个 JSON 对象（以 { 开头，以 } 结尾）。',
+      '不要输出 Markdown 代码块，不要使用 ```，不要输出任何解释文字、前后缀、标题。',
+      '所有字符串中的换行必须使用 \\n 转义（不要输出真实换行），引号必须正确转义，确保 JSON 可被严格解析。',
+      '如果字段值未知，请输出空字符串或 null（按字段语义选择），但字段必须齐全。',
+    ].join('\n')
+
+    const beforeSystem = typeof p.config.systemPrompt === 'string' ? p.config.systemPrompt : ''
+    const beforeUser = typeof p.config.userPrompt === 'string' ? p.config.userPrompt : ''
+    let nextSystem = prependBlockIfMissing(beforeSystem, strict)
+    nextSystem = prependBlockIfMissing(nextSystem, quoteGuard)
+    const nextUser = prependBlockIfMissing(beforeUser, '请严格按上述 JSON 输出要求返回。')
+
+    if (nextSystem !== beforeSystem) {
+      p.config.systemPrompt = nextSystem
+      changed = true
+      changes.push(`节点 "${node.name}": 强化提示词以避免 JSON 解析失败（${err.slice(0, 40)}${err.length > 40 ? '…' : ''}）`)
+    }
+    if (nextUser !== beforeUser) {
+      p.config.userPrompt = nextUser
+      changed = true
+    }
+    if (p.config.expectedOutputType !== 'json') {
+      p.config.expectedOutputType = 'json'
       changed = true
     }
   }
@@ -586,9 +761,11 @@ function fixFinalHtmlOutputNode(
     '你是一个专业的微信公众号排版设计师，擅长将文字和图片进行美观且易读的排版。',
     '',
     '输出要求（严格遵守）：',
-    '- 只输出完整的 HTML（以 < 开头），不要输出 Markdown，不要输出 JSON，不要包含 ``` 代码块。',
+    '- 只输出完整的 HTML（以 < 开头），不要返回任何 MD 内容，不要返回任何 JSON，不要包含 ``` 代码块。',
     '- 适配移动端（375px 宽）阅读，段落留白充足，标题层级清晰。',
-    '- 配图位置使用 <figure> + <img> + <figcaption>，并用占位 src（例如 https://example.com/image1.png）。',
+    '- 配图位置使用 <figure> + <img> + <figcaption>。',
+    '- 图片 <img src> 必须使用【图片对象列表】中的 url；不要使用 example.com 之类的占位链接。',
+    '- 必须插入 {{用户输入.配图数量}} 张图；若 URL 数量不足，则全部使用现有 URL，并在对应 figcaption 标注“缺少图片URL”。',
     '',
     '排版建议：',
     '- 标题 <h1>/<h2>/<h3> 分级；关键观点 <strong>；金句 <blockquote>；要点 <ul>/<ol>。',
@@ -601,8 +778,11 @@ function fixFinalHtmlOutputNode(
     '【文章内容】',
     '{{文章二次创作}}',
     '',
-    '【配图信息】',
-    '{{配图需求提取与生成}}',
+    '【图片对象列表（必须按顺序全部使用；每项含 url）】',
+    '{{配图需求提取与生成.images}}',
+    '',
+    '【配图文案与位置建议】',
+    '{{配图需求提取与生成.结果}}',
     '',
     '【排版要求】',
     '1) 标题层级清晰；2) 段落优化；3) 按配图信息自然插入配图；4) 重点加粗/引用；5) 列表化；6) 首尾优化；7) 留白与呼吸感。',
@@ -648,10 +828,11 @@ async function saveReport(
 }
 
 async function main() {
-  const token = process.env.WORKFLOW_API_TOKEN || process.env.API_TOKEN || ''
-  if (!token) throw new Error('Missing env: WORKFLOW_API_TOKEN')
-
   const { baseUrl, workflowId, mode, maxIterations, apply, inputPath, headersTimeoutMs, bodyTimeoutMs, asyncExecution, pollIntervalMs, pollTimeoutMs } = parseArgs(process.argv.slice(2))
+  let token = process.env.WORKFLOW_API_TOKEN || process.env.API_TOKEN || ''
+  if (!token) token = await loadEnvVarFromDotenvFiles('WORKFLOW_API_TOKEN')
+  if (!token) throw new Error('Missing env: WORKFLOW_API_TOKEN (or API_TOKEN)')
+
   const dispatcher = new Agent({ headersTimeout: headersTimeoutMs, bodyTimeout: bodyTimeoutMs })
   const input = await readJsonFileIfProvided(inputPath)
 
@@ -660,7 +841,7 @@ async function main() {
   console.log(`baseUrl=${baseUrl} workflowId=${workflowId} mode=${mode} maxIterations=${maxIterations} apply=${apply}`)
   console.log(`timeouts: headers=${headersTimeoutMs}ms body=${bodyTimeoutMs}ms`)
   console.log(`execute: ${asyncExecution ? 'async(queue)' : 'sync'} pollInterval=${pollIntervalMs}ms pollTimeout=${pollTimeoutMs}ms`)
-  console.log(`token=${token.slice(0, 8)}...`)
+  console.log('token=present')
   console.log('='.repeat(80))
 
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
@@ -693,7 +874,7 @@ async function main() {
     }
 
     console.log('拉取执行详情(含节点日志)...')
-    const detail = await getExecutionDetail(dispatcher, baseUrl, token, workflowId, executionId)
+    const detail = await getExecutionDetailWithRetry(dispatcher, baseUrl, token, workflowId, executionId)
 
     const violations = buildViolations(workflowConfig, detail.logs)
     const failedLogs = detail.logs.filter(l => l.status !== 'COMPLETED' || l.error)
@@ -736,7 +917,7 @@ async function main() {
       fixExpectedOutputTypesFromPrompts(nextConfig),
       fixTextLikeNodeModality(nextConfig),
       fixFinalHtmlOutputNode(nextConfig),
-      fixJsonOutputStrictness(nextConfig, violations),
+      fixJsonOutputStrictness(nextConfig, violations, failedLogs.map(l => ({ nodeId: l.nodeId, error: l.error }))),
       authFix,
     ].filter(r => r.changed)
 
@@ -761,7 +942,7 @@ async function main() {
 
       console.log('写回工作流配置...')
       try {
-        const updated = await updateWorkflowConfig(dispatcher, baseUrl, token, workflowId, wf.version, nextConfig)
+        const updated = await updateWorkflowConfig(dispatcher, baseUrl, token, workflowId, wf.version, nextConfig, mode === 'production')
         console.log(`✅ 写回成功，新版本: ${updated.version}`)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
@@ -784,7 +965,7 @@ async function main() {
 
     console.log('写回工作流配置...')
     try {
-      const updated = await updateWorkflowConfig(dispatcher, baseUrl, token, workflowId, wf.version, nextConfig)
+      const updated = await updateWorkflowConfig(dispatcher, baseUrl, token, workflowId, wf.version, nextConfig, mode === 'production')
       console.log(`✅ 写回成功，新版本: ${updated.version}`)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)

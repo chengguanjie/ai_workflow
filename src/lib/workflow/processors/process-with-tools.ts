@@ -6,6 +6,7 @@
 
 import type { NodeConfig, ProcessNodeConfig } from '@/types/workflow'
 import type { OutputType } from '@/lib/workflow/debug-panel/types'
+import type { ContentPart } from '@/lib/ai/types'
 import type { NodeProcessor, NodeOutput, ExecutionContext, AIConfigCache } from '../types'
 import type {
   ChatResponseWithTools,
@@ -15,11 +16,10 @@ import type {
   ClaudeTool,
   ToolExecutionContext,
 } from '@/lib/ai/function-calling/types'
-import { replaceVariables, createContentPartsFromText, replaceVariablesInConfig } from '../utils'
+import { createContentPartsFromText, replaceVariablesInConfig } from '../utils'
 import { prisma } from '@/lib/db'
 import { safeDecryptApiKey } from '@/lib/crypto'
 import { getRelevantContext } from '@/lib/knowledge/search'
-import { estimateTokenCount } from '@/lib/ai/token-utils'
 import { OpenAIProvider } from '@/lib/ai/providers/openai'
 import { AnthropicProvider } from '@/lib/ai/providers/anthropic'
 import { ensureImportedFilesFromContext } from '../imported-files'
@@ -35,13 +35,20 @@ import {
   toolRegistry,
   toOpenAIFormat,
   toClaudeFormat,
-  getProviderFormat,
   mapUIToolToExecutor,
-  isNotificationTool,
-  getNotificationPlatform,
   isToolImplemented,
   initializeDefaultTools,
 } from '@/lib/ai/function-calling'
+
+/**
+ * 基础聊天消息类型
+ */
+type BaseChatMessage = { role: 'system' | 'user' | 'assistant'; content: string | ContentPart[]; tool_calls?: ToolCall[] }
+
+/**
+ * 工具结果消息类型 (OpenAI 格式)
+ */
+type ToolResultMessage = { role: 'tool'; tool_call_id: string; content: string }
 
 /**
  * UI 层工具配置类型（来自 tools-section.tsx）
@@ -165,11 +172,9 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
 
   private normalizeMaxTokens(configMaxTokens: unknown): number | undefined {
     if (typeof configMaxTokens !== 'number') return undefined
+    // 当值 <= 0（包括 -1 表示无限制）时，返回 undefined 让 API 使用模型默认最大值
     if (!Number.isFinite(configMaxTokens) || configMaxTokens <= 0) return undefined
-
-    // Guardrail: overly-large maxTokens often causes gateway/provider instability.
-    const HARD_CAP = 16_384
-    if (configMaxTokens > HARD_CAP) return undefined
+    // 不再设置硬性上限，尊重用户配置，让模型本身决定限制
     return Math.floor(configMaxTokens)
   }
 
@@ -342,9 +347,27 @@ ${toolListText}${toolConfigText}
       }
 
       // 6. 构建消息
-      const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | any[]; tool_calls?: ToolCall[] }> = []
+      const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | ContentPart[]; tool_calls?: ToolCall[] }> = []
       if (systemPrompt.trim()) {
         messages.push({ role: 'system', content: systemPrompt })
+      }
+
+      // 如果期望输出为 JSON，则在 system prompt 里追加强约束，避免模型输出解释性文字
+      // 说明：这里不改变用户的原始 prompt（便于调试/复用），只在系统层做格式约束。
+      if (processNode.config?.expectedOutputType === 'json') {
+        const jsonConstraint =
+          '\n\n## 输出格式要求（必须严格遵守）\n' +
+          '- 只输出【一个】JSON 对象（以 { 开头，以 } 结尾）。\n' +
+          '- 不要输出 Markdown、不要 ``` 代码块、不要解释文字、不要前后缀。\n' +
+          '- 字段必须齐全，不允许省略。\n' +
+          '- 字符串内的双引号必须正确转义，确保 JSON.parse 可解析。\n'
+        // 追加到最后，覆盖上游更弱的指令
+        const lastSystem = messages.find(m => m.role === 'system')
+        if (lastSystem && typeof lastSystem.content === 'string') {
+          lastSystem.content = lastSystem.content + jsonConstraint
+        } else {
+          messages.push({ role: 'system', content: jsonConstraint })
+        }
       }
 
       const isPureText = userContentParts.every(p => p.type === 'text')
@@ -408,6 +431,7 @@ ${toolListText}${toolConfigText}
         temperature,
         maxTokens,
         maxRounds,
+        Boolean(processNode.config?.expectedOutputType),
         context
       )
 
@@ -417,10 +441,37 @@ ${toolListText}${toolConfigText}
         toolCallsCount: result.toolCallHistory.length
       })
 
-      const normalizedContent = this.normalizeOutputContent(
+      let normalizedContent = this.normalizeOutputContent(
         result.content,
         processNode.config?.expectedOutputType
       )
+
+      // JSON 输出：尽最大努力确保下游拿到的是“严格 JSON 字符串”
+      // 策略：
+      // 1) normalizeOutputContent 已尝试从围栏/文本中提取 JSON 并 stringify
+      // 2) 若仍无法 JSON.parse，则尝试 AI 修复
+      // 3) 若修复后仍不合法，直接返回节点错误（避免下游拿到被二次包装的字符串）
+      if (processNode.config?.expectedOutputType === 'json') {
+        normalizedContent = await this.repairInvalidJsonOutputIfNeeded(
+          aiConfig,
+          model,
+          result.content,
+          temperature,
+          maxTokens,
+          normalizedContent,
+          context
+        )
+
+        const extracted = this.extractJsonFromText(normalizedContent) || normalizedContent
+        try {
+          const parsed = JSON.parse(extracted)
+          normalizedContent = JSON.stringify(parsed)
+        } catch {
+          // 降级：避免整条工作流因 JSON 轻微不合规而中断；下游一般使用 {{节点名}} 直接消费文本。
+          context.addLog?.('warning', 'JSON 输出仍无法严格解析，已降级为文本输出继续执行', 'AI_CALL')
+          normalizedContent = extracted
+        }
+      }
 
       // 基础输出数据：始终保留文本结果与工具调用历史
       const data: Record<string, unknown> = {
@@ -565,6 +616,79 @@ ${toolListText}${toolConfigText}
         completedAt: new Date(),
         duration: Date.now() - startedAt.getTime(),
       }
+    }
+  }
+
+  private async repairInvalidJsonOutputIfNeeded(
+    aiConfig: AIConfigCache,
+    model: string,
+    rawContent: string,
+    temperature: number,
+    maxTokens: number | undefined,
+    normalizedContent: string,
+    context: ExecutionContext
+  ): Promise<string> {
+    const extracted = this.extractJsonFromText(normalizedContent) || this.extractJsonFromText(rawContent)
+    if (!extracted) return normalizedContent
+    try {
+      const parsed = JSON.parse(extracted)
+      return JSON.stringify(parsed)
+    } catch {
+      // fall through to AI repair
+    }
+
+    context.addLog?.('warning', '检测到 JSON 输出不合法，尝试自动修复为严格 JSON', 'AI_CALL')
+
+    // Prefer repairing the extracted JSON-ish payload (usually much shorter than rawContent),
+    // otherwise the repair call may fail due to length/noise (markdown fences, extra text).
+    const MAX_REPAIR_INPUT_CHARS = 20_000
+    let repairInput = extracted || rawContent
+    const wasTruncated = repairInput.length > MAX_REPAIR_INPUT_CHARS
+    if (wasTruncated) repairInput = repairInput.slice(0, MAX_REPAIR_INPUT_CHARS)
+
+    const repairMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+      {
+        role: 'system',
+        content:
+          '你是一个严格的 JSON 修复器。你的任务是将输入内容修复为【单个 JSON 对象】。\n' +
+          '- 只输出 JSON，不要 Markdown/```，不要解释文字。\n' +
+          '- 保持原有字段结构与键名，不要新增字段。\n' +
+          '- 修复常见问题：未转义的双引号、缺失逗号/括号、非法换行等。\n',
+      },
+      {
+        role: 'user',
+        content:
+          '请将下面内容修复为严格 JSON（必须可被 JSON.parse 解析），并只输出 JSON：\n\n' +
+          (wasTruncated
+            ? '【注意】输入内容过长，已截断；如果正文(content)过长或含有大量引号/换行，请在不新增字段的前提下对正文做合理截断/清洗，以确保 JSON 可解析。\n\n' +
+              repairInput
+            : repairInput),
+      },
+    ]
+
+    let repaired: ChatResponseWithTools
+    try {
+      repaired = await this.callAIWithToolsAdaptive({
+        aiConfig,
+        model,
+        messages: repairMessages,
+        openaiTools: [],
+        claudeTools: [],
+        toolChoice: 'none',
+        temperature: Math.min(0.2, temperature),
+        maxTokens: maxTokens && maxTokens > 0 ? Math.min(maxTokens, 4096) : 4096,
+      })
+    } catch {
+      return normalizedContent
+    }
+
+    const repairedExtracted = this.extractJsonFromText(repaired.content || '')
+    if (!repairedExtracted) return normalizedContent
+    try {
+      const parsed = JSON.parse(repairedExtracted)
+      return JSON.stringify(parsed)
+    } catch {
+      return normalizedContent
     }
   }
 
@@ -777,13 +901,14 @@ ${toolListText}${toolConfigText}
   private async executeWithTools(
     aiConfig: AIConfigCache,
     model: string,
-    initialMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | any[]; tool_calls?: ToolCall[] }>,
+    initialMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | ContentPart[]; tool_calls?: ToolCall[] }>,
     openaiTools: OpenAITool[],
     claudeTools: ClaudeTool[],
     toolChoice: 'auto' | 'none' | 'required',
     temperature: number,
     maxTokens: number | undefined,
     maxRounds: number,
+    requireFinalResponse: boolean,
     context: ExecutionContext
   ): Promise<{
     content: string
@@ -795,11 +920,13 @@ ${toolListText}${toolConfigText}
     segments?: number
   }> {
     const toolCallHistory: Array<{ call: ToolCall; result: ToolCallResult }> = []
-    let messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | any[]; tool_calls?: ToolCall[] }> = [...initialMessages]
+    let messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | ContentPart[]; tool_calls?: ToolCall[] }> = [...initialMessages]
     const totalUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
     let rounds = 0
     let lastResponse: ChatResponseWithTools | null = null
     let hasSuccessfulToolCalls = false // 标记是否已有成功的工具调用
+    let currentToolChoice: 'auto' | 'none' | 'required' = toolChoice
+    let shouldForceFinalTextFormat = false
 
     const toolContext: ToolExecutionContext = {
       executionId: context.executionId,
@@ -831,7 +958,7 @@ ${toolListText}${toolConfigText}
           messages,
           openaiTools,
           claudeTools,
-          toolChoice,
+          currentToolChoice,
           temperature,
           maxTokens
         )
@@ -929,8 +1056,15 @@ ${toolListText}${toolConfigText}
       )
       
       if (isGenerativeToolCall && hasSuccessfulToolCalls) {
-        context.addLog?.('info', `第 ${rounds} 轮: 生成类工具执行成功，任务完成`, 'ROUND')
-        break
+        if (!requireFinalResponse) {
+          context.addLog?.('info', `第 ${rounds} 轮: 生成类工具执行成功，任务完成`, 'ROUND')
+          break
+        }
+        // 某些节点既需要生成类工具结果，也需要模型输出（例如严格 JSON 规划结果）。
+        // 此时继续下一轮，但禁用后续工具调用，让模型基于工具结果给出最终文本输出。
+        currentToolChoice = 'none'
+        shouldForceFinalTextFormat = true
+        context.addLog?.('info', `第 ${rounds} 轮: 生成类工具已执行，继续生成最终文本输出`, 'ROUND')
       }
 
       // 构建新的消息，包含工具调用结果
@@ -951,7 +1085,7 @@ ${toolListText}${toolConfigText}
         const toolResultContent = functionCallingService.buildClaudeToolResultMessages(toolResults)
         messages.push({
           role: 'user' as const,
-          content: toolResultContent as any,
+          content: toolResultContent as unknown as ContentPart[],
         })
       } else {
         // OpenAI 格式：使用 tool 角色
@@ -960,8 +1094,18 @@ ${toolListText}${toolConfigText}
           toolResults
         )
         for (const msg of toolResultMessages) {
-          messages.push(msg as any)
+          // OpenAI 工具结果消息使用 'tool' 角色，需要类型断言
+          (messages as Array<BaseChatMessage | ToolResultMessage>).push(msg)
         }
+      }
+
+      if (shouldForceFinalTextFormat) {
+        shouldForceFinalTextFormat = false
+        messages.push({
+          role: 'user' as const,
+          content:
+            '现在请基于工具执行结果，严格按照系统提示的【输出格式要求】返回最终结果：只输出一个 JSON 对象（以 { 开头，以 } 结尾），不要 Markdown，不要图片链接，不要任何解释文字。',
+        })
       }
     }
 
@@ -1028,7 +1172,7 @@ ${toolListText}${toolConfigText}
     model: string
     temperature: number
     maxTokens: number | undefined
-    initialMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | any[]; tool_calls?: ToolCall[] }>
+    initialMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | ContentPart[]; tool_calls?: ToolCall[] }>
     contentSoFar: string
     context: ExecutionContext
   }): Promise<{
@@ -1038,17 +1182,23 @@ ${toolListText}${toolConfigText}
     finishReason: ChatResponseWithTools['finishReason']
     segments: number
   }> {
-    const maxSegments = 20
+    const maxSegmentsEnv = Number(process.env.AI_AUTOCONTINUE_MAX_SEGMENTS || '')
+    const maxSegments = Number.isFinite(maxSegmentsEnv) && maxSegmentsEnv > 0 ? Math.floor(maxSegmentsEnv) : 8
     const tailChars = 4000
     const overlapProbeChars = 2000
+    const maxMergedChars = 200_000
+    const maxTotalTokens = 120_000
 
     let merged = options.contentSoFar || ''
     let segments = 1
-    let totalUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+    const totalUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
     let lastFinishReason: ChatResponseWithTools['finishReason'] = 'length'
     let lastModel = options.model
 
     while (segments < maxSegments && this.isTruncationFinishReason(lastFinishReason)) {
+      if (merged.length >= maxMergedChars) break
+      if (totalUsage.totalTokens >= maxTotalTokens) break
+
       const tail = merged.slice(-tailChars)
 
       const systemMsg = options.initialMessages.find(m => m.role === 'system')
@@ -1084,6 +1234,7 @@ ${toolListText}${toolConfigText}
       const nextContent = next.content || ''
       const probe = merged.slice(-overlapProbeChars)
       const deduped = this.removeLeadingOverlap(probe, nextContent)
+      if (deduped.trim().length < 20) break
       merged += deduped
 
       totalUsage.promptTokens += next.usage.promptTokens
@@ -1167,7 +1318,7 @@ ${toolListText}${toolConfigText}
   private async callAIWithTools(
     aiConfig: AIConfigCache,
     model: string,
-    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | any[]; tool_calls?: ToolCall[] }>,
+    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | ContentPart[]; tool_calls?: ToolCall[] }>,
     openaiTools: OpenAITool[],
     claudeTools: ClaudeTool[],
     toolChoice: 'auto' | 'none' | 'required',
@@ -1189,7 +1340,7 @@ ${toolListText}${toolConfigText}
   private async callAIWithToolsAdaptive(options: {
     aiConfig: AIConfigCache
     model: string
-    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | any[]; tool_calls?: ToolCall[] }>
+    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | ContentPart[]; tool_calls?: ToolCall[] }>
     openaiTools: OpenAITool[]
     claudeTools: ClaudeTool[]
     toolChoice: 'auto' | 'none' | 'required'

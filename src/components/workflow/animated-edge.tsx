@@ -105,11 +105,32 @@ export const AnimatedEdge: FC<EdgeProps> = ({
           </stop>
         </linearGradient>
 
-        {/* Glow filter */}
-        <filter id={glowFilterId} x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur stdDeviation="3" result="coloredBlur" />
+        {/* Glow filter (sharper): small blur + dilate keeps edges crisp */}
+        <filter
+          id={glowFilterId}
+          x="-40%"
+          y="-40%"
+          width="180%"
+          height="180%"
+          colorInterpolationFilters="sRGB"
+        >
+          {/* Expand a little to get a stronger halo without heavy blur */}
+          <feMorphology in="SourceGraphic" operator="dilate" radius="0.6" result="dilated" />
+          {/* Keep blur small so it doesn't look muddy */}
+          <feGaussianBlur in="dilated" stdDeviation="1.2" result="blurred" />
+          <feColorMatrix
+            in="blurred"
+            type="matrix"
+            values="
+              1 0 0 0 0
+              0 1 0 0 0
+              0 0 1 0 0
+              0 0 0 0.75 0
+            "
+            result="glow"
+          />
           <feMerge>
-            <feMergeNode in="coloredBlur" />
+            <feMergeNode in="glow" />
             <feMergeNode in="SourceGraphic" />
           </feMerge>
         </filter>
@@ -157,7 +178,9 @@ export const AnimatedEdge: FC<EdgeProps> = ({
             strokeWidth: 6,
             stroke: `url(#${gradientId})`,
             fill: 'none',
-            filter: 'drop-shadow(0 0 4px rgba(139, 92, 246, 0.5))',
+            // Sharper glow: stack small shadows instead of one big blur
+            filter:
+              'drop-shadow(0 0 1px rgba(139, 92, 246, 0.85)) drop-shadow(0 0 2px rgba(139, 92, 246, 0.45))',
           }}
         />
       )}
@@ -169,8 +192,9 @@ export const AnimatedEdge: FC<EdgeProps> = ({
           {[0, 0.33, 0.66].map((delay, index) => (
             <circle
               key={index}
-              r="4"
+              r="3"
               fill={`url(#${particleGradientId})`}
+              // Use the same filter but it's now sharper; keep particles a bit smaller
               filter={`url(#${glowFilterId})`}
             >
               <animateMotion
@@ -181,7 +205,7 @@ export const AnimatedEdge: FC<EdgeProps> = ({
               />
               <animate
                 attributeName="r"
-                values="3;5;3"
+                values="2.5;4;2.5"
                 dur="1.5s"
                 repeatCount="indefinite"
                 begin={`${delay}s`}
@@ -245,10 +269,23 @@ export const AnimatedEdge: FC<EdgeProps> = ({
         markerEnd={markerEnd}
         style={{
           ...style,
-          strokeWidth: isActive || isSelected ? 3 : 1.5,
+          strokeWidth: isActive || isSelected ? 3 : 2,
           stroke: isActive ? '#8b5cf6' : isSelected ? '#8b5cf6' : '#94a3b8',
-          opacity: isActive ? 1 : isSelected ? 1 : (hasSelection ? 0.15 : (isExecutionMode ? 0.4 : 0.8)),
+          opacity: isActive
+            ? 1
+            : isSelected
+              ? 1
+              : hasSelection
+                ? 0.15
+                : isExecutionMode
+                  ? 0.4
+                  : 0.8,
           transition: 'all 0.3s ease',
+          // Scheme 2: minimal, crisp base line. Avoid heavy blur filters.
+          filter: isActive ? 'drop-shadow(0 0 1px rgba(139, 92, 246, 0.9))' : 'none',
+          shapeRendering: 'crispEdges',
+          strokeLinecap: 'square',
+          strokeLinejoin: 'miter',
         }}
       />
     </>

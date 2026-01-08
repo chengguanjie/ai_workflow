@@ -27,7 +27,8 @@
     "workflow:trace": "node --import tsx scripts/trace-and-fix-workflow.ts",
     "workflow:trace:api": "node --import tsx scripts/trace-and-fix-workflow-v1-api.ts",
     "workflow:list:api": "node --import tsx scripts/list-workflows-v1-api.ts",
-    "security:audit": "bash scripts/security-audit.sh"
+    "security:audit": "bash scripts/security-audit.sh",
+    "pue:30d": "node --import tsx scripts/pue-30d-report.ts"
   },
   "dependencies": {
     "@eslint/eslintrc": "^3.3.3",
@@ -73,7 +74,7 @@
     "lodash": "^4.17.21",
     "lucide-react": "^0.561.0",
     "mammoth": "^1.11.0",
-    "next": "15.0.3",
+    "next": "^15.2.3",
     "next-auth": "5.0.0-beta.30",
     "next-themes": "^0.4.6",
     "node-cron": "^4.2.1",

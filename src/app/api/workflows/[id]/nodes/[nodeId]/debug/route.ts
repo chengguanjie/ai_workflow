@@ -107,7 +107,8 @@ export const POST = withAuth<ApiSuccessResponse<DebugResult>>(
     const timeoutMs = timeout ? timeout * 1000 : DEFAULT_DEBUG_TIMEOUT_MS
 
     // 诊断日志
-    console.log('[DEBUG API] 开始调试节点:', {
+    const { logDebug } = await import('@/lib/security/safe-logger')
+    logDebug('[DEBUG API] 开始调试节点', {
       nodeId,
       nodeType: targetNode.type,
       hasTools: Boolean(targetNode.config?.tools?.length),
@@ -118,7 +119,7 @@ export const POST = withAuth<ApiSuccessResponse<DebugResult>>(
 
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => {
-        console.log('[DEBUG API] 超时触发，已等待', timeoutMs, 'ms')
+        logDebug('[DEBUG API] 超时触发', { timeoutMs })
         reject(new TimeoutError(`节点调试超时 (${timeoutMs / 1000}秒)`))
       }, timeoutMs)
     })
@@ -136,7 +137,7 @@ export const POST = withAuth<ApiSuccessResponse<DebugResult>>(
       timeoutPromise,
     ])
 
-    console.log('[DEBUG API] 调试完成:', { status: result.status, duration: result.duration })
+    logDebug('[DEBUG API] 调试完成', { status: result.status, duration: result.duration })
 
     return ApiResponse.success(result)
   }

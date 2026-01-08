@@ -334,6 +334,13 @@ class ExecutionQueue {
   async initialize(): Promise<void> {
     if (this.initialized) return
 
+    const backend = (process.env.QUEUE_BACKEND || '').toLowerCase()
+    if (process.env.NODE_ENV !== 'production' && backend !== 'bullmq') {
+      console.log('[Queue] Dev mode: using memory queue (set QUEUE_BACKEND=bullmq to enable BullMQ)')
+      this.initialized = true
+      return
+    }
+
     if (isRedisConfigured()) {
       const success = await bullmqManager.initialize()
       if (success) {

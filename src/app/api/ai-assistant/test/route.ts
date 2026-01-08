@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
       where: { id: workflowId },
     });
 
-    if (!workflow) {
+    if (!workflow || workflow.organizationId !== session.user.organizationId) {
       return ApiResponse.error("工作流不存在", 404);
     }
 

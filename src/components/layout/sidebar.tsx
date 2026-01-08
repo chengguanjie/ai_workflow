@@ -61,7 +61,7 @@ const feedbackNavigation = [
 ]
 
 export function Sidebar() {
-  const pathname = usePathname()
+  const pathname = usePathname() ?? ''
   const { isCollapsed, toggle } = useSidebarStore()
   const { data: session } = useSession()
 

@@ -32,7 +32,9 @@ export class OpenRouterProvider implements AIProvider {
         'X-Title': 'AI Workflow',
       },
       body: JSON.stringify(requestBody),
-      timeoutMs: 90_000,
+      timeoutMs: 180_000,
+      retries: 5,
+      retryDelay: 2000,
     })
 
     if (!response.ok) {

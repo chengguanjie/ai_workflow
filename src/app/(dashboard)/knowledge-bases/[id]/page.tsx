@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
+import { useSafeParams } from '@/hooks/use-safe-params'
 import Link from 'next/link'
 import {
   ArrowLeft,
@@ -120,10 +121,10 @@ const getStatusLabel = (status: Document['status']) => {
 }
 
 export default function KnowledgeBaseDetailPage() {
-  const params = useParams()
+  const params = useSafeParams<{ id: string }>()
   const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const kbId = params.id as string
+  const kbId = params.id
 
   const [kb, setKB] = useState<KnowledgeBase | null>(null)
   const [documents, setDocuments] = useState<Document[]>([])

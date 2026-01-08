@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { usePathname, useSearchParams } from 'next/navigation'
 
 export function NavigationProgress() {
-  const pathname = usePathname()
+  const pathname = usePathname() ?? ''
   const searchParams = useSearchParams()
   const [isNavigating, setIsNavigating] = useState(false)
   const [progress, setProgress] = useState(0)

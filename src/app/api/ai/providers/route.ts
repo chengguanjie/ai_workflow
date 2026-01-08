@@ -94,15 +94,21 @@ export async function GET(request: NextRequest) {
     // 5. 处理数据
     const processStartTime = Date.now();
     const providers = configs.map((config) => {
-      let models = (config.models as string[]) || [];
-      let defaultModel = config.defaultModel;
-      const configDefaultModels =
-        (config.defaultModels as Record<string, string>) || {};
+      const rawModels = (config as any).models;
+      let models: string[] = Array.isArray(rawModels)
+        ? rawModels.filter((m: unknown): m is string => typeof m === "string")
+        : [];
+      let defaultModel = typeof config.defaultModel === "string" ? config.defaultModel : "";
+      const rawDefaultModels = (config as any).defaultModels;
+      const configDefaultModels: Record<string, string> =
+        rawDefaultModels && typeof rawDefaultModels === "object" ? rawDefaultModels : {};
 
       // 如果是胜算云，根据模态过滤模型列表
       if (config.provider === "SHENSUAN" && modality) {
         const modalityModels = SHENSUAN_MODELS[modality] || [];
-        models = modalityModels as unknown as string[];
+        models = Array.isArray(modalityModels)
+          ? modalityModels.filter((m: unknown): m is string => typeof m === "string")
+          : [];
         // 优先使用用户配置的模态默认模型，其次使用系统默认
         defaultModel =
           configDefaultModels[modality] ||
@@ -111,11 +117,23 @@ export async function GET(request: NextRequest) {
           "";
       } else if (config.provider === "SHENSUAN" && !modality) {
         // 没有指定模态时，返回文本模型作为默认
-        models = SHENSUAN_MODELS.text as unknown as string[];
+        models = Array.isArray(SHENSUAN_MODELS.text)
+          ? (SHENSUAN_MODELS.text as unknown[]).filter(
+              (m: unknown): m is string => typeof m === "string",
+            )
+          : [];
         defaultModel = configDefaultModels.text || SHENSUAN_DEFAULT_MODELS.text;
       } else if (modality && configDefaultModels[modality]) {
         // 其他服务商，如果有配置的模态默认模型，使用它
         defaultModel = configDefaultModels[modality];
+      }
+
+      // 最终兜底：保证 defaultModel 一定是 string 且存在于 models 内（尽量）
+      if (defaultModel && models.length > 0 && !models.includes(defaultModel)) {
+        models = [defaultModel, ...models];
+      }
+      if (!defaultModel && models.length > 0) {
+        defaultModel = models[0];
       }
 
       return {

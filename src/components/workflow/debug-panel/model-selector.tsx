@@ -96,7 +96,8 @@ export function ModelSelector({
         if (!isMounted) return
         
         if (resData.success && resData.data) {
-          const providerList = resData.data.providers || []
+          const rawProviders = resData?.data?.providers
+          const providerList = Array.isArray(rawProviders) ? rawProviders : []
           setProviders(providerList)
           
           // Auto-select default provider and model if not already selected
@@ -112,7 +113,8 @@ export function ModelSelector({
               const currentProvider = providerList.find((p: AIProviderConfig) => p.id === selectedProviderRef.current)
               if (currentProvider) {
                 // If current model is not in the new model list, select the default
-                if (!currentProvider.models.includes(selectedModelRef.current || '')) {
+                const models = Array.isArray((currentProvider as any).models) ? ((currentProvider as any).models as string[]) : []
+                if (!models.includes(selectedModelRef.current || '')) {
                   onModelChangeRef.current(currentProvider.defaultModel)
                 }
               } else {
@@ -227,7 +229,7 @@ export function ModelSelector({
           <Label className="text-xs font-medium text-muted-foreground mb-2 block">
             模型
           </Label>
-          {currentProvider && currentProvider.models.length > 0 ? (
+          {currentProvider && Array.isArray((currentProvider as any).models) && (currentProvider as any).models.length > 0 ? (
             <Select
               value={selectedModel || currentProvider.defaultModel || ''}
               onValueChange={onModelChange}
@@ -237,7 +239,9 @@ export function ModelSelector({
                 <SelectValue placeholder="选择模型..." />
               </SelectTrigger>
               <SelectContent>
-                {currentProvider.models.map((model) => (
+                {(Array.isArray((currentProvider as any).models)
+                  ? ((currentProvider as any).models as string[])
+                  : []).map((model) => (
                   <SelectItem key={model} value={model}>
                     {model}
                     {model === currentProvider.defaultModel && ' (默认)'}

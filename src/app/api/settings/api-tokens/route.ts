@@ -42,7 +42,8 @@ export async function GET() {
 
     return ApiResponse.success({ tokens })
   } catch (error) {
-    console.error('Failed to get API tokens:', error)
+    const { logError } = await import('@/lib/security/safe-logger')
+    logError('Failed to get API tokens', error instanceof Error ? error : undefined)
     return ApiResponse.error('获取失败', 500)
   }
 }
@@ -98,13 +99,14 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    console.log('Created API Token:', { 
+    // SECURITY: Never log the actual token value
+    const { logInfo } = await import('@/lib/security/safe-logger')
+    logInfo('Created API Token', { 
       id: apiToken.id, 
       name: apiToken.name, 
-      token: apiToken.token,
-      tokenLength: apiToken.token?.length,
-      generatedToken: token,
-      generatedTokenLength: token.length
+      prefix: apiToken.prefix,
+      tokenLength: token.length,
+      // 不记录实际的token值
     })
 
     // 记录审计日志
@@ -133,7 +135,8 @@ export async function POST(request: NextRequest) {
       createdAt: apiToken.createdAt,
     })
   } catch (error) {
-    console.error('Failed to create API token:', error)
+    const { logError } = await import('@/lib/security/safe-logger')
+    logError('Failed to create API token', error instanceof Error ? error : undefined)
     return ApiResponse.error('创建失败', 500)
   }
 }

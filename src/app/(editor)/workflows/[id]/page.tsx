@@ -45,7 +45,7 @@ import {
   Redo2,
 } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useSafeParams } from "@/hooks/use-safe-params";
 import { NodePanel } from "@/components/workflow/node-panel";
 import { NodeConfigPanel } from "@/components/workflow/node-config-panel";
 import { toast } from "sonner";
@@ -131,8 +131,8 @@ function WorkflowEditor() {
   const setReactFlowViewportRef = useRef(setReactFlowViewport);
   setReactFlowViewportRef.current = setReactFlowViewport;
 
-  const params = useParams();
-  const workflowId = params.id as string;
+  const params = useSafeParams<{ id: string }>();
+  const workflowId = params.id;
 
   const [isLoading, setIsLoading] = useState(true);
   const [showExecutionPanel, setShowExecutionPanel] = useState(false);

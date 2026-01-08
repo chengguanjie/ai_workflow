@@ -1050,7 +1050,8 @@ export function NodeDebugPanel() {
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
           if (data?.success) {
-            const newProviders = data.data.providers || [];
+            const rawProviders = data?.data?.providers;
+            const newProviders = Array.isArray(rawProviders) ? rawProviders : [];
             setProviders(newProviders);
             // providersModality 与当前使用的模态保持一致（固定为 text）
             setProvidersModality(currentModality);
@@ -1061,18 +1062,22 @@ export function NodeDebugPanel() {
               ? newProviders.find((p: AIProviderConfig) => p.id === currentAiConfigId)
               : undefined;
             const providerForModel = currentModel
-              ? newProviders.find((p: AIProviderConfig) => p.models.includes(currentModel))
+              ? newProviders.find((p: AIProviderConfig) => Array.isArray((p as any).models) && (p as any).models.includes(currentModel))
               : undefined;
             const defaultProvider = data.data.defaultProvider || newProviders[0];
             const selectedProvider =
               providerFromConfig || providerForModel || defaultProvider;
 
             // 计算一个合适的模型：必须属于 selectedProvider
+            const selectedProviderModels = Array.isArray((selectedProvider as any)?.models)
+              ? ((selectedProvider as any).models as string[])
+              : [];
+
             const nextModel =
-              currentModel && selectedProvider?.models?.includes(currentModel)
+              currentModel && selectedProviderModels.includes(currentModel)
                 ? currentModel
                 : selectedProvider?.defaultModel ||
-                  (selectedProvider?.models?.length ? selectedProvider.models[0] : "");
+                  (selectedProviderModels.length ? selectedProviderModels[0] : "");
 
             const updates: Record<string, unknown> = {};
             // 强制将节点的 modality 统一为 text
@@ -1793,14 +1798,18 @@ ${htmlContent}
                                   }}
                                 >
                                   {/* 显示当前模型类别下的所有可用模型 */}
-                                  {providers.flatMap((provider) =>
-                                    provider.models.map((m) => (
+                                  {providers.flatMap((provider) => {
+                                    const models = Array.isArray((provider as any)?.models)
+                                      ? ((provider as any).models as string[])
+                                      : [];
+
+                                    return models.map((m) => (
                                       <option key={`${provider.id}-${m}`} value={m}>
                                         {m}{" "}
                                         {m === provider.defaultModel ? "(默认)" : ""}
                                       </option>
-                                    )),
-                                  )}
+                                    ));
+                                  })}
                                 </select>
                               );
                             })()}

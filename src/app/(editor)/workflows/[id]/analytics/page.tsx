@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useParams } from 'next/navigation'
+import { useSafeParams } from '@/hooks/use-safe-params'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -169,8 +169,8 @@ const ISSUE_CATEGORY_LABELS: Record<string, string> = {
 }
 
 export default function WorkflowAnalyticsPage() {
-  const params = useParams()
-  const workflowId = params.id as string
+  const params = useSafeParams<{ id: string }>()
+  const workflowId = params.id
 
   const [period, setPeriod] = useState('week')
   const [isLoading, setIsLoading] = useState(true)

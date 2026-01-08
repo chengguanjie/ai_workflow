@@ -2,11 +2,13 @@
  * 向量嵌入服务
  * 将文本转换为向量
  * 支持 OpenAI / 胜算云等多个嵌入提供商
+ * 支持本地 Mock Embedding（用于离线 Demo / 测试）
  * 包含使用量统计功能
  */
 
 import type { AIProvider } from '@prisma/client'
 import { prisma } from '@/lib/db'
+import { createHash } from 'crypto'
 
 export interface EmbeddingResult {
   embedding: number[]
@@ -133,6 +135,10 @@ export async function generateEmbedding(
 ): Promise<EmbeddingResult> {
   const { provider, model } = options
 
+  if (shouldUseMockEmbedding(options)) {
+    return generateMockEmbedding(text, model)
+  }
+
   switch (provider) {
     case 'OPENAI':
       return generateOpenAIEmbedding(text, model, options)
@@ -140,6 +146,56 @@ export async function generateEmbedding(
       return generateShensuanEmbedding(text, model, options)
     default:
       throw new Error(`不支持的嵌入提供商: ${provider}`)
+  }
+}
+
+function shouldUseMockEmbedding(options: EmbeddingOptions): boolean {
+  if (process.env.KNOWLEDGE_EMBEDDING_MOCK === 'true') return true
+  const model = String(options.model || '')
+  if (/^mock[\w-]*/i.test(model)) return true
+  const apiKey = String(options.apiKey || '')
+  if (/^mock[\w-]*/i.test(apiKey)) return true
+  return false
+}
+
+function tokenizeForMockEmbedding(text: string): string[] {
+  const normalized = String(text || '').normalize('NFKC').toLowerCase()
+  return normalized
+    .split(/[^a-z0-9\u4e00-\u9fff]+/g)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .slice(0, 2048)
+}
+
+function generateMockEmbedding(text: string, model: string): EmbeddingResult {
+  const dim = getEmbeddingDimension(model)
+  const vec = new Array<number>(dim).fill(0)
+
+  const tokens = tokenizeForMockEmbedding(text)
+  if (tokens.length === 0) {
+    // Ensure deterministic non-zero vector even for empty/whitespace input.
+    const h = createHash('sha256').update(String(text || '')).digest()
+    for (let i = 0; i < dim; i++) vec[i] = ((h[i % h.length] || 0) / 255) - 0.5
+  } else {
+    for (const token of tokens) {
+      const h = createHash('sha256').update(token).digest()
+      const idx =
+        ((h[0]! << 24) | (h[1]! << 16) | (h[2]! << 8) | h[3]!) >>> 0
+      const sign = (h[4]! & 1) === 0 ? 1 : -1
+      const magnitude = 0.5 + (h[5]! / 255) // [0.5, 1.5)
+      vec[idx % dim] += sign * magnitude
+    }
+  }
+
+  // L2 normalize
+  let norm = 0
+  for (let i = 0; i < vec.length; i++) norm += vec[i]! * vec[i]!
+  norm = Math.sqrt(norm) || 1
+  for (let i = 0; i < vec.length; i++) vec[i] = vec[i]! / norm
+
+  return {
+    embedding: vec,
+    tokenUsage: Math.max(1, Math.ceil(String(text || '').length / 4)),
   }
 }
 
@@ -314,6 +370,12 @@ export function getEmbeddingDimension(model: string): number {
   // 移除可能的前缀，如 openai/、bytedance/ 等
   const modelName = model.includes('/') ? model.split('/').pop()! : model
 
+  const mockDim = modelName.match(/^mock-embedding-(\d+)$/i)?.[1]
+  if (mockDim) {
+    const parsed = parseInt(mockDim, 10)
+    if (Number.isFinite(parsed) && parsed > 0) return parsed
+  }
+
   const dimensions: Record<string, number> = {
     // OpenAI 模型
     'text-embedding-ada-002': 1536,
@@ -328,6 +390,8 @@ export function getEmbeddingDimension(model: string): number {
     'bge-large-zh': 1024,
     'bge-base-zh': 768,
     'bge-small-zh': 512,
+    // Mock / demo
+    'mock-embedding-256': 256,
   }
 
   return dimensions[modelName] || 1536

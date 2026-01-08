@@ -220,7 +220,8 @@ export async function GET(request: NextRequest) {
       total,
     })
   } catch (error) {
-    console.error('V1 API list workflows error:', error)
+    const { logError } = await import('@/lib/security/safe-logger')
+    logError('V1 API list workflows error', error instanceof Error ? error : undefined)
     return ApiResponse.error(
       error instanceof Error ? error.message : '获取工作流列表失败',
       500
@@ -502,7 +503,8 @@ export async function POST(request: NextRequest) {
               }
             )
           } catch (error) {
-            console.error('Failed to schedule job:', error)
+            const { logError } = await import('@/lib/security/safe-logger')
+            logError('Failed to schedule job', error instanceof Error ? error : undefined)
           }
         }
 
@@ -544,7 +546,8 @@ export async function POST(request: NextRequest) {
 
     return ApiResponse.created(response)
   } catch (error) {
-    console.error('V1 API create workflow error:', error)
+    const { logError } = await import('@/lib/security/safe-logger')
+    logError('V1 API create workflow error', error instanceof Error ? error : undefined)
     return ApiResponse.error(
       error instanceof Error ? error.message : '创建工作流失败',
       500

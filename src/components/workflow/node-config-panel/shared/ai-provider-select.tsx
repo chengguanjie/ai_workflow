@@ -61,7 +61,8 @@ export function AIProviderSelect({
         if (res.ok) {
           const resData = await res.json()
           if (resData.success && resData.data) {
-            const providerList = resData.data.providers || []
+            const rawProviders = resData?.data?.providers
+            const providerList = Array.isArray(rawProviders) ? rawProviders : []
             setProviders(providerList)
 
             // 如果节点没有选择配置，使用默认配置
@@ -138,7 +139,7 @@ export function AIProviderSelect({
 
       <div className="space-y-2">
         <Label>模型</Label>
-        {selectedProvider && selectedProvider.models && selectedProvider.models.length > 0 ? (
+        {selectedProvider && Array.isArray((selectedProvider as any).models) && (selectedProvider as any).models.length > 0 ? (
           <select
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             value={model || selectedProvider.defaultModel || ''}

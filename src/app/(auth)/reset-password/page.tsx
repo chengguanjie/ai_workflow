@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useMemo, Suspense } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
+import { useSafeSearchParams } from '@/hooks/use-safe-search-params'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,8 +13,8 @@ import { validatePassword, getRequirementsDescription, DEFAULT_REQUIREMENTS } fr
 
 function ResetPasswordForm() {
                   const router = useRouter()
-                  const searchParams = useSearchParams()
-                  const token = searchParams.get('token')
+                  const searchParams = useSafeSearchParams()
+                  const token = searchParams.get('token') ?? ''
 
                   const [newPassword, setNewPassword] = useState('')
                   const [confirmPassword, setConfirmPassword] = useState('')

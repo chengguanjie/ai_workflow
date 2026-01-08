@@ -88,7 +88,7 @@ export function createRedisConnection(): Redis | null {
     password: config.password,
     db: config.db,
     maxRetriesPerRequest: config.maxRetriesPerRequest,
-    retryStrategy: (times) => {
+    retryStrategy: (times: number) => {
       if (times > 10) {
         console.error('[Redis] Max retries reached, giving up')
         return null
@@ -99,7 +99,7 @@ export function createRedisConnection(): Redis | null {
     lazyConnect: true, // 延迟连接，直到第一次使用
   })
 
-  redis.on('error', (err) => {
+  redis.on('error', (err: Error) => {
     console.error('[Redis] Connection error:', err.message)
   })
 

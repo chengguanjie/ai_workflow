@@ -86,8 +86,8 @@ export class ShensuanProvider implements AIProvider {
           Connection: 'close',
         },
         body: JSON.stringify(requestBody),
-        timeoutMs: 90_000,
-        retries: 3,
+        timeoutMs: 120_000,
+        retries: 5,
         retryDelay: 2000,
       })
     } catch (fetchError) {

@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { useSearchParams, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
+import { useSafeSearchParams } from '@/hooks/use-safe-search-params'
 import {
   Search,
   Plus,
@@ -85,7 +86,7 @@ const statusColors: Record<string, string> = {
 
 export default function OrganizationsPage() {
   const router = useRouter()
-  const searchParams = useSearchParams()
+  const searchParams = useSafeSearchParams()
 
   const [organizations, setOrganizations] = useState<Organization[]>([])
   const [pagination, setPagination] = useState<Pagination>({

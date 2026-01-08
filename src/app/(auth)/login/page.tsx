@@ -2,7 +2,8 @@
 
 import { useState, Suspense } from 'react'
 import { signIn, getSession } from 'next-auth/react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
+import { useSafeSearchParams } from '@/hooks/use-safe-search-params'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,8 +13,8 @@ import { GitBranch, Loader2 } from 'lucide-react'
 
 function LoginForm() {
   const router = useRouter()
-  const searchParams = useSearchParams()
-  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard'
+  const searchParams = useSafeSearchParams()
+  const callbackUrl = searchParams.get('callbackUrl') ?? '/dashboard'
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')

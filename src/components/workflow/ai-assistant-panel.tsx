@@ -863,15 +863,99 @@ ${confirmation.processSteps.map((s, i) => `${i + 1}. ${s.name}: ${s.description}
       testInput[field.name] = field.value || "";
     });
 
+    const missingRequiredFields = (inputConfig?.fields || [])
+      .filter((field) => (field as any).required && !String(field.value || "").trim())
+      .map((field) => field.name);
+
+    if (!autoGenerate && missingRequiredFields.length > 0) {
+      await addMessageAsync({
+        role: "assistant",
+        content: `无法开始测试：INPUT 节点存在未填写的必填字段：${missingRequiredFields
+          .map((name) => `「${name}」`)
+          .join("、")}。\n\n你可以先在 INPUT 节点为这些字段预填 value，再点击测试；或选择“AI 生成数据”模式自动生成后测试。`,
+      });
+      setLoading(false);
+      return;
+    }
+
     await addMessageAsync({
       role: "assistant",
       content: autoGenerate 
-        ? "好的，正在使用 AI 生成测试数据并执行测试..."
+        ? "好的，正在生成测试数据并执行测试..."
         : "好的，正在使用预填数据执行测试...",
       phase: "testing",
     });
 
     try {
+      if (autoGenerate) {
+        const response = await fetchWithTimeout("/api/ai-assistant/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode: "test_data_generation",
+            model: selectedModel,
+            workflowContext,
+            workflowId,
+            message:
+              "请为“微信公众号文章二创”场景生成一份测试输入，并立即触发测试。",
+          }),
+          timeoutMs: 120_000,
+        });
+
+        const resData = await response.json();
+        if (!response.ok) {
+          throw new Error(resData.error?.message || resData.message || "生成测试数据失败");
+        }
+
+        const data = resData.success ? resData.data : resData;
+        if (data.phase === "testing_pending" && data.executionId) {
+          setTestingNodes(data.pendingNodes || []);
+          setCurrentExecutionId(data.executionId);
+          setTestRunning(true);
+          if (data.content) {
+            await addMessageAsync({
+              role: "assistant",
+              content: data.content,
+              phase: "testing",
+            });
+          }
+          return;
+        }
+
+        if (data.testRequest?.testInput) {
+          // 兜底：如果 AI 生成了 testInput 但未触发测试，则用 /test 执行一次
+          const fallbackResponse = await fetch("/api/ai-assistant/test", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              workflowId,
+              testInput: data.testRequest.testInput,
+            }),
+          });
+          const fallbackResData = await fallbackResponse.json();
+          if (!fallbackResponse.ok) {
+            throw new Error(
+              fallbackResData.error?.message ||
+                fallbackResData.message ||
+                "测试启动失败",
+            );
+          }
+          const fallbackData = fallbackResData.success ? fallbackResData.data : fallbackResData;
+          setTestingNodes(fallbackData.pendingNodes || []);
+          setCurrentExecutionId(fallbackData.executionId);
+          setTestRunning(true);
+          return;
+        }
+
+        await addMessageAsync({
+          role: "assistant",
+          content:
+            data.content ||
+            "生成测试数据失败：未获得可用的 testInput，请重试。",
+        });
+        return;
+      }
+
       const response = await fetch("/api/ai-assistant/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -882,14 +966,13 @@ ${confirmation.processSteps.map((s, i) => `${i + 1}. ${s.name}: ${s.description}
       });
 
       const resData = await response.json();
-      if (response.ok) {
-        const data = resData.success ? resData.data : resData;
-        setTestingNodes(data.pendingNodes || []);
-        setCurrentExecutionId(data.executionId);
-        setTestRunning(true);
-      } else {
-        throw new Error(resData.error?.message || "测试启动失败");
+      if (!response.ok) {
+        throw new Error(resData.error?.message || resData.message || "测试启动失败");
       }
+      const data = resData.success ? resData.data : resData;
+      setTestingNodes(data.pendingNodes || []);
+      setCurrentExecutionId(data.executionId);
+      setTestRunning(true);
     } catch (error) {
       await addMessageAsync({
         role: "assistant",
@@ -898,7 +981,7 @@ ${confirmation.processSteps.map((s, i) => `${i + 1}. ${s.name}: ${s.description}
     } finally {
       setLoading(false);
     }
-  }, [workflowId, nodes, addMessageAsync, setLoading, setTestingNodes, setCurrentExecutionId, setTestRunning]);
+  }, [workflowId, nodes, addMessageAsync, setLoading, setTestingNodes, setCurrentExecutionId, setTestRunning, selectedModel, workflowContext]);
 
   const handleSubmitAnswers = useCallback(async (answers: Record<string, string | string[]>) => {
     const answerText = Object.entries(answers)
@@ -1133,7 +1216,7 @@ ${confirmation.processSteps.map((s, i) => `${i + 1}. ${s.name}: ${s.description}
                       {config.displayName}
                       {config.isDefault && <span className="ml-1 text-blue-500">(默认)</span>}
                     </div>
-                    {config.models.map((model) => (
+                    {(Array.isArray((config as any).models) ? ((config as any).models as string[]) : []).map((model) => (
                       <SelectItem key={`${config.id}:${model}`} value={`${config.id}:${model}`} className="text-xs pl-4">
                         {model}
                       </SelectItem>
@@ -1504,6 +1587,19 @@ function MessageBubble({
 
 function TestResultDisplay({ result }: { result: TestResultData }) {
   const [expanded, setExpanded] = useState(false);
+  const [showFinalOutput, setShowFinalOutput] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyFinal = async () => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(result.output ?? result, null, 2));
+      setCopied(true);
+      toast.success("已复制测试结果");
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("复制失败");
+    }
+  };
 
   return (
     <div className="mt-3 pt-3 border-t border-gray-200">
@@ -1516,9 +1612,25 @@ function TestResultDisplay({ result }: { result: TestResultData }) {
         <span className={cn("text-sm font-medium", result.success ? "text-green-700" : "text-red-700")}>
           {result.success ? "测试通过" : "测试失败"}
         </span>
-        {result.duration && (
-          <span className="text-xs text-gray-400 ml-auto">{result.duration}ms</span>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          {result.executionId && (
+            <span className="text-xs text-gray-400">ID: {result.executionId}</span>
+          )}
+          {result.duration && (
+            <span className="text-xs text-gray-400">{result.duration}ms</span>
+          )}
+          {(result.output || result.error || result.nodeResults?.length) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={handleCopyFinal}
+            >
+              {copied ? <Check className="h-3 w-3 mr-1" /> : <Copy className="h-3 w-3 mr-1" />}
+              {copied ? "已复制" : "复制"}
+            </Button>
+          )}
+        </div>
       </div>
       
       {result.error && (
@@ -1529,6 +1641,20 @@ function TestResultDisplay({ result }: { result: TestResultData }) {
       
       {result.analysis && (
         <div className="text-xs text-gray-600 mb-2">{result.analysis}</div>
+      )}
+
+      {result.output && (
+        <Collapsible open={showFinalOutput} onOpenChange={setShowFinalOutput}>
+          <CollapsibleTrigger className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-600">
+            {showFinalOutput ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+            查看最终输出
+          </CollapsibleTrigger>
+          <CollapsibleContent className="mt-2">
+            <pre className="p-2 bg-gray-100 rounded text-xs overflow-auto max-h-64 whitespace-pre-wrap break-words">
+              {JSON.stringify(result.output, null, 2)}
+            </pre>
+          </CollapsibleContent>
+        </Collapsible>
       )}
       
       {result.nodeResults && result.nodeResults.length > 0 && (
@@ -1556,6 +1682,18 @@ function TestResultDisplay({ result }: { result: TestResultData }) {
 
 function NodeResultItem({ node }: { node: NodeResultData }) {
   const [showOutput, setShowOutput] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(node.output ?? { error: node.error }, null, 2));
+      setCopied(true);
+      toast.success("已复制节点结果");
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("复制失败");
+    }
+  };
 
   return (
     <div className={cn(
@@ -1569,7 +1707,19 @@ function NodeResultItem({ node }: { node: NodeResultData }) {
           <XCircle className="h-3 w-3 text-red-500 shrink-0" />
         )}
         <span className="font-medium truncate">{node.nodeName}</span>
-        <span className="text-gray-400 ml-auto">{node.nodeType}</span>
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-gray-400">{node.nodeType}</span>
+          {(node.output || node.error) && (
+            <button
+              type="button"
+              className="text-gray-400 hover:text-gray-700"
+              onClick={handleCopy}
+              title="复制节点结果"
+            >
+              {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+            </button>
+          )}
+        </div>
       </div>
       
       {node.error && (
