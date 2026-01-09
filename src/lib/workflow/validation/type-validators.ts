@@ -219,7 +219,7 @@ export const markdownValidator: TypeValidator = {
 
     // Markdown 验证相对宽松，只要是文本就可以被视为有效的 Markdown
     // 但我们可以检查是否包含常见的 Markdown 语法以提高置信度
-    const hasMarkdownSyntax = MARKDOWN_PATTERNS.some(pattern => pattern.test(content))
+    MARKDOWN_PATTERNS.some(pattern => pattern.test(content))
 
     // 即使没有 Markdown 语法，纯文本也是有效的 Markdown
     // 所以我们总是返回 valid: true

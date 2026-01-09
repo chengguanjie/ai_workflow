@@ -16,7 +16,7 @@ import type {
   ClaudeTool,
   ToolExecutionContext,
 } from '@/lib/ai/function-calling/types'
-import { createContentPartsFromText, replaceVariablesInConfig } from '../utils'
+import { applyInputBindingsToContext, createContentPartsFromText, replaceVariablesInConfig } from '../utils'
 import { prisma } from '@/lib/db'
 import { safeDecryptApiKey } from '@/lib/crypto'
 import { getRelevantContext } from '@/lib/knowledge/search'
@@ -174,8 +174,11 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
     if (typeof configMaxTokens !== 'number') return undefined
     // 当值 <= 0（包括 -1 表示无限制）时，返回 undefined 让 API 使用模型默认最大值
     if (!Number.isFinite(configMaxTokens) || configMaxTokens <= 0) return undefined
-    // 不再设置硬性上限，尊重用户配置，让模型本身决定限制
-    return Math.floor(configMaxTokens)
+    const normalized = Math.floor(configMaxTokens)
+    // 过大的 maxTokens 往往会触发上游网关 400（或导致极不稳定的长输出），改为让模型使用默认值。
+    // 这里使用保守上限，避免不同 Provider 的 max_tokens 上限差异导致报错。
+    if (normalized > 16_384) return undefined
+    return normalized
   }
 
   async process(
@@ -189,6 +192,7 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
     let model: string | undefined
     let temperature: number | undefined
     let maxTokens: number | undefined
+    let providerBaseUrl: string | null = null
     let systemPrompt = ''
     let userPromptText = ''
     let toolChoice: 'auto' | 'none' | 'required' | undefined
@@ -205,6 +209,7 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
         context
       )
       provider = aiConfig?.provider
+      providerBaseUrl = aiConfig?.baseUrl || null
 
       if (!aiConfig) {
         throw new Error(
@@ -245,6 +250,9 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
       // 3. 处理用户提示词中的变量引用 (支持多模态)
       const rawUserPrompt = processNode.config?.userPrompt || ''
       context.addLog?.('step', '正在解析用户提示词变量 (支持多模态)...', 'VARIABLE')
+
+      // 输入绑定：注入 inputs.*，供提示词使用 {{inputs.xxx}}
+      applyInputBindingsToContext(processNode.config?.inputBindings, context)
 
       const userContentParts = createContentPartsFromText(rawUserPrompt, context)
       userPromptText = userContentParts
@@ -310,6 +318,17 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
         : processNode.config?.enabledTools
 
       model = processNode.config?.model || aiConfig.defaultModel
+      if (enableToolCalling && typeof model === 'string') {
+        const lower = model.toLowerCase()
+        if (lower.startsWith('anthropic/') && lower.includes(':thinking')) {
+          const before = model
+          model = model.replace(/:thinking/gi, '')
+          context.addLog?.('warning', '工具调用下禁用 thinking 模型后缀（避免上游 400）', 'MODEL_CONFIG', {
+            before,
+            after: model,
+          })
+        }
+      }
       const { openaiTools, claudeTools, toolDescriptions } = this.prepareToolsWithDescriptions(
         enableToolCalling,
         finalEnabledTools,
@@ -525,6 +544,17 @@ ${toolListText}${toolConfigText}
         // 按优先级设置输出类型和数据
         if (allImages.length > 0) {
           data.images = allImages
+          const imageUrls = allImages
+            .filter((img) => typeof img.url === 'string' && img.url)
+            .map((img, index) => ({
+              index: index + 1,
+              url: img.url as string,
+              description: img.revisedPrompt || `图片${index + 1}`,
+            }))
+          data.imageUrls = imageUrls
+          data.imageUrlsText = imageUrls
+            .map((img) => `图片${img.index}: ${img.url}${img.description ? ` (${img.description})` : ''}`)
+            .join('\n')
           outputType = 'image'
         }
         if (allVideos.length > 0) {
@@ -550,6 +580,7 @@ ${toolListText}${toolConfigText}
         status: 'success',
         input: {
           provider: aiConfig.provider,
+          baseUrl: aiConfig.baseUrl || null,
           model,
           temperature,
           maxTokens: maxTokens ?? null,
@@ -602,6 +633,7 @@ ${toolListText}${toolConfigText}
         status: 'error',
         input: {
           provider: provider ?? null,
+          baseUrl: providerBaseUrl,
           model: model ?? null,
           temperature: temperature ?? null,
           maxTokens: maxTokens ?? null,

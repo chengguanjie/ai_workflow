@@ -10,6 +10,7 @@ import { processAllPendingNotifications } from '@/lib/notifications'
 
 let initPromise: Promise<void> | null = null
 let notificationTask: ScheduledTask | null = null
+let isNotificationJobRunning = false
 
 /**
  * 初始化调度器（单例模式）
@@ -45,6 +46,8 @@ function initializeSystemJobs(): void {
     notificationTask = cron.schedule(
       '*/30 * * * * *',
       async () => {
+        if (isNotificationJobRunning) return
+        isNotificationJobRunning = true
         try {
           const result = await processAllPendingNotifications()
           if (result.processed > 0) {
@@ -55,6 +58,8 @@ function initializeSystemJobs(): void {
           }
         } catch (error) {
           console.error('[SystemJob] Notification send failed:', error)
+        } finally {
+          isNotificationJobRunning = false
         }
       },
       {

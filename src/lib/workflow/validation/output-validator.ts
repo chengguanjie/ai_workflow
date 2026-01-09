@@ -9,7 +9,7 @@
 
 import type { NodeConfig, ProcessNodeConfig } from '@/types/workflow'
 import type { OutputType } from '../debug-panel/types'
-import type { OutputValidationResult, OutputValidatorOptions, OutputValidationStatus } from './types'
+import type { OutputValidationResult, OutputValidatorOptions } from './types'
 import { getValidator } from './type-validators'
 import { isOutputComplete } from './completeness-checker'
 

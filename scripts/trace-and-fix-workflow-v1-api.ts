@@ -608,6 +608,61 @@ function buildViolations(config: WorkflowConfig, logs: Array<{ nodeId: string; o
     if (!byId.has(node.id)) continue
     violations.push(...validateNodeOutputAgainstPrompt(node as ProcessNodeConfig, byId.get(node.id)))
   }
+
+  // Extra contract: ensure final HTML uses the generated image URLs (no placeholders).
+  const imageNode = config.nodes.find((n) => n.type === 'PROCESS' && n.name === '配图需求提取与生成')
+  const finalNode = config.nodes.find((n) => n.type === 'PROCESS' && n.name === '文章排版优化')
+  if (imageNode && finalNode && byId.has(imageNode.id) && byId.has(finalNode.id)) {
+    const imageOut = byId.get(imageNode.id)
+    const htmlOut = byId.get(finalNode.id)
+
+    const urls: string[] = []
+    if (isObject(imageOut)) {
+      const imageUrls = imageOut['imageUrls']
+      if (Array.isArray(imageUrls)) {
+        for (const item of imageUrls) {
+          if (isObject(item) && typeof item['url'] === 'string' && item['url']) urls.push(item['url'])
+        }
+      } else if (Array.isArray(imageOut['images'])) {
+        for (const item of imageOut['images'] as unknown[]) {
+          if (isObject(item) && typeof item['url'] === 'string' && item['url']) urls.push(item['url'])
+        }
+      }
+    }
+
+    let html = ''
+    if (typeof htmlOut === 'string') {
+      html = htmlOut
+    } else if (isObject(htmlOut)) {
+      const candidate = (htmlOut['结果'] as unknown) ?? (htmlOut['result'] as unknown)
+      if (typeof candidate === 'string') html = candidate
+    }
+
+    const required = urls.filter(Boolean)
+    if (required.length > 0 && html) {
+      const missing = required.filter((u) => !html.includes(u))
+      const imgSrcs = Array.from(html.matchAll(/<img\s+[^>]*src=["']([^"']+)["'][^>]*>/gi)).map((m) => m[1])
+      const unexpected = imgSrcs.filter((u) => u && !required.includes(u))
+      const hasPlaceholder = imgSrcs.some((u) => u.includes('image.pollinations.ai') || u.includes('example.com/image'))
+
+      if (missing.length > 0 || unexpected.length > 0 || hasPlaceholder) {
+        violations.push({
+          nodeId: finalNode.id,
+          nodeName: finalNode.name,
+          kind: 'html_missing_required_images',
+          message: '最终 HTML 未使用生成节点的图片 URL（出现占位/外部链接或缺失）',
+          details: {
+            requiredCount: required.length,
+            foundImgCount: imgSrcs.length,
+            missingUrls: missing,
+            unexpectedUrls: unexpected,
+            imgSrcs,
+          },
+        })
+      }
+    }
+  }
+
   return violations
 }
 
@@ -764,7 +819,8 @@ function fixFinalHtmlOutputNode(
     '- 只输出完整的 HTML（以 < 开头），不要返回任何 MD 内容，不要返回任何 JSON，不要包含 ``` 代码块。',
     '- 适配移动端（375px 宽）阅读，段落留白充足，标题层级清晰。',
     '- 配图位置使用 <figure> + <img> + <figcaption>。',
-    '- 图片 <img src> 必须使用【图片对象列表】中的 url；不要使用 example.com 之类的占位链接。',
+    '- 图片 <img src> 必须逐字使用【配图URL】中提供的 URL（包含所有查询参数），不要改写、不要省略、不要自行生成其它链接。',
+    '- 严禁使用 https://example.com/ 或 image.pollinations.ai 等占位/外部生成链接；如出现则视为不合格输出。',
     '- 必须插入 {{用户输入.配图数量}} 张图；若 URL 数量不足，则全部使用现有 URL，并在对应 figcaption 标注“缺少图片URL”。',
     '',
     '排版建议：',
@@ -778,8 +834,8 @@ function fixFinalHtmlOutputNode(
     '【文章内容】',
     '{{文章二次创作}}',
     '',
-    '【图片对象列表（必须按顺序全部使用；每项含 url）】',
-    '{{配图需求提取与生成.images}}',
+    '【可用配图URL（必须逐字使用；<img src> 只能来自这里，不要改写/省略）】',
+    '{{配图需求提取与生成.imageUrlsText}}',
     '',
     '【配图文案与位置建议】',
     '{{配图需求提取与生成.结果}}',
@@ -850,7 +906,10 @@ async function main() {
     console.log(`迭代 ${iteration}/${maxIterations}: 获取工作流配置...`)
 
     const wf = await getWorkflow(dispatcher, baseUrl, token, workflowId)
-    const raw = mode === 'production' ? (wf.publishedConfig || wf.config) : (wf.draftConfig || wf.config)
+    const raw =
+      mode === 'production'
+        ? (wf.publishStatus === 'DRAFT_MODIFIED' || !wf.publishedConfig ? wf.config : wf.publishedConfig)
+        : (wf.draftConfig || wf.config)
     const workflowConfig = raw as unknown as WorkflowConfig
 
     console.log(`工作流: ${wf.name} version=${wf.version} publishStatus=${wf.publishStatus}`)
@@ -901,7 +960,8 @@ async function main() {
     console.log(`提示词契约违规数: ${violations.length}`)
     console.log(`追踪报告: ${reportPath}`)
 
-    if (exec.status === 'success' && failedLogs.length === 0 && violations.length === 0) {
+    const okStatus = exec.status === 'success' || exec.status === 'COMPLETED' || exec.status === 'SUCCESS'
+    if (okStatus && failedLogs.length === 0 && violations.length === 0) {
       console.log('✅ 全流程跑通且符合提示词契约')
       return
     }

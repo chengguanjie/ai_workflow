@@ -7,9 +7,9 @@
  * - INPUT 节点必填字段验证
  */
 
-import type { NodeConfig, EdgeConfig, InputNodeConfig, ProcessNodeConfig, isInputNode, isProcessNode } from '@/types/workflow'
+import type { NodeConfig, EdgeConfig, InputNodeConfig, ProcessNodeConfig } from '@/types/workflow'
 import type { ExecutionContext, NodeOutput } from '../types'
-import type { InputValidationResult, InputValidatorOptions, InputStatus } from './types'
+import type { InputValidationResult, InputValidatorOptions } from './types'
 
 // ============================================
 // Helper Functions
@@ -29,13 +29,6 @@ function getPredecessorIds(nodeId: string, edges: EdgeConfig[]): string[] {
  */
 function findNodeById(nodeId: string, nodes: NodeConfig[]): NodeConfig | undefined {
   return nodes.find(n => n.id === nodeId)
-}
-
-/**
- * 根据节点名称查找节点配置
- */
-function findNodeByName(nodeName: string, nodes: NodeConfig[]): NodeConfig | undefined {
-  return nodes.find(n => n.name === nodeName)
 }
 
 /**
@@ -160,8 +153,7 @@ export function extractVariableReferences(text: string): VariableReferenceInfo[]
 
   // 匹配完整格式 {{节点名.字段名}}
   let match
-  const fullPattern = /\{\{([^.}]+)\.([^}]+)\}\}/g
-  while ((match = fullPattern.exec(text)) !== null) {
+  while ((match = VARIABLE_PATTERN.exec(text)) !== null) {
     references.push({
       original: match[0],
       nodeName: match[1].trim(),
@@ -170,8 +162,7 @@ export function extractVariableReferences(text: string): VariableReferenceInfo[]
   }
 
   // 匹配简化格式 {{节点名}}
-  const simplePattern = /\{\{([^.{}]+)\}\}/g
-  while ((match = simplePattern.exec(text)) !== null) {
+  while ((match = SIMPLE_VARIABLE_PATTERN.exec(text)) !== null) {
     references.push({
       original: match[0],
       nodeName: match[1].trim(),
@@ -254,6 +245,30 @@ export function validateVariableReferences(
   const unresolvedVariables: string[] = []
   const details: Array<{ variable: string; reason: 'node_not_found' | 'field_not_found' }> = []
 
+  function hasResolvableField(data: Record<string, unknown>, fieldPath: string): boolean {
+    // direct access
+    const direct = fieldPath.includes('.')
+      ? getNestedValue(data, fieldPath)
+      : data[fieldPath]
+    if (direct !== undefined) return true
+
+    // aliases
+    if (fieldPath === 'result' && data['结果'] !== undefined) return true
+    if (fieldPath === '结果' && data['result'] !== undefined) return true
+
+    // derived multimodal helpers
+    if (fieldPath === 'imageUrls' || fieldPath === 'image_urls') {
+      if (Array.isArray(data['imageUrls']) && (data['imageUrls'] as unknown[]).length > 0) return true
+      if (Array.isArray(data['images']) && (data['images'] as unknown[]).length > 0) return true
+    }
+    if (fieldPath === 'videoUrls' || fieldPath === 'video_urls') {
+      if (Array.isArray(data['videoUrls']) && (data['videoUrls'] as unknown[]).length > 0) return true
+      if (Array.isArray(data['videos']) && (data['videos'] as unknown[]).length > 0) return true
+    }
+
+    return false
+  }
+
   for (const ref of references) {
     // 查找节点输出
     const nodeOutput = findNodeOutputByNameOrId(ref.nodeName, context)
@@ -274,15 +289,7 @@ export function validateVariableReferences(
     // 如果节点存在但还没有输出，这是正常的（可能是前置节点还未执行）
     // 我们只在有输出时检查字段是否存在
     if (nodeOutput && ref.fieldPath) {
-      // 检查字段是否存在
-      let value: unknown
-      if (ref.fieldPath.includes('.')) {
-        value = getNestedValue(nodeOutput.data, ref.fieldPath)
-      } else {
-        value = nodeOutput.data[ref.fieldPath]
-      }
-
-      if (value === undefined) {
+      if (!hasResolvableField(nodeOutput.data, ref.fieldPath)) {
         unresolvedVariables.push(ref.original)
         details.push({
           variable: ref.original,
@@ -421,7 +428,7 @@ export function validateNodeInput(options: InputValidatorOptions): InputValidati
 
   // 3. PROCESS 节点额外验证变量引用
   // PROCESS_WITH_TOOLS 与 PROCESS 使用同一套 prompt 字段，也应参与变量校验
-  if (node.type === 'PROCESS' || node.type === 'PROCESS_WITH_TOOLS') {
+  if (node.type === 'PROCESS' || (node as unknown as { type?: string }).type === 'PROCESS_WITH_TOOLS') {
     const processNode = node as ProcessNodeConfig
     // 对于 PROCESS_WITH_TOOLS，类型断言依旧可用（两者 config 结构兼容 userPrompt/systemPrompt）
     const userPrompt = processNode.config?.userPrompt || ''

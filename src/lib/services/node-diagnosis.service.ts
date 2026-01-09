@@ -129,7 +129,7 @@ function isValidNodeReference(
   currentNodeId: string
 ): { valid: boolean; reason?: string } {
   // Special references that are always valid
-  const specialRefs = ['input', 'global', 'env', 'context']
+  const specialRefs = ['input', 'inputs', 'global', 'env', 'context']
   if (specialRefs.includes(nodeRef.toLowerCase())) {
     return { valid: true }
   }

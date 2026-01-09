@@ -108,10 +108,7 @@ function resolveNodeFieldValue(
   if (fieldPath === 'imageUrls' || fieldPath === 'image_urls') {
     const images = nodeData.images
     if (Array.isArray(images) && images.length > 0) {
-      return {
-        ...(typeof nodeData === 'object' ? nodeData : {}),
-        imageUrls: buildImageUrlsFromImages(images as Array<{ url?: string; revisedPrompt?: string }>),
-      }
+      return buildImageUrlsFromImages(images as Array<{ url?: string; revisedPrompt?: string }>)
     }
   }
 
@@ -982,13 +979,17 @@ function convertValueToContentParts(value: unknown): ContentPart[] {
 
   // 3. 处理对象
   if (typeof value === 'object') {
-    const val = value as Record<string, any>
+    const val = value as Record<string, unknown>
 
     // 3.1 检查是否是 ImageInfo / AudioInfo / VideoInfo (来自 Image/Audio/Video 节点)
-    if (val.url) {
+    if (typeof val.url === 'string' && val.url) {
       // 尝试推断类型
-      const mimeType = val.type || val.mimeType || detectMimeType(val.url) || ''
-      const format = val.format || detectFormat(val.url)
+      const mimeType =
+        (typeof val.type === 'string' && val.type) ||
+        (typeof val.mimeType === 'string' && val.mimeType) ||
+        detectMimeType(val.url) ||
+        ''
+      const format = (typeof val.format === 'string' && val.format) || detectFormat(val.url)
 
       // 图片
       if (mimeType.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(format)) {
@@ -1017,8 +1018,11 @@ function convertValueToContentParts(value: unknown): ContentPart[] {
 
     // 3.2 特殊处理 InputNode 的 file 结构
     // { value, file: { url, mimeType }, url }
-    if (val.file && val.file.url) {
-      return convertValueToContentParts(val.file)
+    if (val.file && typeof val.file === 'object' && !Array.isArray(val.file)) {
+      const fileObj = val.file as Record<string, unknown>
+      if (typeof fileObj.url === 'string' && fileObj.url) {
+        return convertValueToContentParts(fileObj)
+      }
     }
     
     // 3.3 检查是否包含 imageUrls（来自 getDefaultOutputValue 的增强输出）
@@ -1027,20 +1031,23 @@ function convertValueToContentParts(value: unknown): ContentPart[] {
       const parts: ContentPart[] = []
       
       // 添加文本结果
-      if (val['结果']) {
+      if (val['结果'] !== undefined && val['结果'] !== null) {
         parts.push({ type: 'text', text: String(val['结果']) })
       }
       
       // 添加图片URL信息作为文本（让AI知道URL以便在HTML中使用）
-      const imageUrlsText = val.imageUrls.map((img: { index: number; url: string; description?: string }) => 
-        `图片${img.index}: ${img.url}${img.description ? ` (${img.description})` : ''}`
-      ).join('\n')
+      const imageUrlsText = (val.imageUrls as Array<{ index: number; url: string; description?: string }>)
+        .filter((img) => typeof img?.url === 'string' && img.url)
+        .map((img) =>
+          `图片${img.index}: ${img.url}${img.description ? ` (${img.description})` : ''}`
+        )
+        .join('\n')
       parts.push({ type: 'text', text: `\n\n【可用的配图URL】\n${imageUrlsText}\n` })
       
       // 同时添加图片本身（让AI能"看到"图片内容）
       if (val.images && Array.isArray(val.images)) {
-        for (const img of val.images) {
-          if (img.url) {
+        for (const img of val.images as Array<Record<string, unknown>>) {
+          if (typeof img?.url === 'string' && img.url) {
             parts.push({ type: 'image_url', image_url: { url: img.url, detail: 'auto' } })
           }
         }
@@ -1054,18 +1061,19 @@ function convertValueToContentParts(value: unknown): ContentPart[] {
       const parts: ContentPart[] = []
       
       // 添加图片URL作为文本
-      const imageUrlsText = val.images
-        .filter((img: { url?: string }) => img.url)
-        .map((img: { url?: string; revisedPrompt?: string }, index: number) => 
-          `图片${index + 1}: ${img.url}${img.revisedPrompt ? ` (${img.revisedPrompt})` : ''}`
-        ).join('\n')
+      const imageUrlsText = (val.images as Array<Record<string, unknown>>)
+        .filter((img) => typeof img?.url === 'string' && img.url)
+        .map((img, index: number) =>
+          `图片${index + 1}: ${String(img.url)}${typeof img.revisedPrompt === 'string' && img.revisedPrompt ? ` (${img.revisedPrompt})` : ''}`
+        )
+        .join('\n')
       if (imageUrlsText) {
         parts.push({ type: 'text', text: `【可用的配图URL】\n${imageUrlsText}\n` })
       }
       
       // 同时添加图片本身
-      for (const img of val.images) {
-        if (img.url) {
+      for (const img of val.images as Array<Record<string, unknown>>) {
+        if (typeof img?.url === 'string' && img.url) {
           parts.push({ type: 'image_url', image_url: { url: img.url, detail: 'auto' } })
         }
       }
@@ -1245,6 +1253,70 @@ export function createContentPartsFromText(
 
   // 5. 合并
   return mergeTextParts(parts)
+}
+
+/**
+ * 将 inputBindings 解析为 inputs 对象并注入到 context.globalVariables.inputs
+ * - 支持单一变量引用字符串：{{节点}} / {{节点.字段}}
+ * - 若解析失败则注入空字符串，避免运行时 undefined
+ */
+export function applyInputBindingsToContext(
+  bindings: Record<string, string> | undefined,
+  context: ExecutionContext
+): void {
+  if (!bindings || Object.keys(bindings).length === 0) return
+
+  const inputs: Record<string, unknown> = {}
+
+  for (const [slot, ref] of Object.entries(bindings)) {
+    const resolved = resolveSingleVariableReferenceToValue(ref, context)
+    inputs[slot] = resolved === undefined || resolved === null ? '' : resolved
+  }
+
+  // Merge into globalVariables.inputs
+  const existingInputs =
+    context.globalVariables.inputs && typeof context.globalVariables.inputs === 'object' && !Array.isArray(context.globalVariables.inputs)
+      ? (context.globalVariables.inputs as Record<string, unknown>)
+      : {}
+  context.globalVariables.inputs = { ...existingInputs, ...inputs }
+}
+
+function resolveSingleVariableReferenceToValue(
+  reference: string,
+  context: ExecutionContext
+): unknown | undefined {
+  if (typeof reference !== 'string') return undefined
+  const trimmed = reference.trim()
+  const match = trimmed.match(/^\{\{([^}]+)\}\}$/)
+  if (!match?.[1]) return undefined
+
+  const varContent = match[1].trim()
+  if (!varContent) return undefined
+
+  if (varContent.includes('.')) {
+    const dotIndex = varContent.indexOf('.')
+    const nodeName = varContent.substring(0, dotIndex).trim()
+    const fieldPath = varContent.substring(dotIndex + 1).trim()
+    if (!nodeName || !fieldPath) return undefined
+
+    const nodeOutput = findNodeOutputByNameOrId(nodeName, context)
+    const globalValue = context.globalVariables?.[nodeName]
+    const data =
+      nodeOutput?.data ||
+      (globalValue && typeof globalValue === 'object' && !Array.isArray(globalValue)
+        ? (globalValue as Record<string, unknown>)
+        : undefined)
+    if (!data) return undefined
+    return resolveNodeFieldValue(data, fieldPath)
+  }
+
+  const nodeName = varContent
+  const nodeOutput = findNodeOutputByNameOrId(nodeName, context)
+  const globalValue = context.globalVariables?.[nodeName]
+
+  if (nodeOutput) return getDefaultOutputValue(nodeOutput)
+  if (globalValue !== undefined) return globalValue
+  return undefined
 }
 
 /**

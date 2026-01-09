@@ -143,7 +143,7 @@ async function getRateLimiter(
         rateLimiters.set(key, redisLimiter)
         return redisLimiter
       }
-    } catch (error) {
+    } catch (_error) {
       // Redis not available, fall back to in-memory
       // Silently fail - in-memory limiter will be used
     }

@@ -656,21 +656,29 @@ export function formatModalityOutput(output: ModalityOutput): Record<string, unk
       }
 
     case 'image-gen':
-      return {
-        images: output.images,
-        // 兼容：第一张图片 URL 作为主结果
-        结果: output.images[0]?.url || '',
-        result: output.images[0]?.url || '',
-        // 便于下游直接引用三张配图：{{节点.imageUrls}}
-        imageUrls: output.images
+      {
+        const imageUrls = output.images
           .filter((img) => img.url)
           .map((img, index) => ({
             index: index + 1,
             url: img.url,
             description: img.revisedPrompt || `图片${index + 1}`,
-          })),
+          }))
+
+        return {
+        images: output.images,
+        // 兼容：第一张图片 URL 作为主结果
+        结果: output.images[0]?.url || '',
+        result: output.images[0]?.url || '',
+        // 便于下游直接引用三张配图：{{节点.imageUrls}}
+        imageUrls,
+        // 便于下游以纯文本方式引用 URL（避免被识别为多模态图片输入）
+        imageUrlsText: imageUrls
+          .map((img) => `图片${img.index}: ${img.url}${img.description ? ` (${img.description})` : ''}`)
+          .join('\n'),
         model: output.model,
         prompt: output.prompt
+        }
       }
 
     case 'video-gen':

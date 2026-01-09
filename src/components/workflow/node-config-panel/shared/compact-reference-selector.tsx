@@ -144,14 +144,14 @@ export function CompactReferenceSelector({
         }
         fields.push({
           id: `${node.id}_output`,
-          name: '节点输出',
+          name: '全部输出内容',
           type: 'output',
           reference: `{{${nodeName}}}`,
         })
       } else {
         fields.push({
           id: `${node.id}_output`,
-          name: '节点输出',
+          name: '全部输出内容',
           type: 'output',
           reference: `{{${nodeName}}}`,
         })

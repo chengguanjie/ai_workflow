@@ -3,17 +3,38 @@
  */
 
 import type { NodeConfig, ProcessNodeConfig } from '@/types/workflow'
-import type { ContentPart } from '@/lib/ai/types'
+import type { ContentPart, ModelModality } from '@/lib/ai/types'
+import { getModelModality, SHENSUAN_DEFAULT_MODELS } from '@/lib/ai/types'
 import type { NodeProcessor, NodeOutput, ExecutionContext, AIConfigCache } from '../types'
-import { createContentPartsFromText } from '../utils'
+import { applyInputBindingsToContext, createContentPartsFromText } from '../utils'
 import { aiService } from '@/lib/ai'
 import { prisma } from '@/lib/db'
 import { safeDecryptApiKey } from '@/lib/crypto'
 import { getRelevantContext } from '@/lib/knowledge/search'
 import { formatNetworkError, isFormattedNetworkError, isRetryableNetworkError } from '@/lib/http/fetch-with-timeout'
+import { routeByModality } from './modality-router'
+import { MODALITY_TO_OUTPUT_TYPE, type OutputType } from '@/lib/workflow/debug-panel/types'
 
 export class ProcessNodeProcessor implements NodeProcessor {
   nodeType = 'PROCESS'
+
+  private extractAudioInputFromParts(parts: ContentPart[]): { url?: string; data?: ArrayBuffer } | undefined {
+    for (const part of parts) {
+      if (part.type === 'audio_url' && typeof part.audio_url?.url === 'string') {
+        return { url: part.audio_url.url }
+      }
+      if (part.type === 'input_audio' && typeof part.input_audio?.data === 'string') {
+        try {
+          const buf = Buffer.from(part.input_audio.data, 'base64')
+          const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
+          return { data: arrayBuffer }
+        } catch {
+          // ignore
+        }
+      }
+    }
+    return undefined
+  }
 
   private extractJsonFromText(text: string): string | null {
     const trimmed = text.trim()
@@ -106,8 +127,10 @@ export class ProcessNodeProcessor implements NodeProcessor {
     if (typeof configMaxTokens !== 'number') return undefined
     // 当值 <= 0（包括 -1 表示无限制）时，返回 undefined 让 API 使用模型默认最大值
     if (!Number.isFinite(configMaxTokens) || configMaxTokens <= 0) return undefined
-    // 不再设置硬性上限，尊重用户配置，让模型本身决定限制
-    return Math.floor(configMaxTokens)
+    const normalized = Math.floor(configMaxTokens)
+    // 过大的 maxTokens 往往会触发上游网关 400（或导致极不稳定的长输出），改为让模型使用默认值。
+    if (normalized > 16_384) return undefined
+    return normalized
   }
 
   private async sleep(ms: number): Promise<void> {
@@ -228,6 +251,9 @@ export class ProcessNodeProcessor implements NodeProcessor {
       const rawUserPrompt = processNode.config?.userPrompt || ''
       context.addLog?.('step', '正在解析用户提示词变量...', 'VARIABLE')
 
+      // 输入绑定：注入 inputs.*，供提示词使用 {{inputs.xxx}}
+      applyInputBindingsToContext(processNode.config?.inputBindings, context)
+
       // 使用 createContentPartsFromText 解析变量，支持多模态对象
       const userContentParts = createContentPartsFromText(rawUserPrompt, context)
 
@@ -339,25 +365,142 @@ export class ProcessNodeProcessor implements NodeProcessor {
         messageCount: messages.length
       })
 
-      // 调用 AI
-      let response: Awaited<ReturnType<typeof aiService.chat>>
-      try {
-        response = await this.callChatWithRetry(
-          () =>
-            aiService.chat(
-              aiConfig.provider,
-              {
-                model: model!,
-                messages,
-                temperature,
-                maxTokens,
-              },
-              aiConfig.apiKey,
-              aiConfig.baseUrl
-            ),
-          context,
-          'AI 调用失败'
+      const explicitModality = processNode.config?.modality as ModelModality | undefined
+      const inferredModality = model ? getModelModality(model) : null
+      const modality = explicitModality || inferredModality || 'text'
+
+      // SHENSUAN: if user selected a non-text modality but left model empty, use system default.
+      if (
+        aiConfig.provider === 'SHENSUAN' &&
+        explicitModality &&
+        explicitModality !== 'text' &&
+        explicitModality !== 'code' &&
+        (!processNode.config?.model || String(processNode.config.model).trim() === '')
+      ) {
+        model = SHENSUAN_DEFAULT_MODELS[explicitModality]
+      }
+
+      const effectiveOutputType =
+        (processNode.config?.expectedOutputType as OutputType | undefined) ||
+        MODALITY_TO_OUTPUT_TYPE[modality] ||
+        'text'
+
+      // For plain text/code: keep the original robust chat path (retry + JSON repair).
+      if (modality === 'text' || modality === 'code') {
+        let response: Awaited<ReturnType<typeof aiService.chat>>
+        try {
+          response = await this.callChatWithRetry(
+            () =>
+              aiService.chat(
+                aiConfig.provider,
+                {
+                  model: model!,
+                  messages,
+                  temperature,
+                  maxTokens,
+                },
+                aiConfig.apiKey,
+                aiConfig.baseUrl
+              ),
+            context,
+            'AI 调用失败'
+          )
+        } catch (err) {
+          if (isFormattedNetworkError(err)) {
+            throw err
+          }
+          if (isRetryableNetworkError(err)) {
+            throw formatNetworkError(err, 'AI 调用失败')
+          }
+          throw err
+        }
+
+        const normalizedContent = this.normalizeOutputContent(
+          response.content,
+          effectiveOutputType
         )
+
+        const finalContent =
+          effectiveOutputType === 'json'
+            ? await this.repairInvalidJsonOutputIfNeeded(
+                aiConfig,
+                model!,
+                temperature!,
+                maxTokens,
+                response.content,
+                normalizedContent,
+                context
+              )
+            : normalizedContent
+
+        context.addLog?.('success', 'AI 处理完成', 'AI_CALL', {
+          tokens: response.usage,
+          finishReason: response.finishReason,
+          segments: response.segments ?? 1,
+          outputPreview: finalContent.slice(0, 100) + '...'
+        })
+
+        return {
+          nodeId: node.id,
+          nodeName: node.name,
+          nodeType: node.type,
+          status: 'success',
+          outputType: effectiveOutputType,
+          input: {
+            provider: aiConfig.provider,
+            model: model!,
+            temperature: temperature!,
+            maxTokens: maxTokens ?? null,
+            systemPrompt,
+            userPrompt: userPromptText,
+            messageCount: messages.length,
+            modality,
+          },
+          data: {
+            结果: finalContent,
+            result: finalContent,
+            model: response.model,
+            _meta: {
+              modality,
+              finishReason: response.finishReason,
+              segments: response.segments ?? 1,
+              wasAutoContinued: response.wasAutoContinued ?? false,
+              requestedMaxTokens: configMaxTokens ?? null,
+              effectiveMaxTokens: maxTokens ?? null,
+              truncated: response.finishReason === 'length' || response.finishReason === 'max_tokens',
+            },
+          },
+          startedAt,
+          completedAt: new Date(),
+          duration: Date.now() - startedAt.getTime(),
+          tokenUsage: {
+            promptTokens: response.usage.promptTokens,
+            completionTokens: response.usage.completionTokens,
+            totalTokens: response.usage.totalTokens,
+          },
+        }
+      }
+
+      // Other modalities: route to the correct API (image/video/tts/transcription/embedding/ocr).
+      const audioInput = this.extractAudioInputFromParts(userContentParts)
+      const multimodalContent = isPureText ? undefined : userContentParts
+
+      let routed
+      try {
+        routed = await routeByModality({
+          model: model!,
+          prompt: userPromptText,
+          systemPrompt,
+          config: {
+            ...(processNode.config || {}),
+            temperature: temperature!,
+            maxTokens: maxTokens,
+          } as any,
+          aiConfig,
+          context,
+          multimodalContent: multimodalContent as any,
+          audioInput,
+        })
       } catch (err) {
         if (isFormattedNetworkError(err)) {
           throw err
@@ -368,29 +511,68 @@ export class ProcessNodeProcessor implements NodeProcessor {
         throw err
       }
 
-      const normalizedContent = this.normalizeOutputContent(
-        response.content,
-        processNode.config?.expectedOutputType
-      )
+      if (!routed?.success) {
+        throw new Error(routed?.error || 'AI 调用失败')
+      }
 
-      const finalContent =
-        processNode.config?.expectedOutputType === 'json'
-          ? await this.repairInvalidJsonOutputIfNeeded(
-              aiConfig,
-              model!,
-              temperature!,
-              maxTokens,
-              response.content,
-              normalizedContent,
-              context
-            )
-          : normalizedContent
+      const output = routed.output as any
+      const outputType =
+        (processNode.config?.expectedOutputType as OutputType | undefined) ||
+        MODALITY_TO_OUTPUT_TYPE[modality] ||
+        effectiveOutputType
+
+      let data: Record<string, unknown> = {
+        model: output.model || model,
+        modality,
+        output,
+      }
+      let tokenUsage: NodeOutput['tokenUsage'] | undefined
+
+      if (output._type === 'text') {
+        const raw = String(output.content || '')
+        const normalized = this.normalizeOutputContent(raw, outputType)
+        const final =
+          outputType === 'json'
+            ? await this.repairInvalidJsonOutputIfNeeded(
+                aiConfig,
+                model!,
+                temperature!,
+                maxTokens,
+                raw,
+                normalized,
+                context
+              )
+            : normalized
+        data = {
+          ...data,
+          结果: final,
+          result: final,
+        }
+        if (output.usage) {
+          tokenUsage = {
+            promptTokens: output.usage.promptTokens || 0,
+            completionTokens: output.usage.completionTokens || 0,
+            totalTokens: output.usage.totalTokens || 0,
+          }
+        }
+      } else if (output._type === 'image-gen') {
+        const firstUrl = output.images?.[0]?.url || ''
+        data = { ...data, images: output.images || [], 结果: firstUrl, result: firstUrl, prompt: output.prompt }
+      } else if (output._type === 'video-gen') {
+        const firstUrl = output.videos?.[0]?.url || ''
+        data = { ...data, videos: output.videos || [], taskId: output.taskId, 结果: firstUrl || output.taskId, result: firstUrl || output.taskId, prompt: output.prompt }
+      } else if (output._type === 'audio-tts') {
+        const url = output.audio?.url || ''
+        data = { ...data, audio: output.audio, text: output.text, 结果: url, result: url }
+      } else if (output._type === 'audio-transcription') {
+        data = { ...data, text: output.text, segments: output.segments, language: output.language, 结果: output.text, result: output.text }
+      } else if (output._type === 'embedding') {
+        data = { ...data, embeddings: output.embeddings || [], dimensions: output.dimensions || 0, 结果: JSON.stringify(output.embeddings || []), result: JSON.stringify(output.embeddings || []) }
+      }
 
       context.addLog?.('success', 'AI 处理完成', 'AI_CALL', {
-        tokens: response.usage,
-        finishReason: response.finishReason,
-        segments: response.segments ?? 1,
-        outputPreview: finalContent.slice(0, 100) + '...'
+        modality,
+        outputType,
       })
 
       return {
@@ -398,6 +580,7 @@ export class ProcessNodeProcessor implements NodeProcessor {
         nodeName: node.name,
         nodeType: node.type,
         status: 'success',
+        outputType,
         input: {
           provider: aiConfig.provider,
           model: model!,
@@ -406,29 +589,13 @@ export class ProcessNodeProcessor implements NodeProcessor {
           systemPrompt,
           userPrompt: userPromptText,
           messageCount: messages.length,
+          modality,
         },
-        data: {
-          结果: finalContent,
-          // 兼容旧模板/引用：支持 {{节点.result}}
-          result: finalContent,
-          model: response.model,
-          _meta: {
-            finishReason: response.finishReason,
-            segments: response.segments ?? 1,
-            wasAutoContinued: response.wasAutoContinued ?? false,
-            requestedMaxTokens: configMaxTokens ?? null,
-            effectiveMaxTokens: maxTokens ?? null,
-            truncated: response.finishReason === 'length' || response.finishReason === 'max_tokens',
-          },
-        },
+        data,
         startedAt,
         completedAt: new Date(),
         duration: Date.now() - startedAt.getTime(),
-        tokenUsage: {
-          promptTokens: response.usage.promptTokens,
-          completionTokens: response.usage.completionTokens,
-          totalTokens: response.usage.totalTokens,
-        },
+        ...(tokenUsage ? { tokenUsage } : {}),
       }
     } catch (error) {
       // 记录错误信息到日志，确保调试时能看到详细的错误上下文

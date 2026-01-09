@@ -1,4 +1,4 @@
-import type { NodeConfig, ProcessNodeConfig, WorkflowConfig } from '@/types/workflow'
+import type { ProcessNodeConfig, WorkflowConfig } from '@/types/workflow'
 
 export type PromptExpectedType = 'json' | 'markdown' | 'html' | 'text'
 
@@ -19,6 +19,7 @@ export interface PromptViolation {
     | 'json_wrapped_in_markdown'
     | 'json_missing_keys'
     | 'html_not_detected'
+    | 'html_missing_required_images'
   message: string
   details?: Record<string, unknown>
 }

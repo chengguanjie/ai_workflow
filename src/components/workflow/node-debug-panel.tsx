@@ -1724,6 +1724,7 @@ ${htmlContent}
                       userPrompt: processConfig.userPrompt as string | undefined,
                       tools: (processConfig.tools as any[]) || [],
                       expectedOutputType: processConfig.expectedOutputType as OutputType | undefined,
+                      inputBindings: processConfig.inputBindings as Record<string, string> | undefined,
                     }}
                     modelSelection={
                       <div className="bg-muted/30 p-3 rounded-lg border space-y-3">
@@ -1834,6 +1835,9 @@ ${htmlContent}
                     }}
                     onExpectedOutputTypeChange={(type) => {
                       handleConfigUpdate({ expectedOutputType: type })
+                    }}
+                    onInputBindingsChange={(bindings) => {
+                      handleConfigUpdate({ inputBindings: bindings })
                     }}
                   />
                 </div>
@@ -1994,12 +1998,23 @@ ${htmlContent}
                                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                   <span>HTML 渲染预览</span>
                                 </div>
-                                <div
-                                  className="rounded-lg border bg-white p-4 min-h-[100px] max-h-[300px] overflow-auto prose prose-sm max-w-none"
-                                  dangerouslySetInnerHTML={{
-                                    __html: extractHtmlContent(result.output),
-                                  }}
-                                />
+                                {(() => {
+                                  const html = extractHtmlContent(result.output)
+                                  const trimmed = (html || "").trim()
+                                  const looksLikeFullDoc = /<html[\s>]/i.test(trimmed) || /<!doctype\s+html/i.test(trimmed)
+                                  const srcDoc = looksLikeFullDoc
+                                    ? trimmed
+                                    : `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head><body>${trimmed}</body></html>`
+
+                                  return (
+                                    <iframe
+                                      title="HTML 渲染预览"
+                                      sandbox=""
+                                      srcDoc={srcDoc}
+                                      className="w-full rounded-lg border bg-white min-h-[100px] h-[300px]"
+                                    />
+                                  )
+                                })()}
                                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                   <span>HTML 源码</span>
                                 </div>

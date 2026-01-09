@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useWorkflowStore } from '@/stores/workflow-store'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { AtSign, ChevronRight } from 'lucide-react'
 import type { InputField, KnowledgeItem } from '@/types/workflow'
 import type { NodeReferenceOption } from './types'
@@ -10,16 +11,256 @@ import type { NodeReferenceOption } from './types'
 interface ReferenceSelectorProps {
   knowledgeItems: KnowledgeItem[]
   onInsert: (reference: string) => void
+  buttonLabel?: string
 }
 
 export function ReferenceSelector({
   knowledgeItems,
   onInsert,
+  buttonLabel = '插入引用',
 }: ReferenceSelectorProps) {
-  const { nodes, selectedNodeId, edges } = useWorkflowStore()
+  const { nodes, selectedNodeId, edges, nodeExecutionResults } = useWorkflowStore()
   const [isOpen, setIsOpen] = useState(false)
   const [selectedNode, setSelectedNode] = useState<NodeReferenceOption | null>(null)
+  const [searchText, setSearchText] = useState('')
+  const [showAllFields, setShowAllFields] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+
+  const STANDARD_OUTPUT_FIELD_KEYS = [
+    '结果',
+    'result',
+    'model',
+    'images',
+    'imageUrls', // 虚拟字段：由 images 派生，支持 {{节点.imageUrls}}
+    'videos',
+    'audio',
+    'text',
+    'taskId',
+    'toolCalls',
+    'toolCallRounds',
+    '_meta',
+  ] as const
+
+  const OUTPUT_FIELD_LABELS: Partial<Record<(typeof STANDARD_OUTPUT_FIELD_KEYS)[number], string>> = {
+    结果: '结果（推荐）',
+    result: 'result（兼容）',
+    imageUrls: '图片URL列表',
+    images: '图片详情（原始）',
+    videos: '视频列表',
+    audio: '音频',
+    text: '文本（工具输出）',
+    model: '模型',
+    _meta: '元信息',
+    taskId: '任务ID',
+    toolCalls: '工具调用记录',
+    toolCallRounds: '工具调用轮次',
+  }
+
+  const getExpectedOutputHint = (nodeName: string): { expected?: string } => {
+    const node = nodes.find(n => (n.data as Record<string, unknown>)?.name === nodeName)
+    const nodeConfig = (node?.data as Record<string, unknown>)?.config as Record<string, unknown> | undefined
+    const expected = nodeConfig?.expectedOutputType
+    return { expected: typeof expected === 'string' ? expected : undefined }
+  }
+
+  const getOutputCapabilities = (
+    nodeId: string,
+    nodeName: string
+  ): {
+    hasResult: boolean
+    hasImages: boolean
+    hasVideos: boolean
+    hasAudio: boolean
+    hasText: boolean
+  } => {
+    const output = nodeExecutionResults?.[nodeId]?.output
+    const obj = output && typeof output === 'object' && !Array.isArray(output) ? (output as Record<string, unknown>) : null
+
+    const hasResult =
+      obj ? (obj['结果'] !== undefined || obj['result'] !== undefined) : true
+
+    const hasImages = (() => {
+      if (!obj) return false
+      const images = obj['images']
+      const imageUrls = obj['imageUrls']
+      return (Array.isArray(images) && images.length > 0) || (Array.isArray(imageUrls) && imageUrls.length > 0)
+    })()
+
+    const hasVideos =
+      obj ? (Array.isArray(obj.videos) && obj.videos.length > 0) : false
+
+    const hasAudio =
+      obj ? obj.audio !== undefined && obj.audio !== null : false
+
+    const hasText =
+      obj ? typeof obj.text === 'string' && obj.text.trim().length > 0 : false
+
+    // 如果没有真实执行输出，用 expectedOutputType 做“可能存在”的兜底提示
+    if (!obj) {
+      const { expected } = getExpectedOutputHint(nodeName)
+      return {
+        hasResult,
+        hasImages: expected === 'image',
+        hasVideos: expected === 'video',
+        hasAudio: expected === 'audio',
+        hasText: expected === 'audio', // audio-tts 常会同时产出 text
+      }
+    }
+
+    return { hasResult, hasImages, hasVideos, hasAudio, hasText }
+  }
+
+  const isCommonField = (nodeId: string, nodeName: string, field: NodeReferenceOption['fields'][0]): boolean => {
+    if (field.type !== 'output') return true
+    if (field.reference === `{{${nodeName}}}`) return true
+
+    const caps = getOutputCapabilities(nodeId, nodeName)
+
+    if (field.reference === `{{${nodeName}.结果}}`) return caps.hasResult
+    if (field.reference === `{{${nodeName}.result}}`) return false // 兼容字段默认不展示为常用
+    if (field.reference === `{{${nodeName}.imageUrls}}`) return caps.hasImages
+    if (field.reference === `{{${nodeName}.videos}}`) return caps.hasVideos
+    if (field.reference === `{{${nodeName}.audio}}`) return caps.hasAudio
+    if (field.reference === `{{${nodeName}.text}}`) return caps.hasText
+
+    return false
+  }
+
+  const stripMarkdownCodeFence = (text: string): string => {
+    const trimmed = text.trim()
+    if (!trimmed.startsWith('```')) return trimmed
+    const lines = trimmed.split('\n')
+    if (lines.length < 3) return trimmed
+    if (!lines[0].startsWith('```')) return trimmed
+    if (!lines[lines.length - 1].startsWith('```')) return trimmed
+    return lines.slice(1, -1).join('\n').trim()
+  }
+
+  const tryParseJsonLike = (text: string): unknown | null => {
+    const candidate = stripMarkdownCodeFence(text)
+    if (!candidate) return null
+    try {
+      return JSON.parse(candidate)
+    } catch {
+      const start = candidate.indexOf('{')
+      const end = candidate.lastIndexOf('}')
+      if (start === -1 || end === -1 || end <= start) return null
+      const slice = candidate.slice(start, end + 1)
+      try {
+        return JSON.parse(slice)
+      } catch {
+        return null
+      }
+    }
+  }
+
+  const flattenObjectPaths = (
+    value: unknown,
+    prefix: string,
+    maxDepth: number,
+    currentDepth: number = 0
+  ): string[] => {
+    if (currentDepth >= maxDepth) return []
+    if (!value || typeof value !== 'object') return []
+
+    if (Array.isArray(value)) {
+      // 对数组：只暴露数组本身；若首元素为对象，额外暴露 images.0.xxx 这种便捷路径
+      const paths: string[] = [prefix]
+      const first = value[0]
+      if (first && typeof first === 'object' && !Array.isArray(first)) {
+        for (const k of Object.keys(first as Record<string, unknown>)) {
+          paths.push(`${prefix}.0.${k}`)
+        }
+      }
+      return paths
+    }
+
+    const obj = value as Record<string, unknown>
+    const keys = Object.keys(obj)
+    const paths: string[] = []
+    for (const k of keys) {
+      const next = prefix ? `${prefix}.${k}` : k
+      paths.push(next)
+      paths.push(...flattenObjectPaths(obj[k], next, maxDepth, currentDepth + 1))
+    }
+    return paths
+  }
+
+  const buildOutputFields = (nodeId: string, nodeName: string): NodeReferenceOption['fields'] => {
+    const fields: NodeReferenceOption['fields'] = []
+
+    // 1) 始终提供整节点输出
+    fields.push({
+      id: `${nodeId}_output_all`,
+      name: '全部输出内容',
+      type: 'output',
+      reference: `{{${nodeName}}}`,
+    })
+
+    // 2) 基础（标准）输出字段
+    for (const key of STANDARD_OUTPUT_FIELD_KEYS) {
+      fields.push({
+        id: `${nodeId}_output_${key}`,
+        name: OUTPUT_FIELD_LABELS[key] || key,
+        type: 'output',
+        reference: `{{${nodeName}.${key}}}`,
+      })
+    }
+
+    // 3) 若有最近一次执行结果，基于真实输出展开字段
+    const latest = nodeExecutionResults?.[nodeId]?.output
+    if (latest && typeof latest === 'object' && !Array.isArray(latest)) {
+      const outputObj = latest as Record<string, unknown>
+
+      // 顶层字段 + 二级字段（如 _meta.xxx、images.0.url）
+      const dynamicPaths = new Set<string>()
+      for (const k of Object.keys(outputObj)) {
+        dynamicPaths.add(k)
+        const v = outputObj[k]
+        for (const p of flattenObjectPaths(v, k, 2)) {
+          dynamicPaths.add(p)
+        }
+      }
+
+      // 解析 result/结果 内的 JSON（常见：AI 输出为 JSON 字符串，但支持 {{节点.xxx}} 直接取字段）
+      const rawText =
+        (typeof outputObj['结果'] === 'string' && (outputObj['结果'] as string)) ||
+        (typeof outputObj['result'] === 'string' && (outputObj['result'] as string)) ||
+        ''
+      if (rawText) {
+        const parsed = tryParseJsonLike(rawText)
+        if (parsed && typeof parsed === 'object') {
+          for (const p of flattenObjectPaths(parsed, '', 2)) {
+            // flattenObjectPaths 会返回诸如 "a"、"a.b"，这些路径应直接作为 {{节点.a}} 使用
+            dynamicPaths.add(p)
+          }
+        }
+      }
+
+      // 写入字段（去重：按 reference）
+      const existing = new Set(fields.map(f => f.reference))
+      for (const path of Array.from(dynamicPaths)) {
+        if (!path) continue
+        const ref = `{{${nodeName}.${path}}}`
+        if (existing.has(ref)) continue
+        existing.add(ref)
+        fields.push({
+          id: `${nodeId}_output_dynamic_${path}`,
+          name: `输出: ${path}`,
+          type: 'output',
+          reference: ref,
+        })
+      }
+    }
+
+    // 最终去重（按 reference），避免同名/重复项
+    const seen = new Set<string>()
+    return fields.filter(f => {
+      if (seen.has(f.reference)) return false
+      seen.add(f.reference)
+      return true
+    })
+  }
 
   // 点击外部关闭
   useEffect(() => {
@@ -144,29 +385,11 @@ export function ReferenceSelector({
             reference: `{{${nodeName}.知识库.${kb.name}}}`,
           })
         }
-        // 添加节点输出选项
-        fields.push({
-          id: `${node.id}_output`,
-          name: '节点输出',
-          type: 'output',
-          reference: `{{${nodeName}}}`,
-        })
+        fields.push(...buildOutputFields(node.id, nodeName))
       } else if (nodeType === 'code') {
-        // 代码节点：添加输出
-        fields.push({
-          id: `${node.id}_output`,
-          name: '节点输出',
-          type: 'output',
-          reference: `{{${nodeName}}}`,
-        })
+        fields.push(...buildOutputFields(node.id, nodeName))
       } else {
-        // 其他节点：添加输出
-        fields.push({
-          id: `${node.id}_output`,
-          name: '节点输出',
-          type: 'output',
-          reference: `{{${nodeName}}}`,
-        })
+        fields.push(...buildOutputFields(node.id, nodeName))
       }
 
       if (fields.length > 0) {
@@ -206,12 +429,16 @@ export function ReferenceSelector({
   const handleSelectNode = (option: NodeReferenceOption) => {
     // 始终显示字段选择，让用户明确选择要引用的内容
     setSelectedNode(option)
+    setSearchText('')
+    setShowAllFields(false)
   }
 
   const handleSelectField = (field: NodeReferenceOption['fields'][0]) => {
     onInsert(field.reference)
     setIsOpen(false)
     setSelectedNode(null)
+    setSearchText('')
+    setShowAllFields(false)
   }
 
   if (nodeOptions.length === 0) {
@@ -244,6 +471,16 @@ export function ReferenceSelector({
     }
   }
 
+  const filterFields = (fields: NodeReferenceOption['fields']) => {
+    const q = searchText.trim().toLowerCase()
+    if (!q) return fields
+    return fields.filter(f => {
+      const name = (f.name || '').toLowerCase()
+      const ref = (f.reference || '').toLowerCase()
+      return name.includes(q) || ref.includes(q)
+    })
+  }
+
   return (
     <div ref={containerRef} className="relative">
       <Button
@@ -254,10 +491,12 @@ export function ReferenceSelector({
         onClick={() => {
           setIsOpen(!isOpen)
           setSelectedNode(null)
+          setSearchText('')
+          setShowAllFields(false)
         }}
       >
         <AtSign className="mr-1 h-3 w-3" />
-        插入引用
+        {buttonLabel}
       </Button>
 
       {isOpen && (
@@ -271,6 +510,7 @@ export function ReferenceSelector({
               <div className="py-1 overflow-y-auto flex-1">
                 {nodeOptions.map((option) => {
                   const hasFields = option.fields.length > 0
+                  const commonCount = option.fields.filter(f => isCommonField(option.nodeId, option.nodeName, f)).length
                   return (
                     <button
                       key={option.nodeId}
@@ -282,7 +522,9 @@ export function ReferenceSelector({
                         <span className="truncate max-w-[120px]">{option.nodeName}</span>
                       </span>
                       <span className="flex items-center gap-1">
-                        <span className="text-xs text-muted-foreground">({option.fields.length})</span>
+                        <span className="text-xs text-muted-foreground">
+                          ({commonCount})
+                        </span>
                         {hasFields && (
                           <ChevronRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
                         )}
@@ -304,18 +546,100 @@ export function ReferenceSelector({
                 </button>
                 <span>{selectedNode.nodeName}</span>
               </div>
-              <div className="py-1 overflow-y-auto flex-1">
-                {selectedNode.fields.map((field) => (
-                  <button
-                    key={field.id}
-                    className="w-full px-3 py-1.5 text-sm text-left hover:bg-accent transition-colors flex items-center gap-1.5"
-                    onClick={() => handleSelectField(field)}
-                  >
-                    <span>{getFieldIcon(field.type)}</span>
-                    <span className="truncate">{field.name}</span>
-                  </button>
-                ))}
+              <div className="p-2 border-b bg-popover flex items-center gap-2 flex-shrink-0">
+                <Input
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  placeholder="搜索字段（支持输入 result、imageUrls…）"
+                  className="h-7 text-xs"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setShowAllFields(v => !v)}
+                >
+                  {showAllFields ? '收起' : '更多'}
+                </Button>
               </div>
+
+              {(() => {
+                const filtered = filterFields(selectedNode.fields)
+                const commonFields = filtered.filter(f => isCommonField(selectedNode.nodeId, selectedNode.nodeName, f))
+                const advancedFields = filtered.filter(f => !isCommonField(selectedNode.nodeId, selectedNode.nodeName, f))
+                const visibleAdvanced = showAllFields ? advancedFields : []
+                const showReferenceHint = showAllFields || searchText.trim().length > 0
+
+                return (
+                  <div className="py-1 overflow-y-auto flex-1">
+                    <div className="px-2 py-1 text-[11px] text-muted-foreground">
+                      常用引用
+                    </div>
+                    {commonFields.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-muted-foreground">
+                        无匹配结果
+                      </div>
+                    ) : (
+                      commonFields.map((field) => (
+                        <button
+                          key={field.id}
+                          className="w-full px-3 py-1.5 text-sm text-left hover:bg-accent transition-colors"
+                          onClick={() => handleSelectField(field)}
+                        >
+                          <span className="flex items-center gap-1.5">
+                            <span>{getFieldIcon(field.type)}</span>
+                            <span className="truncate">{field.name}</span>
+                          </span>
+                          {showReferenceHint && (
+                            <div className="pl-5 text-xs text-muted-foreground truncate">
+                              {field.reference}
+                            </div>
+                          )}
+                        </button>
+                      ))
+                    )}
+
+                    {!showAllFields && advancedFields.length > 0 && (
+                      <button
+                        className="w-full px-3 py-2 text-xs text-muted-foreground hover:bg-accent transition-colors text-left"
+                        onClick={() => setShowAllFields(true)}
+                      >
+                        显示更多字段（{advancedFields.length}）
+                      </button>
+                    )}
+
+                    {showAllFields && (
+                      <>
+                        <div className="px-2 py-1 mt-1 text-[11px] text-muted-foreground">
+                          高级字段（可精确引用）
+                        </div>
+                        {visibleAdvanced.length === 0 ? (
+                          <div className="px-3 py-2 text-xs text-muted-foreground">
+                            无匹配结果
+                          </div>
+                        ) : (
+                          visibleAdvanced.map((field) => (
+                            <button
+                              key={field.id}
+                              className="w-full px-3 py-1.5 text-sm text-left hover:bg-accent transition-colors"
+                              onClick={() => handleSelectField(field)}
+                            >
+                              <span className="flex items-center gap-1.5">
+                                <span>{getFieldIcon(field.type)}</span>
+                                <span className="truncate">{field.name}</span>
+                              </span>
+                              <div className="pl-5 text-xs text-muted-foreground truncate">
+                                {field.reference}
+                              </div>
+                            </button>
+                          ))
+                        )}
+                      </>
+                    )}
+                  </div>
+                )
+              })()}
             </>
           )}
         </div>

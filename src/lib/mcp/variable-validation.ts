@@ -316,10 +316,39 @@ export function buildAvailableVariablesFromWorkflow(
   currentNodeId: string
 ): AvailableVariable[] {
   const availableVariables: AvailableVariable[] = []
+  const standardOutputFieldKeys = [
+    '结果',
+    'result',
+    'model',
+    'images',
+    'imageUrls',
+    'videos',
+    'audio',
+    'text',
+    'taskId',
+    'toolCalls',
+    'toolCallRounds',
+    '_meta',
+  ] as const
 
   // Get current node
   const currentNode = nodes.find(n => n.id === currentNodeId)
   if (!currentNode) return availableVariables
+
+  // Current node inputs.* (from inputBindings)
+  const currentConfig = (currentNode.data as Record<string, unknown>)?.config as Record<string, unknown> | undefined
+  const inputBindings = currentConfig?.inputBindings as Record<string, string> | undefined
+  if (inputBindings && typeof inputBindings === 'object') {
+    for (const slot of Object.keys(inputBindings)) {
+      availableVariables.push({
+        path: `inputs.${slot}`,
+        name: `输入: ${slot}`,
+        type: 'system',
+        description: `输入绑定槽位: ${slot}`,
+        reference: `{{inputs.${slot}}}`,
+      })
+    }
+  }
 
   // Find all predecessor nodes
   const predecessorIds = new Set<string>()
@@ -419,22 +448,43 @@ export function buildAvailableVariablesFromWorkflow(
       // Process node output
       availableVariables.push({
         path: nodeName,
-        name: '节点输出',
+        name: '全部输出内容',
         type: 'output',
         nodeName,
         description: `${nodeName} 的输出结果`,
         reference: `{{${nodeName}}}`,
       })
+      for (const key of standardOutputFieldKeys) {
+        availableVariables.push({
+          path: `${nodeName}.${key}`,
+          name: key,
+          type: 'output',
+          nodeName,
+          description: `${nodeName} 输出字段: ${key}`,
+          reference: `{{${nodeName}.${key}}}`,
+        })
+      }
     } else {
       // Other nodes - just output
       availableVariables.push({
         path: nodeName,
-        name: '节点输出',
+        name: '全部输出内容',
         type: 'output',
         nodeName,
         description: `${nodeName} 的输出结果`,
         reference: `{{${nodeName}}}`,
       })
+      // 尽量提供常用输出字段引用（具体字段是否存在由运行时决定）
+      for (const key of standardOutputFieldKeys) {
+        availableVariables.push({
+          path: `${nodeName}.${key}`,
+          name: key,
+          type: 'output',
+          nodeName,
+          description: `${nodeName} 输出字段: ${key}`,
+          reference: `{{${nodeName}.${key}}}`,
+        })
+      }
     }
   }
 

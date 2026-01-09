@@ -709,6 +709,7 @@ export function ProcessNodeConfigPanel({
           knowledgeItems={knowledgeItems}
           onSystemPromptChange={(value) => handleChange('systemPrompt', value)}
           onUserPromptChange={(value) => handleChange('userPrompt', value)}
+          onInputBindingsChange={(bindings) => handleChange('inputBindings', bindings)}
           onToolsChange={handleToolsChange}
           onExpectedOutputTypeChange={handleExpectedOutputTypeChange}
         />

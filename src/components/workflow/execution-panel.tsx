@@ -1703,9 +1703,14 @@ export function ExecutionPanel({
                             <span className="text-xs font-medium text-muted-foreground">
                               输出:
                             </span>
-                            <pre className="mt-1 max-h-32 overflow-auto rounded bg-muted p-2 text-xs">
-                              {JSON.stringify(nodeInfo.output, null, 2)}
-                            </pre>
+                            <details className="mt-1 rounded border bg-muted/40">
+                              <summary className="cursor-pointer select-none px-2 py-1 text-[11px] text-muted-foreground">
+                                点击展开/收起
+                              </summary>
+                              <pre className="max-h-32 overflow-auto rounded bg-muted p-2 text-xs">
+                                {JSON.stringify(nodeInfo.output, null, 2)}
+                              </pre>
+                            </details>
                           </div>
                         )}
                         {!nodeInfo.error &&

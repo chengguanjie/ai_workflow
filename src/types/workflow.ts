@@ -294,6 +294,12 @@ export interface ProcessNodeConfigData extends NodeAIConfig {
 
   /** 期望输出类型（用于画布展示与下载预设） */
   expectedOutputType?: OutputType
+
+  /**
+   * 输入绑定：将提示词中的业务槽位（如【文章内容】）映射到上游变量引用（如 {{上游.结果}}）。
+   * 运行时会注入为 {{inputs.槽位名}} 可引用的对象。
+   */
+  inputBindings?: Record<string, string>
 }
 
 export interface ProcessNodeConfig extends BaseNodeConfig {
