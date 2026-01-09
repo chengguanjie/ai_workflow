@@ -26,6 +26,7 @@ interface UseWorkflowSaveReturn {
   isSaving: boolean;
   isOnline: boolean;
   conflict: ConflictInfo | null;
+  lastError: string | null;
   save: (options?: { silent?: boolean; force?: boolean }) => Promise<boolean>;
   resolveConflict: (resolution: "local" | "server") => Promise<boolean>;
   retry: () => Promise<void>;
@@ -48,8 +49,11 @@ export function useWorkflowSave({
   const [isOnline, setIsOnline] = useState(true);
   const [conflict, setConflict] = useState<ConflictInfo | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  const [lastError, setLastError] = useState<string | null>(null);
 
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const retryAttemptRef = useRef<number>(0);
   const pendingSaveRef = useRef<boolean>(false);
   const localVersionRef = useRef<number>(0);
 
@@ -97,6 +101,8 @@ export function useWorkflowSave({
       const conflictData = data as ConflictInfo;
       setConflict(conflictData);
       setStatus("conflict");
+      setLastError(null);
+      retryAttemptRef.current = 0;
       onConflict?.(conflictData);
     });
 
@@ -106,13 +112,36 @@ export function useWorkflowSave({
         localVersionRef.current = syncData.version;
         setStatus("saved");
         setLastSavedAt(Date.now());
+        setLastError(null);
+        retryAttemptRef.current = 0;
+        if (retryTimerRef.current) {
+          clearTimeout(retryTimerRef.current);
+          retryTimerRef.current = null;
+        }
       }
+    });
+
+    const unsubscribeError = syncManager.on("error", (data) => {
+      const payload = data as { workflowId?: string; error?: unknown };
+      if (payload.workflowId !== workflowId) return;
+
+      const message =
+        payload.error instanceof Error
+          ? payload.error.message
+          : typeof payload.error === "string"
+            ? payload.error
+            : "保存失败（未知错误）";
+
+      setLastError(message);
+      setStatus("error");
+      pendingSaveRef.current = true;
     });
 
     return () => {
       unsubscribeStatus();
       unsubscribeConflict();
       unsubscribeComplete();
+      unsubscribeError();
     };
   }, [workflowId, onConflict]);
 
@@ -236,6 +265,12 @@ export function useWorkflowSave({
           setStatus("saved");
           setLastSavedAt(Date.now());
           pendingSaveRef.current = false;
+          setLastError(null);
+          retryAttemptRef.current = 0;
+          if (retryTimerRef.current) {
+            clearTimeout(retryTimerRef.current);
+            retryTimerRef.current = null;
+          }
 
           if (!silent) {
             toast.success("工作流已保存");
@@ -246,8 +281,12 @@ export function useWorkflowSave({
           if (result.conflict) {
             setConflict(result.conflict);
             setStatus("conflict");
+            setLastError(null);
+            retryAttemptRef.current = 0;
           } else {
             setStatus("error");
+            setLastError(result.error || "保存失败");
+            pendingSaveRef.current = true;
             if (!silent) {
               toast.error(result.error || "保存失败");
             }
@@ -257,6 +296,8 @@ export function useWorkflowSave({
         }
       } catch (error) {
         setStatus("error");
+        setLastError(error instanceof Error ? error.message : "保存失败");
+        pendingSaveRef.current = true;
         if (!silent) {
           toast.error(error instanceof Error ? error.message : "保存失败");
         }
@@ -276,6 +317,31 @@ export function useWorkflowSave({
 
     await syncToServer(true);
   }, [syncToServer]);
+
+  // 在线但保存失败时自动重试（避免一直停留在“保存失败”）
+  useEffect(() => {
+    if (!isOnline) return;
+    if (!pendingSaveRef.current) return;
+    if (status !== "error" && status !== "unsaved") return;
+    if (retryTimerRef.current) return;
+
+    const attempt = retryAttemptRef.current;
+    const delayMs = Math.min(5000 * 2 ** attempt, 60000);
+    retryAttemptRef.current = Math.min(attempt + 1, 6);
+
+    retryTimerRef.current = setTimeout(async () => {
+      retryTimerRef.current = null;
+      if (!navigator.onLine || !pendingSaveRef.current) return;
+      await syncToServer(true);
+    }, delayMs);
+
+    return () => {
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+    };
+  }, [isOnline, status, syncToServer]);
 
   /**
    * 防抖保存
@@ -396,6 +462,12 @@ export function useWorkflowSave({
    * 重试保存
    */
   const retry = useCallback(async (): Promise<void> => {
+    pendingSaveRef.current = true;
+    retryAttemptRef.current = 0;
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
     await syncToServer(false);
   }, [syncToServer]);
 
@@ -404,6 +476,10 @@ export function useWorkflowSave({
     return () => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
+      }
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
       }
     };
   }, []);
@@ -414,6 +490,7 @@ export function useWorkflowSave({
     isSaving,
     isOnline,
     conflict,
+    lastError,
     save,
     resolveConflict,
     retry,

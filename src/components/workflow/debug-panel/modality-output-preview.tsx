@@ -11,10 +11,6 @@ import {
   ExternalLink,
   Copy,
   Check,
-  Play,
-  Pause,
-  Volume2,
-  VolumeX,
   Maximize2,
   ChevronLeft,
   ChevronRight
@@ -97,7 +93,6 @@ function detectOutputType(output: Record<string, unknown>): string | null {
 function ImageGenPreview({ output, className }: { output: Record<string, unknown>; className?: string }) {
   const images = (output.images as ImageOutput[]) || []
   const [currentIndex, setCurrentIndex] = useState(0)
-  const [isFullscreen, setIsFullscreen] = useState(false)
   const [imageLoadError, setImageLoadError] = useState<Record<number, boolean>>({})
 
   if (images.length === 0) {
@@ -255,7 +250,6 @@ function ImageGenPreview({ output, className }: { output: Record<string, unknown
 function VideoGenPreview({ output, className }: { output: Record<string, unknown>; className?: string }) {
   const videos = (output.videos as VideoOutput[]) || []
   const [currentIndex, setCurrentIndex] = useState(0)
-  const [isPlaying, setIsPlaying] = useState(false)
   const taskId = output.taskId as string
 
   if (videos.length === 0) {
@@ -300,8 +294,6 @@ function VideoGenPreview({ output, className }: { output: Record<string, unknown
           src={currentVideo.url}
           controls
           className="w-full max-h-[400px]"
-          onPlay={() => setIsPlaying(true)}
-          onPause={() => setIsPlaying(false)}
         >
           您的浏览器不支持视频播放
         </video>
@@ -356,7 +348,6 @@ function VideoGenPreview({ output, className }: { output: Record<string, unknown
 function AudioTTSPreview({ output, className }: { output: Record<string, unknown>; className?: string }) {
   const audio = output.audio as AudioOutput
   const text = output.text as string
-  const [isPlaying, setIsPlaying] = useState(false)
 
   if (!audio?.url) {
     return (
@@ -390,8 +381,6 @@ function AudioTTSPreview({ output, className }: { output: Record<string, unknown
           src={audio.url}
           controls
           className="w-full"
-          onPlay={() => setIsPlaying(true)}
-          onPause={() => setIsPlaying(false)}
         >
           您的浏览器不支持音频播放
         </audio>

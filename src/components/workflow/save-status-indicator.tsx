@@ -25,6 +25,7 @@ export type SaveStatusType = 'saved' | 'saving' | 'unsaved' | 'offline' | 'error
 interface SaveStatusIndicatorProps {
   status: SaveStatusType
   lastSavedAt?: number | null
+  errorMessage?: string | null
   onRetry?: () => void
   onResolveConflict?: (resolution: 'local' | 'server') => void
   className?: string
@@ -106,6 +107,7 @@ function formatLastSaved(timestamp: number | null | undefined): string {
 export function SaveStatusIndicator({
   status,
   lastSavedAt,
+  errorMessage,
   onRetry,
   onResolveConflict,
   className,
@@ -221,6 +223,11 @@ export function SaveStatusIndicator({
               {displayStatus === 'offline' && (
                 <p className="text-xs text-muted-foreground">
                   更改将在恢复网络后自动同步
+                </p>
+              )}
+              {displayStatus === 'error' && errorMessage && (
+                <p className="text-xs text-muted-foreground break-words">
+                  {errorMessage}
                 </p>
               )}
               {displayStatus === 'conflict' && (

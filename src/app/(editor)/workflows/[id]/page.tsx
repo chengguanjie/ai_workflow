@@ -147,6 +147,7 @@ function WorkflowEditor() {
     lastSavedAt,
     isSaving,
     conflict: _conflict,
+    lastError: saveLastError,
     save: saveWorkflow,
     resolveConflict,
     retry: retrySave,
@@ -1011,6 +1012,7 @@ function WorkflowEditor() {
             <SaveStatusIndicator
               status={saveStatus}
               lastSavedAt={lastSavedAt}
+              errorMessage={saveLastError}
               onRetry={retrySave}
               onResolveConflict={resolveConflict}
             />
