@@ -18,7 +18,7 @@ import type {
   EmbeddingResponse
 } from '../types'
 import { getModelModality } from '../types'
-import { fetchWithTimeout, formatNetworkError } from '@/lib/http/fetch-with-timeout'
+import { fetchTextWithTimeout, fetchWithTimeout, formatNetworkError } from '@/lib/http/fetch-with-timeout'
 
 const DEFAULT_SHENSUAN_BASE_URL = process.env.SHENSUAN_BASE_URL || 'https://router.shengsuanyun.com/api/v1'
 
@@ -74,8 +74,9 @@ export class ShensuanProvider implements AIProvider {
     }
 
     let response: Response
+    let responseText = ''
     try {
-      response = await fetchWithTimeout(`${url}/chat/completions`, {
+      const result = await fetchTextWithTimeout(`${url}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -90,19 +91,20 @@ export class ShensuanProvider implements AIProvider {
         retries: 5,
         retryDelay: 2000,
       })
+      response = result.response
+      responseText = result.text
     } catch (fetchError) {
       throw formatNetworkError(fetchError, 'AI 对话请求失败')
     }
 
     if (!response.ok) {
-      const error = await response.text()
-      console.error(`[Shensuan] API 错误: status=${response.status}, model=${request.model}, error=${error}`)
-      throw new Error(`Shensuan API error: ${response.status} - ${error}`)
+      console.error(`[Shensuan] API 错误: status=${response.status}, model=${request.model}, error=${responseText}`)
+      throw new Error(`Shensuan API error: ${response.status} - ${responseText}`)
     }
 
     // 检查响应是否为 JSON
     const contentType = response.headers.get('content-type') || ''
-    const responseText = await response.text()
+    // responseText 已在 fetchTextWithTimeout 中读取完成
 
     // 只有当响应明确是 HTML（以 < 开头）且 content-type 不包含 json 时才报错
     const trimmedResponse = responseText.trim()
@@ -141,7 +143,7 @@ export class ShensuanProvider implements AIProvider {
 
   async listModels(apiKey: string, baseUrl?: string): Promise<Model[]> {
     const url = baseUrl || DEFAULT_SHENSUAN_BASE_URL
-    const response = await fetchWithTimeout(`${url}/models`, {
+    const { response, text } = await fetchTextWithTimeout(`${url}/models`, {
       headers: {
         Authorization: `Bearer ${apiKey}`,
       },
@@ -154,7 +156,7 @@ export class ShensuanProvider implements AIProvider {
       throw new Error(`Failed to fetch models: ${response.status}`)
     }
 
-    const data = await response.json()
+    const data = JSON.parse(text) as any
 
     return data.data.map((model: { id: string }) => ({
       id: model.id,
@@ -178,7 +180,7 @@ export class ShensuanProvider implements AIProvider {
     const mimeType = this.detectAudioMimeType(options.model || 'audio.mp3')
     const dataUrl = `data:${mimeType};base64,${base64Audio}`
 
-    const response = await fetchWithTimeout(`${url}/audio/transcriptions`, {
+    const { response, text } = await fetchTextWithTimeout(`${url}/audio/transcriptions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -196,11 +198,10 @@ export class ShensuanProvider implements AIProvider {
     })
 
     if (!response.ok) {
-      const error = await response.text()
-      throw new Error(`Transcription API error: ${response.status} - ${error}`)
+      throw new Error(`Transcription API error: ${response.status} - ${text}`)
     }
 
-    const data = await response.json()
+    const data = JSON.parse(text) as any
 
     return {
       text: data.text || '',
@@ -222,7 +223,7 @@ export class ShensuanProvider implements AIProvider {
   ): Promise<TranscriptionResponse> {
     const url = baseUrl || DEFAULT_SHENSUAN_BASE_URL
 
-    const response = await fetchWithTimeout(`${url}/audio/transcriptions`, {
+    const { response, text } = await fetchTextWithTimeout(`${url}/audio/transcriptions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -240,11 +241,10 @@ export class ShensuanProvider implements AIProvider {
     })
 
     if (!response.ok) {
-      const error = await response.text()
-      throw new Error(`Transcription API error: ${response.status} - ${error}`)
+      throw new Error(`Transcription API error: ${response.status} - ${text}`)
     }
 
-    const data = await response.json()
+    const data = JSON.parse(text) as any
 
     return {
       text: data.text || '',

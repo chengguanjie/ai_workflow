@@ -49,7 +49,7 @@ export class FileValidationError extends Error {
  */
 export const DEFAULT_ALLOWED_EXTENSIONS = new Set([
   'txt', 'csv', 'html', 'md', 'json',
-  'pdf', 'doc', 'docx', 'xls', 'xlsx',
+  'pdf', 'doc', 'docx', 'xlsx',
   'jpg', 'jpeg', 'png', 'gif', 'webp', 'svg',
   'mp3', 'wav', 'ogg',
   'mp4', 'webm',
@@ -94,7 +94,9 @@ export const MIME_TO_EXTENSIONS: Record<string, string[]> = {
   'application/pdf': ['pdf'],
   'application/msword': ['doc'],
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['docx'],
-  'application/vnd.ms-excel': ['xls'],
+  // Some clients still use vnd.ms-excel for .xlsx uploads.
+  // We only allow .xlsx for security reasons.
+  'application/vnd.ms-excel': ['xlsx'],
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['xlsx'],
   'image/jpeg': ['jpg', 'jpeg'],
   'image/png': ['png'],

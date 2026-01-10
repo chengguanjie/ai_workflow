@@ -13,7 +13,6 @@ import { ApiResponse } from '@/lib/api/api-response'
 import { NotFoundError } from '@/lib/errors'
 import { prisma } from '@/lib/db'
 import { workflowService } from '@/server/services/workflow.service'
-import { ErrorCategory } from '@prisma/client'
 
 /**
  * GET /api/workflows/[id]/test-statistics

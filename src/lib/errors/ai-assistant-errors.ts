@@ -6,6 +6,7 @@
 
 export enum AIAssistantErrorCode {
                   PROVIDER_CONFIG_MISSING = 'PROVIDER_CONFIG_MISSING',
+                  INVALID_REQUEST = 'INVALID_REQUEST',
                   API_KEY_INVALID = 'API_KEY_INVALID',
                   MODEL_QUOTA_EXCEEDED = 'MODEL_QUOTA_EXCEEDED',
                   CONTEXT_TOO_LONG = 'CONTEXT_TOO_LONG',
@@ -37,6 +38,8 @@ export class AIAssistantError extends Error {
                                     switch (code) {
                                                       case AIAssistantErrorCode.PROVIDER_CONFIG_MISSING:
                                                                         return '未配置 AI 服务商，请联系管理员配置。';
+                                                      case AIAssistantErrorCode.INVALID_REQUEST:
+                                                                        return 'AI 请求参数有误（可能是模型名、Base URL 或参数不兼容），请检查 AI 配置后重试。';
                                                       case AIAssistantErrorCode.API_KEY_INVALID:
                                                                         return 'AI 服务配置无效或 API Key 已过期。';
                                                       case AIAssistantErrorCode.MODEL_QUOTA_EXCEEDED:
@@ -67,23 +70,96 @@ export async function withAIErrorHandling<T>(
                   } catch (error: any) {
                                     console.error(`Error in ${context}:`, error);
 
-                                    // Map common errors to AIAssistantError
-                                    if (error.message?.includes('401')) {
-                                                      throw new AIAssistantError(AIAssistantErrorCode.API_KEY_INVALID, error.message);
-                                    }
-                                    if (error.message?.includes('403')) {
-                                                      throw new AIAssistantError(AIAssistantErrorCode.API_KEY_INVALID, error.message, 'API Key 权限不足或已被禁用，请检查配置。');
-                                    }
-                                    if (error.message?.includes('429')) {
-                                                      throw new AIAssistantError(AIAssistantErrorCode.MODEL_QUOTA_EXCEEDED, error.message, undefined, true);
-                                    }
-                                    if (error.message?.includes('timeout')) {
-                                                      throw new AIAssistantError(AIAssistantErrorCode.GENERATION_TIMEOUT, error.message, undefined, true);
-                                    }
-                                    if (error.name === 'SyntaxError' && context.includes('JSON')) {
-                                                      throw new AIAssistantError(AIAssistantErrorCode.INVALID_JSON_RESPONSE, error.message, undefined, true);
+                                    const message = String(error?.message || '')
+                                    const lower = message.toLowerCase()
+
+                                    // Provider-side quota/balance errors (some gateways return 403 for these)
+                                    if (
+                                                      message.includes('用户余额不足') ||
+                                                      message.includes('余额不足') ||
+                                                      lower.includes('insufficient balance') ||
+                                                      lower.includes('quota') ||
+                                                      lower.includes('billing')
+                                    ) {
+                                                      throw new AIAssistantError(
+                                                                        AIAssistantErrorCode.MODEL_QUOTA_EXCEEDED,
+                                                                        message,
+                                                                        'AI 服务余额/额度不足，请充值或更换可用的 API Key。',
+                                                                        false
+                                                      )
                                     }
 
-                                    throw new AIAssistantError(AIAssistantErrorCode.UNKNOWN_ERROR, error.message || 'Unknown error');
+                                    // Local decrypt/config errors
+                                    if (
+                                                      message.includes('无法解密 API Key') ||
+                                                      message.includes('ENCRYPTION_KEY') ||
+                                                      message.includes('ENCRYPTION_SALT')
+                                    ) {
+                                                      throw new AIAssistantError(
+                                                                        AIAssistantErrorCode.API_KEY_INVALID,
+                                                                        message,
+                                                                        'AI 服务配置无法解密，请在设置中重新输入并保存 API Key。',
+                                                                        false
+                                                      )
+                                    }
+
+                                    // Model/configuration errors (present a helpful message directly)
+                                    if (message.includes('【模型配置错误】')) {
+                                                      throw new AIAssistantError(
+                                                                        AIAssistantErrorCode.INVALID_REQUEST,
+                                                                        message,
+                                                                        message,
+                                                                        false
+                                                      )
+                                    }
+
+                                    // Context length errors from common providers
+                                    if (
+                                                      lower.includes('context_length_exceeded') ||
+                                                      lower.includes('maximum context length') ||
+                                                      lower.includes('too many tokens') ||
+                                                      lower.includes('context window')
+                                    ) {
+                                                      throw new AIAssistantError(
+                                                                        AIAssistantErrorCode.CONTEXT_TOO_LONG,
+                                                                        message
+                                                      )
+                                    }
+
+                                    // Map common errors to AIAssistantError
+                                    if (message.includes('401') || lower.includes('unauthorized')) {
+                                                      throw new AIAssistantError(AIAssistantErrorCode.API_KEY_INVALID, message);
+                                    }
+                                    if (message.includes('403') || lower.includes('forbidden')) {
+                                                      throw new AIAssistantError(AIAssistantErrorCode.API_KEY_INVALID, message, 'API Key 权限不足或已被禁用，请检查配置。');
+                                    }
+                                    if (message.includes('429') || lower.includes('rate limit')) {
+                                                      throw new AIAssistantError(AIAssistantErrorCode.MODEL_QUOTA_EXCEEDED, message, undefined, true);
+                                    }
+                                    if (lower.includes('timeout') || lower.includes('timed out')) {
+                                                      throw new AIAssistantError(AIAssistantErrorCode.GENERATION_TIMEOUT, message, undefined, true);
+                                    }
+                                    if (error?.name === 'SyntaxError') {
+                                                      throw new AIAssistantError(AIAssistantErrorCode.INVALID_JSON_RESPONSE, message, undefined, true);
+                                    }
+
+                                    // 4xx invalid request parameters (model name, max_tokens, baseUrl, etc.)
+                                    if (message.includes('400') || lower.includes('bad request')) {
+                                                      throw new AIAssistantError(AIAssistantErrorCode.INVALID_REQUEST, message);
+                                    }
+
+                                    // Network-ish / provider availability issues
+                                    if (
+                                                      lower.includes('fetch failed') ||
+                                                      lower.includes('network') ||
+                                                      lower.includes('econn') ||
+                                                      message.includes('502') ||
+                                                      message.includes('503') ||
+                                                      message.includes('504')
+                                    ) {
+                                                      throw new AIAssistantError(AIAssistantErrorCode.NETWORK_ERROR, message, undefined, true);
+                                    }
+
+                                    throw new AIAssistantError(AIAssistantErrorCode.UNKNOWN_ERROR, message || 'Unknown error');
                   }
 }

@@ -100,7 +100,7 @@ export function TestProgress({
       </div>
 
       <div className="p-4 space-y-2 max-h-[300px] overflow-y-auto">
-        {nodeResults.map((node, index) => (
+        {nodeResults.map((node, _index) => (
           <div 
             key={node.nodeId}
             className={cn(

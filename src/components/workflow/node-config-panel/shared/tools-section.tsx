@@ -962,7 +962,6 @@ function MultimodalAiConfig({
   const promptTemplate = (config.promptTemplate as string) || "";
   const imageQuality = (config.imageQuality as string) || "standard";
   const imageStyle = (config.imageStyle as string) || "vivid";
-  const negativePrompt = (config.negativePrompt as string) || "";
   const videoResolution = (config.videoResolution as string) || "1080p";
   const videoReferenceImage = (config.videoReferenceImage as string) || "";
   const ttsSpeed =
@@ -990,86 +989,6 @@ function MultimodalAiConfig({
 
   const selectedModel =
     (config.model as string) || defaultModel || (modelOptions[0] ?? "");
-
-  // 一键应用常见场景预设
-  const applyPreset = (preset: "wechat-cover" | "short-video-cover" | "podcast-audio") => {
-    if (preset === "wechat-cover") {
-      const updates: Record<string, unknown> = {
-        modality: "image",
-        imageSize: "1024x1024",
-        imageQuality: "hd",
-        imageStyle: "natural",
-        imageCount: 1,
-        model: SHENSUAN_DEFAULT_MODELS["image-gen"],
-      };
-      if (!promptTemplate) {
-        updates.promptTemplate = [
-          "You are an illustration designer for a WeChat Official Account.",
-          "Generate a detailed English prompt for an eye-catching article illustration.",
-          "",
-          "Requirements:",
-          "1. Style: modern, clean, suitable for Chinese business / tech articles.",
-          "2. Avoid any Chinese text, logos, or watermarks in the image.",
-          "3. Composition: keep enough negative space for title overlay if needed.",
-          "4. Reflect the core topic of the upstream article content.",
-        ].join("\n");
-      }
-      onConfigChange(updates);
-      return;
-    }
-
-    if (preset === "short-video-cover") {
-      const updates: Record<string, unknown> = {
-        modality: "image",
-        imageSize: "1024x1792",
-        imageQuality: "hd",
-        imageStyle: "vivid",
-        imageCount: 1,
-        negativePrompt:
-          negativePrompt ||
-          "low quality, blurry, watermark, logo, UI screenshot, text-only image",
-        model: SHENSUAN_DEFAULT_MODELS["image-gen"],
-      };
-      if (!promptTemplate) {
-        updates.promptTemplate = [
-          "You are a designer for short-video cover images.",
-          "Generate a vivid English prompt for a vertical 9:16 thumbnail.",
-          "",
-          "Requirements:",
-          "1. Style: bold, high-contrast, suitable for Douyin / TikTok style feeds.",
-          "2. Focus on a single clear subject with strong emotion or motion.",
-          "3. Avoid any text, logos, or watermarks in the image.",
-          "4. Background can be slightly blurred to make the subject pop.",
-        ].join("\n");
-      }
-      onConfigChange(updates);
-      return;
-    }
-
-    if (preset === "podcast-audio") {
-      const updates: Record<string, unknown> = {
-        modality: "audio_tts",
-        ttsVoice: (config.ttsVoice as string) || "alloy",
-        ttsFormat: "mp3",
-        ttsSpeed: ttsSpeed || 1.0,
-        ttsEmotion: ttsEmotion || "calm",
-        model: SHENSUAN_DEFAULT_MODELS["audio-tts"],
-      };
-      if (!promptTemplate) {
-        updates.promptTemplate = [
-          "You are a script writer for a Chinese podcast episode.",
-          "Generate a natural, spoken-style English prompt that will be converted to audio using TTS.",
-          "",
-          "Requirements:",
-          "1. The script should be easy to read aloud and sound conversational.",
-          "2. Use short sentences and clear structure, suitable for a 3–5 minute episode.",
-          "3. Do not include any instructions to the TTS engine, only the content to be spoken.",
-          "4. The tone should match a calm, friendly podcast host.",
-        ].join("\n");
-      }
-      onConfigChange(updates);
-    }
-  };
 
   return (
     <div className="space-y-3">

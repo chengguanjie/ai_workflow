@@ -176,21 +176,22 @@ export default function BillingPage() {
   }
 
   return (
-    <div className="space-y-8">
-      {/* 页面标题 */}
-      <div>
-        <h1 className="text-2xl font-bold">付费管理</h1>
-        <p className="text-muted-foreground">
-          管理您的订阅套餐和账单信息
-        </p>
-      </div>
+    <Tabs defaultValue="subscription" className="space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        {/* 页面标题 */}
+        <div>
+          <h1 className="text-2xl font-bold">付费管理</h1>
+          <p className="text-muted-foreground">
+            管理您的订阅套餐和账单信息
+          </p>
+        </div>
 
-      <Tabs defaultValue="subscription" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="subscription">订阅套餐</TabsTrigger>
-          <TabsTrigger value="invoices">账单历史</TabsTrigger>
-          <TabsTrigger value="usage">使用统计</TabsTrigger>
+        <TabsList className="h-10 p-1 gap-1 w-fit">
+          <TabsTrigger value="subscription" className="px-4">订阅套餐</TabsTrigger>
+          <TabsTrigger value="invoices" className="px-4">账单历史</TabsTrigger>
+          <TabsTrigger value="usage" className="px-4">使用统计</TabsTrigger>
         </TabsList>
+      </div>
 
         {/* 订阅套餐 */}
         <TabsContent value="subscription" className="space-y-6">
@@ -560,7 +561,6 @@ export default function BillingPage() {
             </CardContent>
           </Card>
         </TabsContent>
-      </Tabs>
-    </div>
+    </Tabs>
   )
 }

@@ -202,7 +202,7 @@ export function ExecutionPanel({
     pdf: ".pdf,application/pdf",
     word: ".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     excel:
-      ".xls,.xlsx,.csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv",
+      ".xlsx,.csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv",
     audio: "audio/*",
     video: "video/*",
   };

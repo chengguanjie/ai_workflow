@@ -340,7 +340,7 @@ export function LogicNodeConfigPanel({
           {conditions.length === 0 ? (
             <div className="py-6 text-center border border-dashed rounded-lg bg-muted/20">
               <GitBranch className="h-6 w-6 mx-auto text-muted-foreground/40 mb-2" />
-              <p className="text-xs text-muted-foreground">点击"添加"创建条件分支</p>
+              <p className="text-xs text-muted-foreground">点击“添加”创建条件分支</p>
             </div>
           ) : (
             <div className="space-y-2">

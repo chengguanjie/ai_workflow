@@ -7,7 +7,7 @@
  * @module security/safe-logger
  */
 
-import { sanitizeErrorMessage, sanitizeErrorContext } from '@/lib/errors/sanitizer'
+import { sanitizeErrorMessage } from '@/lib/errors/sanitizer'
 
 /**
  * Log levels

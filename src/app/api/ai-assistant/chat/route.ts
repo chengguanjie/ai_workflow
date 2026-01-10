@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { safeDecryptApiKey } from "@/lib/crypto";
 import { aiService } from "@/lib/ai";
 import { ApiResponse } from "@/lib/api/api-response";
+import { redactDeep } from "@/lib/observability/redaction";
 import {
   ENHANCED_SYSTEM_PROMPT,
   TEST_ANALYSIS_PROMPT,
@@ -537,13 +538,15 @@ export async function POST(request: NextRequest) {
           testRequest.testInput
         );
 
+        const inputForDb = redactDeep(testRequest.testInput ?? {}) as object;
+
         const initialExecution = await prisma.execution.create({
           data: {
             workflowId: body.workflowId,
             organizationId: session.user.organizationId,
             userId: session.user.id,
             status: "RUNNING",
-            input: testRequest.testInput as object,
+            input: JSON.parse(JSON.stringify(inputForDb)),
           },
         });
 
@@ -553,7 +556,7 @@ export async function POST(request: NextRequest) {
               where: { id: initialExecution.id },
               data: {
                 status: result.status,
-                output: result.output as object | undefined,
+                output: result.output ? (JSON.parse(JSON.stringify(redactDeep(result.output))) as object) : undefined,
                 error: result.error,
                 duration: result.duration,
                 totalTokens: result.totalTokens,

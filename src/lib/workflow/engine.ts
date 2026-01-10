@@ -5,13 +5,13 @@
 
 import { prisma } from '@/lib/db'
 import { Prisma, ExecutionType } from '@prisma/client'
-import type { WorkflowConfig, NodeConfig, EdgeConfig, ParallelErrorStrategy, ProcessNodeConfig } from '@/types/workflow'
+import type { WorkflowConfig, NodeConfig, ParallelErrorStrategy, ProcessNodeConfig } from '@/types/workflow'
 import type {
   ExecutionContext,
   ExecutionResult,
   NodeOutput,
 } from './types'
-import { getExecutionOrder, getParallelExecutionLayers, getPredecessorIds, isOutputValid } from './utils'
+import { getExecutionOrder, getParallelExecutionLayers, getPredecessorIds } from './utils'
 import { shouldExecuteNode, type LogicRoutingContext } from './engine/logic-routing'
 import { executionEvents } from './execution-events'
 import { validateNodeInput } from './validation/input-validator'
@@ -32,6 +32,7 @@ import {
 } from './engine/executor'
 import { WorkflowErrorHandler } from './error-handler'
 import { calculateTokenCostUSD } from '@/lib/ai/cost'
+import { redactDeep } from '@/lib/observability/redaction'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -249,10 +250,12 @@ export class WorkflowEngine {
       }
     }
 
+    const inputForDb = initialInput ? redactDeep(initialInput) : {}
+
     const execution = await prisma.execution.create({
       data: {
         status: 'PENDING',
-        input: initialInput ? JSON.parse(JSON.stringify(initialInput)) : {},
+        input: JSON.parse(JSON.stringify(inputForDb)),
         workflowId: this.workflowId,
         userId: this.userId,
         organizationId: this.organizationId,
@@ -336,12 +339,13 @@ export class WorkflowEngine {
         await this.flushPersistence()
         const duration = Date.now() - startTime
         const totals = this.computeExecutionTotals(context)
+        const outputForDb = redactDeep(result.lastOutput)
 
         await prisma.execution.update({
           where: { id: execution.id },
           data: {
             status: 'PAUSED',
-            output: result.lastOutput as Prisma.InputJsonValue,
+            output: JSON.parse(JSON.stringify(outputForDb)),
             duration,
             totalTokens: totals.totalTokens,
             promptTokens: totals.promptTokens,
@@ -363,6 +367,7 @@ export class WorkflowEngine {
 
       const duration = Date.now() - startTime
       const totals = this.computeExecutionTotals(context)
+      const outputForDb = redactDeep(result.lastOutput)
 
       await this.analyticsCollector?.collectExecutionMeta(
         duration,
@@ -375,7 +380,7 @@ export class WorkflowEngine {
         data: {
           status: 'COMPLETED',
           completedAt: new Date(),
-          output: result.lastOutput as Prisma.InputJsonValue,
+          output: JSON.parse(JSON.stringify(outputForDb)),
           duration,
           totalTokens: totals.totalTokens,
           promptTokens: totals.promptTokens,
@@ -651,7 +656,7 @@ export class WorkflowEngine {
       }
 
       // 检查是否需要回跳到循环节点
-      const loopBackTarget = this.checkLoopBack(node.id, executionOrder, currentIndex)
+      const loopBackTarget = this.checkLoopBack(node.id)
       if (loopBackTarget !== null) {
         currentIndex = loopBackTarget
         continue
@@ -705,8 +710,6 @@ export class WorkflowEngine {
    */
   private checkLoopBack(
     currentNodeId: string,
-    executionOrder: NodeConfig[],
-    currentIndex: number
   ): number | null {
     // 检查当前节点是否是某个循环体的最后一个节点
     for (const [loopNodeId, state] of this.activeLoopStates) {

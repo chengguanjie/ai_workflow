@@ -16,7 +16,7 @@ import type {
   ClaudeTool,
   ToolExecutionContext,
 } from '@/lib/ai/function-calling/types'
-import { applyInputBindingsToContext, createContentPartsFromText, replaceVariablesInConfig } from '../utils'
+import { applyInputBindingsToContext, createContentPartsFromText, replaceVariablesInConfig, rewritePromptReferencesToInputs } from '../utils'
 import { prisma } from '@/lib/db'
 import { safeDecryptApiKey } from '@/lib/crypto'
 import { getRelevantContext } from '@/lib/knowledge/search'
@@ -254,7 +254,10 @@ export class ProcessWithToolsNodeProcessor implements NodeProcessor {
       // 输入绑定：注入 inputs.*，供提示词使用 {{inputs.xxx}}
       applyInputBindingsToContext(processNode.config?.inputBindings, context)
 
-      const userContentParts = createContentPartsFromText(rawUserPrompt, context)
+      // 将已绑定的 {{上游.字段}} 改写为 {{inputs.slot}}，以便运行时统一走 inputs.*
+      const effectiveUserPrompt = rewritePromptReferencesToInputs(rawUserPrompt, processNode.config?.inputBindings)
+
+      const userContentParts = createContentPartsFromText(effectiveUserPrompt, context)
       userPromptText = userContentParts
         .map(p => p.type === 'text' ? p.text : `[${p.type}]`)
         .join('')

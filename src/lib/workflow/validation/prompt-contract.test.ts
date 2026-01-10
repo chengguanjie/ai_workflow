@@ -4,6 +4,7 @@ import {
   extractExpectedJsonKeys,
   inferExpectedType,
   validateNodeOutputAgainstPrompt,
+  fixCorruptedInputFieldReferences,
   fixInputVariableReferences,
   fixExpectedOutputTypesFromPrompts,
 } from './prompt-contract'
@@ -63,6 +64,35 @@ describe('prompt-contract', () => {
     expect(node.config.userPrompt).toContain('{{输入节点.标题}}')
   })
 
+  it('fixes corrupted input field references in prompts', () => {
+    const wf: WorkflowConfig = {
+      version: 1,
+      nodes: [
+        {
+          id: 'i1',
+          type: 'INPUT',
+          name: '用户输入',
+          position: { x: 0, y: 0 },
+          config: {
+            fields: [
+              { id: 'f1', name: '二创风格', value: '' },
+              { id: 'f2', name: '二创主题', value: '' },
+            ],
+          },
+        },
+        createProcessNode('p1', '二创内容策划', '', '二创主题：{{用户输入.用户指定要求}}输入.二创主题}}'),
+      ],
+      edges: [{ id: 'e1', source: 'i1', target: 'p1' }],
+    }
+
+    const res = fixCorruptedInputFieldReferences(wf)
+    expect(res.changed).toBe(true)
+    const node = wf.nodes.find(n => n.id === 'p1') as ProcessNodeConfig
+    expect(node.config.userPrompt).toContain('{{用户输入.二创主题}}')
+    expect(node.config.userPrompt).not.toContain('用户指定要求')
+    expect(node.config.userPrompt).not.toContain('}}输入.')
+  })
+
   it('sets expectedOutputType from inferred prompt type', () => {
     const wf: WorkflowConfig = {
       version: 3,
@@ -91,4 +121,3 @@ describe('prompt-contract', () => {
     expect(p2.config.expectedOutputType).toBe('json')
   })
 })
-

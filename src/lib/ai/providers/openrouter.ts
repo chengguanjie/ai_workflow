@@ -1,7 +1,7 @@
 // OpenRouter API Provider
 
 import type { AIProvider, ChatRequest, ChatResponse, Model } from '../types'
-import { fetchWithTimeout } from '@/lib/http/fetch-with-timeout'
+import { fetchTextWithTimeout } from '@/lib/http/fetch-with-timeout'
 
 const DEFAULT_OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 
@@ -23,13 +23,16 @@ export class OpenRouterProvider implements AIProvider {
       requestBody.max_tokens = request.maxTokens
     }
     
-    const response = await fetchWithTimeout(`${url}/chat/completions`, {
+    const { response, text } = await fetchTextWithTimeout(`${url}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
         'HTTP-Referer': process.env.NEXTAUTH_URL || 'http://localhost:3000',
         'X-Title': 'AI Workflow',
+        // Some OpenAI-compatible gateways are flaky with connection pooling.
+        // Close keep-alive to reduce `other side closed` errors.
+        Connection: 'close',
       },
       body: JSON.stringify(requestBody),
       timeoutMs: 180_000,
@@ -38,11 +41,10 @@ export class OpenRouterProvider implements AIProvider {
     })
 
     if (!response.ok) {
-      const error = await response.text()
-      throw new Error(`OpenRouter API error: ${response.status} - ${error}`)
+      throw new Error(`OpenRouter API error: ${response.status} - ${text}`)
     }
 
-    const data = await response.json()
+    const data = JSON.parse(text) as any
 
     return {
       content: data.choices[0]?.message?.content || '',
@@ -58,7 +60,7 @@ export class OpenRouterProvider implements AIProvider {
 
   async listModels(apiKey: string, baseUrl?: string): Promise<Model[]> {
     const url = baseUrl || DEFAULT_OPENROUTER_BASE_URL
-    const response = await fetchWithTimeout(`${url}/models`, {
+    const { response, text } = await fetchTextWithTimeout(`${url}/models`, {
       headers: {
         Authorization: `Bearer ${apiKey}`,
       },
@@ -69,7 +71,7 @@ export class OpenRouterProvider implements AIProvider {
       throw new Error(`Failed to fetch models: ${response.status}`)
     }
 
-    const data = await response.json()
+    const data = JSON.parse(text) as any
 
     return data.data.map((model: { id: string; name?: string; context_length?: number; pricing?: { prompt: string; completion: string } }) => ({
       id: model.id,

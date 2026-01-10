@@ -200,7 +200,7 @@ export class WechatChannelsToolExecutor implements ToolExecutor {
     const tags = optionalArray(args, 'tags')
     const location = optionalString(args, 'location')
 
-    let payload: Record<string, unknown> = {
+    const payload: Record<string, unknown> = {
       title,
       description,
       content_type: contentType,
@@ -242,7 +242,7 @@ export class WechatChannelsToolExecutor implements ToolExecutor {
     startedAt: number
   ): Promise<ToolCallResult> {
     const contentType = optionalString(args, 'content_type') || 'video'
-    let payload: Record<string, unknown> = { type: contentType }
+    const payload: Record<string, unknown> = { type: contentType }
 
     if (contentType === 'video') {
       const videoUrl = optionalString(args, 'video_url')

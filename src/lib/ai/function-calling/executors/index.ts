@@ -3,8 +3,6 @@
  */
 
 import type { ToolExecutor, ToolDefinition, ToolCallResult, ToolExecutionContext } from '../types'
-import { MultimodalToolExecutor, ImageGenerationToolExecutor, VideoGenerationToolExecutor, AudioTTSToolExecutor } from './multimodal'
-import { CodeExecutionToolExecutor } from './code-execution'
 
 // 导出所有执行器
 export { 
@@ -142,4 +140,3 @@ class ToolExecutorRegistry {
 
 // 全局单例
 export const toolRegistry = new ToolExecutorRegistry()
-

@@ -2,7 +2,7 @@
 
 import type { AIProvider, ChatRequest, ChatResponse, Model } from '../types'
 import type { ClaudeTool, ToolCall, ChatResponseWithTools, ClaudeToolUse } from '../function-calling/types'
-import { fetchWithTimeout } from '@/lib/http/fetch-with-timeout'
+import { fetchTextWithTimeout } from '@/lib/http/fetch-with-timeout'
 
 const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
 const ANTHROPIC_VERSION = '2023-06-01'
@@ -95,28 +95,36 @@ export class AnthropicProvider implements AIProvider {
     })
 
     const startTime = Date.now()
-    const response = await fetchWithTimeout(`${url}/v1/messages`, {
+    const { response, text } = await fetchTextWithTimeout(`${url}/v1/messages`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
         'anthropic-version': ANTHROPIC_VERSION,
+        // Reduce flaky keep-alive behavior on some gateways.
+        Connection: 'close',
       },
       body: JSON.stringify(requestBody),
       timeoutMs: 120_000,
-      retries: 2,
+      retries: 4,
       retryDelay: 2000,
     })
 
     console.log(`[Anthropic] 收到响应: ${response.status}, 耗时 ${Date.now() - startTime}ms`)
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}))
-      console.error('[Anthropic] API 错误:', { status: response.status, error })
-      throw new Error(`Anthropic API error: ${response.status} - ${error.error?.message || response.statusText}`)
+      let message = response.statusText
+      try {
+        const error = JSON.parse(text) as any
+        message = error?.error?.message || message
+        console.error('[Anthropic] API 错误:', { status: response.status, error })
+      } catch {
+        console.error('[Anthropic] API 错误:', { status: response.status, textPreview: text.slice(0, 200) })
+      }
+      throw new Error(`Anthropic API error: ${response.status} - ${message}`)
     }
 
-    const data = await response.json()
+    const data = JSON.parse(text) as any
 
     // 解析内容和工具调用
     let textContent = ''

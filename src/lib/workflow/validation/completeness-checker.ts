@@ -205,6 +205,22 @@ function checkCodeCompleteness(content: string): CompletenessResult {
       truncationPattern: 'unclosed_braces',
     }
   }
+
+  if (bracketCount > 2) {
+    return {
+      complete: false,
+      reason: `代码可能不完整：缺少 ${bracketCount} 个闭合中括号`,
+      truncationPattern: 'unclosed_brackets',
+    }
+  }
+
+  if (parenCount > 2) {
+    return {
+      complete: false,
+      reason: `代码可能不完整：缺少 ${parenCount} 个闭合小括号`,
+      truncationPattern: 'unclosed_parentheses',
+    }
+  }
   
   return { complete: true }
 }

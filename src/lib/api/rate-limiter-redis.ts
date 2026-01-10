@@ -41,7 +41,7 @@ export class RedisRateLimiter {
     // Try to get Redis connection
     try {
       this.redis = getRedisConnection()
-    } catch (error) {
+    } catch (_error) {
       // Redis not available, will use fallback
       this.redis = null
     }

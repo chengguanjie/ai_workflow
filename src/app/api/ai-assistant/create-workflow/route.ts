@@ -991,7 +991,11 @@ ${prompt}
   } catch (error) {
     console.error("[CreateWorkflow] Error:", error);
     if (error instanceof AIAssistantError) {
-      return ApiResponse.error(error.userMessage, 500);
+      return ApiResponse.error(error.userMessage, 500, {
+        code: error.code,
+        retryable: error.retryable,
+        ...(process.env.NODE_ENV !== "production" ? { debugMessage: error.message } : {}),
+      });
     }
     return ApiResponse.error(
       error instanceof Error ? error.message : "创建失败",

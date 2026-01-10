@@ -10,6 +10,7 @@ import type { NodeConfig } from '@/types/workflow'
 import type { NodeOutput } from '../types'
 import { NODE_TYPE_DB_MAP } from './types'
 import { AIProvider, Prisma } from '@prisma/client'
+import { redactDeep } from '@/lib/observability/redaction'
 
 /**
  * 保存节点执行日志（完整内容，不截断）
@@ -26,14 +27,18 @@ export async function saveNodeLog(
     runtime: result.input || null,
   }
 
+  const safeInput = redactDeep(inputSnapshot) as Prisma.InputJsonValue
+  const safeOutput = redactDeep(result.data || undefined) as Prisma.InputJsonValue
+  const safeError = typeof result.error === 'string' ? String(redactDeep(result.error)) : result.error
+
   await prisma.executionLog.create({
     data: {
       executionId,
       nodeId: node.id,
       nodeName: node.name,
       nodeType: dbNodeType,
-      input: inputSnapshot as Prisma.InputJsonValue,
-      output: (result.data || undefined) as Prisma.InputJsonValue,
+      input: safeInput,
+      output: safeOutput,
       status: result.status === 'success' ? 'COMPLETED' : 'FAILED',
       aiProvider: result.aiProvider as unknown as AIProvider | undefined,
       aiModel: result.aiModel,
@@ -42,7 +47,7 @@ export async function saveNodeLog(
       startedAt: result.startedAt,
       completedAt: result.completedAt,
       duration: result.duration,
-      error: result.error,
+      error: safeError,
     },
   })
 }
@@ -61,13 +66,17 @@ export async function saveNodeLogsBatch(
       runtime: result.input || null,
     }
 
+    const safeInput = redactDeep(inputSnapshot) as Prisma.InputJsonValue
+    const safeOutput = redactDeep(result.data || undefined) as Prisma.InputJsonValue
+    const safeError = typeof result.error === 'string' ? String(redactDeep(result.error)) : result.error
+
     return {
       executionId,
       nodeId: node.id,
       nodeName: node.name,
       nodeType: dbNodeType,
-      input: inputSnapshot as Prisma.InputJsonValue,
-      output: (result.data || undefined) as Prisma.InputJsonValue,
+      input: safeInput,
+      output: safeOutput,
       status: result.status === 'success' ? 'COMPLETED' as const : 'FAILED' as const,
       aiProvider: result.aiProvider as unknown as AIProvider | undefined,
       aiModel: result.aiModel,
@@ -76,7 +85,7 @@ export async function saveNodeLogsBatch(
       startedAt: result.startedAt,
       completedAt: result.completedAt,
       duration: result.duration,
-      error: result.error,
+      error: safeError,
     }
   })
 

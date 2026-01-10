@@ -50,6 +50,10 @@ interface Template {
 }
 
 export default function TemplatesPage() {
+  return <TemplatesView />
+}
+
+export function TemplatesView({ embedded = false }: { embedded?: boolean } = {}) {
   const router = useRouter()
   const [templates, setTemplates] = useState<Template[]>([])
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
@@ -160,7 +164,13 @@ export default function TemplatesPage() {
 
 
   return (
-    <div className="h-full bg-gray-50 overflow-hidden flex flex-col">
+    <div
+      className={
+        embedded
+          ? 'h-full overflow-hidden flex flex-col'
+          : 'h-full bg-gray-50 overflow-hidden flex flex-col'
+      }
+    >
       <div className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full flex flex-col overflow-hidden">
         {/* 提示消息 */}
         {error && (

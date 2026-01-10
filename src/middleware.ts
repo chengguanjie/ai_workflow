@@ -54,6 +54,13 @@ const DEFAULT_MIDDLEWARE_CONFIG: RateLimitMiddlewareConfig = {
       config: { windowMs: 60000, maxRequests: 180 },
       name: 'polling',
     },
+    // Settings endpoints - relaxed rate limiting (180/min)
+    // Settings pages may load multiple resources (members/departments/org) concurrently.
+    {
+      pattern: /^\/api\/settings(\/|$)/,
+      config: { windowMs: 60000, maxRequests: 180 },
+      name: 'settings',
+    },
     // Auth endpoints - strict rate limiting (5/min)
     {
       pattern: /^\/api\/auth\/(register|change-password)/,
@@ -167,6 +174,9 @@ async function getRateLimiter(
  * Requirements: 5.5
  */
 export function getClientIP(request: NextRequest): string {
+  // Prefer Next.js-provided IP when available (works in more environments than headers alone)
+  if (request.ip) return request.ip
+
   // Check x-forwarded-for header (may contain multiple IPs)
   const forwardedFor = request.headers.get('x-forwarded-for')
   if (forwardedFor) {

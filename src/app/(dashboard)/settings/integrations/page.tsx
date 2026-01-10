@@ -31,6 +31,10 @@ const INTEGRATIONS: Array<{
 ]
 
 export default function IntegrationsSettingsPage() {
+  return <IntegrationsSettingsView />
+}
+
+export function IntegrationsSettingsView({ embedded = false }: { embedded?: boolean } = {}) {
   const searchParams = useSafeSearchParams()
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<IntegrationId | null>(null)
@@ -108,12 +112,14 @@ export default function IntegrationsSettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">渠道授权</h1>
-        <p className="text-muted-foreground mt-1">
-          为发布工具完成 OAuth 授权并将 token 落库；公众号使用 env 获取 access token。
-        </p>
-      </div>
+      {!embedded && (
+        <div>
+          <h1 className="text-2xl font-semibold">渠道授权</h1>
+          <p className="text-muted-foreground mt-1">
+            为发布工具完成 OAuth 授权并将 token 落库；公众号使用 env 获取 access token。
+          </p>
+        </div>
+      )}
 
       <Card>
         <CardHeader>

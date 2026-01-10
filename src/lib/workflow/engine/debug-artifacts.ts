@@ -8,6 +8,7 @@
 import { storageService } from '@/lib/storage'
 import type { NodeConfig } from '@/types/workflow'
 import type { ExecutionLogEntry, ExecutionLogType, NodeOutput } from '../types'
+import { redactDeep } from '@/lib/observability/redaction'
 
 type PersistedDebugPayload = {
   version: 1
@@ -110,7 +111,7 @@ export class NodeDebugArtifactCollector {
         type,
         message: truncateString(message, LIMITS.MAX_STRING_LENGTH),
         step: step ? truncateString(step, 200) : undefined,
-        data: data === undefined ? undefined : truncateUnknown(data),
+        data: data === undefined ? undefined : truncateUnknown(redactDeep(data)),
         timestamp: new Date(),
       }
 
@@ -140,6 +141,8 @@ export class NodeDebugArtifactCollector {
     const logs = this.nodeLogs.get(node.id) ?? []
     const legacyLogs = this.nodeLegacyLogs.get(node.id) ?? []
 
+    const shouldRedact = process.env.PERSIST_NODE_DEBUG_REDACT !== 'false'
+
     const payload: PersistedDebugPayload = {
       version: 1,
       executionId: this.executionId,
@@ -149,14 +152,14 @@ export class NodeDebugArtifactCollector {
       completedAt: result.completedAt ? result.completedAt.toISOString() : undefined,
       duration: result.duration,
       tokenUsage: result.tokenUsage,
-      error: result.error,
+      error: shouldRedact && result.error ? String(redactDeep(result.error)) : result.error,
       // 保存完整的输出数据（不截断），用于用户查看完整内容
-      output: result.data,
+      output: (shouldRedact ? redactDeep(result.data) : result.data) as Record<string, unknown>,
       logs: logs.map((l) => ({
         type: l.type,
         message: l.message,
         step: l.step,
-        data: l.data,
+        data: shouldRedact ? redactDeep(l.data) : l.data,
         timestamp: l.timestamp.toISOString(),
       })),
       legacyLogs,
@@ -181,4 +184,3 @@ export class NodeDebugArtifactCollector {
     })
   }
 }
-

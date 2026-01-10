@@ -146,9 +146,9 @@ export function ApiTester(props: {
         await new Promise(r => setTimeout(r, 2000))
       }
       toast.error('轮询超时（请稍后再试）')
-    } catch (e) {
+    } catch (_e) {
       toast.error('轮询失败')
-      setResponseText(String(e))
+      setResponseText(String(_e))
     } finally {
       setPolling(false)
     }
@@ -167,7 +167,7 @@ export function ApiTester(props: {
     let payload: unknown
     try {
       payload = JSON.parse(bodyText)
-    } catch (e) {
+    } catch (_e) {
       toast.error('请求 JSON 格式不正确')
       return
     }
@@ -209,9 +209,9 @@ export function ApiTester(props: {
           toast.success('请求成功')
         }
       }
-    } catch (e) {
+    } catch (_e) {
       toast.error('请求异常，请检查网络/权限')
-      setResponseText(String(e))
+      setResponseText(String(_e))
     } finally {
       setSending(false)
     }

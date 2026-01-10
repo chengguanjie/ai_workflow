@@ -45,7 +45,9 @@ import {
   Redo2,
 } from "lucide-react";
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { useSafeParams } from "@/hooks/use-safe-params";
+import { useSafeSearchParams } from "@/hooks/use-safe-search-params";
 import { NodePanel } from "@/components/workflow/node-panel";
 import { NodeConfigPanel } from "@/components/workflow/node-config-panel";
 import { toast } from "sonner";
@@ -123,6 +125,10 @@ const edgeTypes = {
 };
 
 function WorkflowEditor() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSafeSearchParams();
+
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition, setViewport: setReactFlowViewport } =
     useReactFlow();
@@ -163,6 +169,18 @@ function WorkflowEditor() {
     x: number;
     y: number;
   } | null>(null);
+
+  useEffect(() => {
+    const panel = searchParams.get("panel");
+    if (panel !== "execute") return;
+
+    setShowExecutionPanel(true);
+
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("panel");
+    const query = next.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname);
+  }, [pathname, router, searchParams]);
   const selectionMenuRef = useRef<HTMLDivElement>(null);
 
   // Edge 右键菜单状态

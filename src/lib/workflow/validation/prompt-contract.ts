@@ -305,6 +305,81 @@ export function fixInputVariableReferences(config: WorkflowConfig): { changed: b
   return { changed, changes }
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function fixPromptInputReferences(prompt: string, inputNodeName: string, inputFieldNames: Set<string>) {
+  const changes: string[] = []
+  let next = prompt
+
+  // Case 1: Corrupted paste that results in `{{输入节点.字段A}}输入.字段B}}` (missing `{{` before 输入.字段B}})
+  // Prefer the second field (字段B), because it is usually the intended one.
+  const inputNamePattern = escapeRegExp(inputNodeName)
+  const corruptedTwoField = new RegExp(`\\{\\{${inputNamePattern}\\.([^}]+)\\}\\}输入\\.([^}]+)\\}\\}`, 'g')
+  next = next.replace(corruptedTwoField, (_m, _fieldA: string, fieldB: string) => {
+    changes.push(`修复损坏的变量引用 "{{${inputNodeName}.*}}输入.*}}" -> "{{${inputNodeName}.${fieldB}}}"`)
+    return `{{${inputNodeName}.${fieldB}}}`
+  })
+
+  // Case 2: leftover `}}输入.字段}}` suffix without the opening `{{...`
+  const corruptedSuffix = new RegExp(`\\}\\}输入\\.([^}]+)\\}\\}`, 'g')
+  next = next.replace(corruptedSuffix, (_m, field: string) => {
+    changes.push(`修复损坏的变量引用 "}}输入.*}}" -> "{{${inputNodeName}.${field}}}"`)
+    return `{{${inputNodeName}.${field}}}`
+  })
+
+  // Case 3: `标签：{{输入节点.字段}}` but 字段不存在；若标签本身是输入字段名，则用标签修复字段引用。
+  const labelToField = new RegExp(
+    `(^|\\n)([ \\t\\-*\\d\\.]*)([^\\n：:]{1,50})[：:](\\s*)\\{\\{${inputNamePattern}\\.([^}]+)\\}\\}`,
+    'g'
+  )
+  next = next.replace(labelToField, (m, lineStart: string, prefix: string, label: string, spacing: string, field: string) => {
+    if (inputFieldNames.has(field) || !inputFieldNames.has(label)) return m
+    changes.push(`修复变量引用 "{{${inputNodeName}.${field}}}" -> "{{${inputNodeName}.${label}}}"（按标签 "${label}" 纠正字段名）`)
+    return `${lineStart}${prefix}${label}：${spacing}{{${inputNodeName}.${label}}}`
+  })
+
+  return { next, changes }
+}
+
+export function fixCorruptedInputFieldReferences(config: WorkflowConfig): { changed: boolean; changes: string[] } {
+  const inputNode = config.nodes.find((n) => n.type === 'INPUT')
+  if (!inputNode) return { changed: false, changes: [] }
+
+  const fields = (inputNode as any).config?.fields
+  const inputFieldNames = new Set(
+    Array.isArray(fields)
+      ? fields.map((f: any) => (typeof f?.name === 'string' ? f.name : '')).filter(Boolean)
+      : []
+  )
+  if (inputFieldNames.size === 0) return { changed: false, changes: [] }
+
+  const changes: string[] = []
+  let changed = false
+
+  for (const node of config.nodes) {
+    if (node.type !== 'PROCESS') continue
+    const processNode = node as ProcessNodeConfig
+    if (!processNode.config) continue
+
+    const promptKeys: Array<'userPrompt' | 'systemPrompt'> = ['userPrompt', 'systemPrompt']
+    for (const key of promptKeys) {
+      const current = processNode.config[key]
+      if (!current || typeof current !== 'string' || !current.includes('{{')) continue
+
+      const res = fixPromptInputReferences(current, inputNode.name, inputFieldNames)
+      if (res.next !== current) {
+        processNode.config[key] = res.next
+        changed = true
+        for (const msg of res.changes) changes.push(`节点 "${node.name}": ${key} - ${msg}`)
+      }
+    }
+  }
+
+  return { changed, changes }
+}
+
 export function fixExpectedOutputTypesFromPrompts(config: WorkflowConfig): { changed: boolean; changes: string[] } {
   const changes: string[] = []
   let changed = false

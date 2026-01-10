@@ -7,20 +7,14 @@ import { cn } from '@/lib/utils'
 import {
   LayoutDashboard,
   GitBranch,
-  History,
-  Settings,
   Plug,
   Users,
   ChevronLeft,
   ChevronRight,
-  Bot,
-  LayoutTemplate,
   Database,
   Building2,
   MessageSquarePlus,
   CreditCard,
-  ClipboardCheck,
-  Link2,
 } from 'lucide-react'
 import { useSidebarStore } from '@/stores/sidebar-store'
 import { Button } from '@/components/ui/button'
@@ -34,26 +28,19 @@ import {
 const navigation = [
   { name: '工作台', href: '/dashboard', icon: LayoutDashboard },
   { name: '工作流', href: '/workflows', icon: GitBranch },
-  { name: '模板库', href: '/templates', icon: LayoutTemplate },
   { name: '知识库', href: '/knowledge-bases', icon: Database },
-  { name: '审批待办', href: '/approvals', icon: ClipboardCheck },
-  { name: '执行历史', href: '/executions', icon: History },
 ]
 
 // 管理员专属设置菜单项（仅 OWNER 和 ADMIN 可见）
 const adminSettingsNavigation = [
-  { name: 'AI 配置', href: '/settings/ai-config', icon: Bot },
-  { name: '渠道授权', href: '/settings/integrations', icon: Link2 },
-  { name: 'API 调用', href: '/settings/api', icon: Plug },
-  { name: '成员管理', href: '/settings/members', icon: Users },
-  { name: '部门管理', href: '/settings/departments', icon: Building2 },
+  { name: 'API 配置', href: '/settings/api-config', icon: Plug },
+  { name: '组织设置', href: '/settings/org-settings', icon: Building2 },
   { name: '付费管理', href: '/settings/billing', icon: CreditCard },
-  { name: '企业设置', href: '/settings/organization', icon: Settings },
 ]
 
 // 部门负责人设置菜单项（部门负责人可见）
 const managerSettingsNavigation = [
-  { name: '成员管理', href: '/settings/members', icon: Users },
+  { name: '组织设置', href: '/settings/org-settings', icon: Users },
 ]
 
 const feedbackNavigation = [

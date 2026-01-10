@@ -1,6 +1,5 @@
 import mammoth from 'mammoth'
 import ExcelJS from 'exceljs'
-import * as XLSX from 'xlsx'
 
 export type ExtractedText = {
   kind: 'text'
@@ -55,7 +54,7 @@ function guessType(mimeType?: string, fileName?: string): string {
   const ext = extFromFileName(fileName)
   if (mime.includes('pdf') || ext === 'pdf') return 'pdf'
   if (mime.includes('word') || ext === 'docx' || ext === 'doc') return 'word'
-  if (mime.includes('spreadsheet') || mime.includes('excel') || ext === 'xlsx' || ext === 'xls') return 'excel'
+  if (mime.includes('spreadsheet') || mime.includes('excel') || ext === 'xlsx') return 'excel'
   if (mime === 'text/csv' || ext === 'csv') return 'csv'
   if (mime.includes('json') || ext === 'json') return 'json'
   if (mime.includes('html') || ext === 'html' || ext === 'htm') return 'html'
@@ -101,36 +100,21 @@ export async function extractTextFromFile(params: {
   }
 
   if (type === 'excel') {
-    // Prefer xlsx parsing. If it fails, fallback to exceljs.
-    try {
-      const wb = XLSX.read(params.buffer as any, { type: 'buffer' })
-      const sheetName = wb.SheetNames[0]
-      const sheet = sheetName ? wb.Sheets[sheetName] : undefined
-      if (!sheetName || !sheet) {
-        throw new Error('xlsx: no sheets found')
-      }
-      if (typeof (XLSX as any).utils?.sheet_to_csv !== 'function') {
-        throw new Error('xlsx: sheet_to_csv not available')
-      }
-      const csv = (XLSX as any).utils.sheet_to_csv(sheet, { FS: ',', RS: '\n' }) as string
-      if (!csv || csv.trim().length === 0) {
-        throw new Error('xlsx: empty csv')
-      }
-      return { kind: 'text', detectedType: 'xlsx', content: clampText(csv, maxChars) }
-    } catch {
-      const workbook = new ExcelJS.Workbook()
-      await workbook.xlsx.load(params.buffer as any)
-      const ws = workbook.worksheets[0]
-      const lines: string[] = []
-      if (ws) {
-        ws.eachRow({ includeEmpty: false }, (row) => {
-          const vals = row.values as any[]
-          const cells = vals.slice(1).map((v) => (v === null || v === undefined ? '' : String(v)))
-          if (cells.length) lines.push(cells.join(','))
-        })
-      }
-      return { kind: 'text', detectedType: 'xlsx', content: clampText(lines.join('\n'), maxChars) }
+    const workbook = new ExcelJS.Workbook()
+    const loadArg = params.buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]
+    await workbook.xlsx.load(loadArg)
+    const ws = workbook.worksheets[0]
+    const lines: string[] = []
+    if (ws) {
+      ws.eachRow({ includeEmpty: false }, (row) => {
+        const values = Array.isArray(row.values) ? row.values : []
+        const cells = values
+          .slice(1)
+          .map((v) => (v === null || v === undefined ? '' : String(v)))
+        if (cells.length) lines.push(cells.join(','))
+      })
     }
+    return { kind: 'text', detectedType: 'xlsx', content: clampText(lines.join('\n'), maxChars) }
   }
 
   if (type === 'csv') {

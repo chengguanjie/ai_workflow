@@ -94,6 +94,10 @@ interface Workflow {
 }
 
 export default function ApprovalsPage() {
+  return <ApprovalsView />
+}
+
+export function ApprovalsView({ embedded = false }: { embedded?: boolean } = {}) {
   const [approvals, setApprovals] = useState<Approval[]>([])
   const [workflows, setWorkflows] = useState<Workflow[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -285,19 +289,29 @@ export default function ApprovalsPage() {
   const totalPages = Math.ceil(total / pageSize)
 
   return (
-    <div className="container mx-auto py-6">
+    <div className={embedded ? 'h-full p-4' : 'container mx-auto py-6'}>
       {/* 头部 */}
-      <div className="mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <ClipboardCheck className="h-6 w-6 text-primary" />
-          <h1 className="text-2xl font-bold">审批待办</h1>
+      {embedded ? (
+        <div className="mb-4 flex items-center justify-between">
           <span className="text-sm text-muted-foreground">共 {total} 条记录</span>
+          <Button variant="outline" size="sm" onClick={loadApprovals} disabled={isLoading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            刷新
+          </Button>
         </div>
-        <Button variant="outline" size="sm" onClick={loadApprovals} disabled={isLoading}>
-          <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-          刷新
-        </Button>
-      </div>
+      ) : (
+        <div className="mb-6 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <ClipboardCheck className="h-6 w-6 text-primary" />
+            <h1 className="text-2xl font-bold">审批待办</h1>
+            <span className="text-sm text-muted-foreground">共 {total} 条记录</span>
+          </div>
+          <Button variant="outline" size="sm" onClick={loadApprovals} disabled={isLoading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            刷新
+          </Button>
+        </div>
+      )}
 
       {/* 筛选栏 */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -619,7 +633,7 @@ export default function ApprovalsPage() {
                 />
               </div>
 
-              <DialogFooter className="gap-2 sm:gap-0">
+              <DialogFooter className="gap-3">
                 <Button
                   variant="outline"
                   onClick={() => handleDecision('REJECT')}

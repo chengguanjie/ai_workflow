@@ -83,7 +83,7 @@ const FIELD_TYPE_OPTIONS: Array<{
     label: "Excel",
     icon: <FileSpreadsheet className="h-4 w-4" />,
     accept:
-      ".xls,.xlsx,.csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv",
+      ".xlsx,.csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv",
   },
   {
     value: "audio",

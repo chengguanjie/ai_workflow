@@ -18,7 +18,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAuth, AuthContext } from '@/lib/api/with-auth'
 import { ApiResponse, ApiSuccessResponse } from '@/lib/api/api-response'
-import { NotFoundError, ValidationError, BusinessError } from '@/lib/errors'
+import { NotFoundError, ValidationError } from '@/lib/errors'
 import { prisma } from '@/lib/db'
 import { aiService } from '@/lib/ai'
 import { safeDecryptApiKey } from '@/lib/crypto'
@@ -79,17 +79,6 @@ interface GenerateTestDataResponse {
   isFallback?: boolean
   warnings?: string[]
 }
-
-/**
- * Error codes for AI generation failures
- */
-const AI_ERROR_CODES = {
-  NO_AI_CONFIG: 'NO_AI_CONFIG',
-  AI_GENERATION_FAILED: 'AI_GENERATION_FAILED',
-  AI_RESPONSE_INVALID: 'AI_RESPONSE_INVALID',
-  AI_TIMEOUT: 'AI_TIMEOUT',
-  AI_RATE_LIMITED: 'AI_RATE_LIMITED',
-} as const
 
 /**
  * Generate fallback test data when AI is unavailable

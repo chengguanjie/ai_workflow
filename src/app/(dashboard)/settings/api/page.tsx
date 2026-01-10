@@ -58,6 +58,10 @@ interface Workflow {
 }
 
 export default function ApiPage() {
+  return <ApiSettingsView />
+}
+
+export function ApiSettingsView({ embedded = false }: { embedded?: boolean } = {}) {
   const [tokens, setTokens] = useState<ApiToken[]>([])
   const [workflows, setWorkflows] = useState<Workflow[]>([])
   const [loading, setLoading] = useState(true)
@@ -226,12 +230,14 @@ export default function ApiPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">API 调用</h1>
-        <p className="text-muted-foreground">
-          通过 API Token 让外部程序调用你的工作流
-        </p>
-      </div>
+      {!embedded && (
+        <div>
+          <h1 className="text-2xl font-bold">API 调用</h1>
+          <p className="text-muted-foreground">
+            通过 API Token 让外部程序调用你的工作流
+          </p>
+        </div>
+      )}
 
       {/* 快捷生成：一键复制可运行的调用代码（填充 Token/WorkflowId/BaseUrl） */}
       <Card>

@@ -9,15 +9,11 @@ import {
   XCircle,
   ChevronDown,
   ChevronRight,
-  Terminal,
   FileJson,
   Workflow,
   ArrowRightFromLine,
   Clock,
   Cpu,
-  BookOpen,
-  Database,
-  Plus,
   MessageSquare,
   Settings,
   Download,
@@ -26,7 +22,6 @@ import {
   Music,
   Video,
   GripVertical,
-  Expand,
   Sparkles,
   FileText,
   StopCircle,
@@ -43,7 +38,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Slider } from "@/components/ui/slider";
 import {
   Dialog,
   DialogContent,
@@ -60,15 +54,11 @@ import { cn } from "@/lib/utils";
 import { useWorkflowStore } from "@/stores/workflow-store";
 import { PromptTabContent } from "./node-config-panel/shared/prompt-tab-content";
 import { InputTabs, type WorkflowNode } from "./debug-panel/input-tabs";
-import {
-  ModalitySelector,
-  DEFAULT_MODALITY,
-} from "./debug-panel/modality-selector";
+import { DEFAULT_MODALITY } from "./debug-panel/modality-selector";
 import { InputNodeDebugPanel } from "./input-debug-panel";
 import { LogicNodeConfigPanel } from "./node-config-panel/logic-node-config";
 import { PreviewModal } from "./debug-panel/preview-modal";
 import { ModalityOutputPreview } from "./debug-panel/modality-output-preview";
-import { OutputTypeSelector } from "./debug-panel/output-type-selector";
 import type { KnowledgeItem, RAGConfig } from "@/types/workflow";
 import type { AIProviderConfig } from "./node-config-panel/shared/types";
 import {
@@ -279,19 +269,6 @@ interface KnowledgeBase {
   isActive: boolean;
 }
 
-interface DebugResult {
-  status: "success" | "error" | "skipped";
-  output: Record<string, unknown>;
-  error?: string;
-  duration: number;
-  tokenUsage?: {
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-  };
-  logs?: string[];
-}
-
 function legacyLogsToDebugLogs(logs: string[]): DebugLogData[] {
   const now = new Date();
   const toIsoWithTime = (time: string) => {
@@ -383,10 +360,8 @@ export function NodeDebugPanel() {
     logs: streamLogs,
     status: streamStatus,
     result: streamResult,
-    error: streamError,
     startDebug,
     stopDebug,
-    clearLogs,
   } = useDebugStream({
     onStatus: useCallback((statusData: DebugStatusData) => {
       const targetNodeId = streamOwnerNodeIdRef.current;
@@ -532,9 +507,8 @@ export function NodeDebugPanel() {
 
   // Section visibility states - 默认折叠
   const [isInputOpen, setIsInputOpen] = useState(false);
-  const [isReferenceOpen, setIsReferenceOpen] = useState(false);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
-  const [isProcessOpen, setIsProcessOpen] = useState(false);
+  const [_isProcessOpen, setIsProcessOpen] = useState(false);
   const [isOutputOpen, setIsOutputOpen] = useState(false);
 
   // Input Tab state (新增)
@@ -706,7 +680,13 @@ export function NodeDebugPanel() {
     const isNodeChanged = prevDebugNodeIdRef.current !== debugNodeId;
 
     // 切换节点时中止正在进行的流式调试，避免日志/输出串到新节点
-    if (isNodeChanged && isStreamRunning) {
+    // 但要避免一种竞态：刚打开面板、还没来得及写入 prevDebugNodeIdRef 时立即点击“开始调试”，
+    // 这时 isNodeChanged=true 且 isStreamRunning=true 会误把当前节点的流也 stop 掉，导致看不到实时日志。
+    // 用“流的归属节点”做额外判断：只有当正在运行的流不属于当前 debugNodeId 时才中止。
+    const streamOwner = streamOwnerNodeIdRef.current;
+    const shouldStopStreamOnNodeChange =
+      isNodeChanged && isStreamRunning && streamOwner !== debugNodeId;
+    if (shouldStopStreamOnNodeChange) {
       stopDebug();
     }
 

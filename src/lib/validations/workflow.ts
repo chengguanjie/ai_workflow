@@ -60,6 +60,8 @@ const validFieldTypes = [
   "multiselect",
 ] as const;
 
+const validFieldTypeSet = new Set<(typeof validFieldTypes)[number]>(validFieldTypes)
+
 const fieldTypeMapping: Record<string, (typeof validFieldTypes)[number]> = {
   textarea: "text",
   file: "pdf",
@@ -85,7 +87,8 @@ const inputFieldSchema = z.object({
     .transform((val) => {
       if (!val) return "text";
       const mapped = fieldTypeMapping[val];
-      return mapped || "text";
+      if (!mapped) return "text"
+      return validFieldTypeSet.has(mapped) ? mapped : "text"
     }),
   required: z.boolean().optional(),
   description: z.string().optional(),

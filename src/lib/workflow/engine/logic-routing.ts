@@ -4,7 +4,7 @@
  * 根据 LOGIC 节点输出动态激活边，实现条件分支等逻辑控制。
  */
 
-import type { EdgeConfig, NodeConfig, LogicNodeConfig } from '@/types/workflow'
+import type { EdgeConfig, NodeConfig } from '@/types/workflow'
 import type { NodeOutput } from '../types'
 
 export interface LogicRoutingContext {

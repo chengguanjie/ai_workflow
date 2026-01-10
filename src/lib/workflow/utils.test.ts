@@ -11,6 +11,7 @@ import {
   isMergeNode,
   isForkNode,
   getExecutionOrder,
+  rewritePromptReferencesToInputs,
 } from './utils'
 import type { NodeConfig, EdgeConfig } from '@/types/workflow'
 
@@ -231,6 +232,24 @@ describe('isMergeNode', () => {
     const edges = [createEdge('a', 'b')]
 
     expect(isMergeNode('a', edges)).toBe(false)
+  })
+})
+
+describe('rewritePromptReferencesToInputs', () => {
+  it('should rewrite bound references to inputs.*', () => {
+    const prompt = 'A: {{Up.结果}} B: {{Other.text}}'
+    const bindings = {
+      输出: '{{Up.结果}}',
+    }
+    expect(rewritePromptReferencesToInputs(prompt, bindings)).toBe('A: {{inputs.输出}} B: {{Other.text}}')
+  })
+
+  it('should ignore non-mustache bindings and keep prompt unchanged', () => {
+    const prompt = 'A: {{Up.结果}}'
+    const bindings = {
+      输出: 'Up.结果',
+    }
+    expect(rewritePromptReferencesToInputs(prompt, bindings)).toBe(prompt)
   })
 })
 

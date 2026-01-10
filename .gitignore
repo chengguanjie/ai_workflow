@@ -47,3 +47,8 @@ next-env.d.ts
 
 # 上传文件目录
 uploads/
+
+# local dev artifacts
+tmp/
+prisma/dev.db
+.grok/

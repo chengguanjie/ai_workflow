@@ -124,7 +124,7 @@ function parseContentBlocks(text: string): ContentBlock[] {
   return blocks
 }
 
-async function buildDocxWithImages(text: string, context: ExecutionContext): Promise<Buffer> {
+async function buildDocxWithImages(text: string, _context: ExecutionContext): Promise<Buffer> {
   const blocks = parseContentBlocks(text)
   const children: (Paragraph | any)[] = []
 

@@ -353,7 +353,7 @@ export default function PublicFormPage() {
       case "word":
         return ".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
       case "excel":
-        return ".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        return ".xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
       case "audio":
         return "audio/*"
       case "video":

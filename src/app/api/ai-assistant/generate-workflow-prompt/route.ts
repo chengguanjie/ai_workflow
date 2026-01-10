@@ -175,7 +175,11 @@ ${prompt}
     console.error("[GenerateWorkflowPrompt] Error message:", error?.message);
 
     if (error instanceof AIAssistantError) {
-      return ApiResponse.error(error.userMessage, 500);
+      return ApiResponse.error(error.userMessage, 500, {
+        code: error.code,
+        retryable: error.retryable,
+        ...(process.env.NODE_ENV !== "production" ? { debugMessage: error.message } : {}),
+      });
     }
 
     // Provide more specific error messages

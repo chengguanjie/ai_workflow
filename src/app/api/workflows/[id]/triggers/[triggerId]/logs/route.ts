@@ -11,6 +11,7 @@ import { ApiResponse } from '@/lib/api/api-response'
 import { prisma } from '@/lib/db'
 import { triggerLogListSchema } from '@/lib/validations/trigger'
 import { NotFoundError, BusinessError } from '@/lib/errors'
+import { redactDeep } from '@/lib/observability/redaction'
 
 /**
  * GET /api/workflows/[id]/triggers/[triggerId]/logs
@@ -85,7 +86,13 @@ export const GET = withAuth(async (request: NextRequest, { user, params }: AuthC
     prisma.triggerLog.count({ where }),
   ])
 
-  return ApiResponse.paginated(logs, {
+  const safeLogs = logs.map((log) => ({
+    ...log,
+    requestHeaders: log.requestHeaders ? redactDeep(log.requestHeaders) : log.requestHeaders,
+    requestBody: log.requestBody ? redactDeep(log.requestBody) : log.requestBody,
+  }))
+
+  return ApiResponse.paginated(safeLogs, {
     page: query.page,
     pageSize: query.pageSize,
     total,

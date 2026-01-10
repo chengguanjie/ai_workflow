@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { fetchApi } from '@/lib/api/client'
 import {
   Dialog,
   DialogContent,
@@ -137,28 +138,21 @@ export function PermissionDialog({
     setLoading(true)
     try {
       const apiPath = getApiPath(resourceType, resourceId)
-      const [permRes, deptRes, memberRes] = await Promise.all([
-        fetch(apiPath),
-        fetch('/api/settings/departments'),
-        fetch('/api/settings/members'),
+      const [perm, dept, member] = await Promise.all([
+        fetchApi<{
+          data: Permission[]
+          canManage: boolean
+          currentUserPermission: ResourcePermission | null
+        }>(apiPath),
+        fetchApi<{ departments: Department[] }>('/api/settings/departments'),
+        fetchApi<{ members: User[] }>('/api/settings/members'),
       ])
 
-      if (permRes.ok) {
-        const data = await permRes.json()
-        setPermissions(data.data || [])
-        setCanManage(data.canManage || false)
-        setCurrentUserPermission(data.currentUserPermission || null)
-      }
-
-      if (deptRes.ok) {
-        const data = await deptRes.json()
-        setDepartments(data.departments || [])
-      }
-
-      if (memberRes.ok) {
-        const data = await memberRes.json()
-        setMembers(data.members || [])
-      }
+      setPermissions(perm.data || [])
+      setCanManage(perm.canManage || false)
+      setCurrentUserPermission(perm.currentUserPermission || null)
+      setDepartments(dept.departments || [])
+      setMembers(member.members || [])
     } catch (error) {
       console.error('Failed to load data:', error)
       toast.error('加载数据失败')
@@ -177,7 +171,7 @@ export function PermissionDialog({
     if (addType !== 'ALL' && !addTargetId) {
       toast.error(`请选择${addType === 'USER' ? '用户' : '部门'}`)
       return
-    }
+}
 
     setSaving(true)
     try {
@@ -193,8 +187,8 @@ export function PermissionDialog({
       })
 
       if (!res.ok) {
-        const error = await res.json()
-        throw new Error(error.error || '添加失败')
+        const error = await res.json().catch(() => null)
+        throw new Error(error?.error?.message || '添加失败')
       }
 
       toast.success('权限已添加')
@@ -220,8 +214,8 @@ export function PermissionDialog({
       })
 
       if (!res.ok) {
-        const error = await res.json()
-        throw new Error(error.error || '删除失败')
+        const error = await res.json().catch(() => null)
+        throw new Error(error?.error?.message || '删除失败')
       }
 
       toast.success('权限已删除')

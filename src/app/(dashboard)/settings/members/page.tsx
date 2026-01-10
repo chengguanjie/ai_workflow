@@ -111,6 +111,10 @@ const ROLE_LABELS: Record<string, string> = {
 }
 
 export default function MembersPage() {
+  return <MembersSettingsView />
+}
+
+export function MembersSettingsView({ embedded = false }: { embedded?: boolean } = {}) {
   const { data: session } = useSession()
   const [members, setMembers] = useState<Member[]>([])
   const [invitations, setInvitations] = useState<Invitation[]>([])
@@ -486,12 +490,16 @@ export default function MembersPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">成员管理</h1>
-          <p className="text-muted-foreground">
-            管理团队成员和邀请
-          </p>
-        </div>
+        {!embedded ? (
+          <div>
+            <h1 className="text-2xl font-bold">成员管理</h1>
+            <p className="text-muted-foreground">
+              管理团队成员和邀请
+            </p>
+          </div>
+        ) : (
+          <div />
+        )}
         {canManageMembers && (
           <Dialog open={inviteDialogOpen} onOpenChange={(open) => {
             setInviteDialogOpen(open)

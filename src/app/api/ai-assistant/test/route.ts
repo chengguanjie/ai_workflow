@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { ApiResponse } from "@/lib/api/api-response";
+import { redactDeep } from "@/lib/observability/redaction";
 
 export async function POST(request: NextRequest) {
   const requestId = Math.random().toString(36).substring(7);
@@ -39,13 +40,15 @@ export async function POST(request: NextRequest) {
 
     const { executeWorkflow } = await import("@/lib/workflow/engine");
 
+    const inputForDb = redactDeep(testInput ?? {}) as object;
+
     const execution = await prisma.execution.create({
       data: {
         workflowId,
         organizationId: session.user.organizationId,
         userId: session.user.id,
         status: "RUNNING",
-        input: testInput as object,
+        input: JSON.parse(JSON.stringify(inputForDb)),
       },
     });
 
@@ -62,7 +65,7 @@ export async function POST(request: NextRequest) {
         where: { id: execution.id },
         data: {
           status: result.status,
-          output: result.output as object | undefined,
+          output: result.output ? (JSON.parse(JSON.stringify(redactDeep(result.output))) as object) : undefined,
           error: result.error,
           duration: result.duration,
           totalTokens: result.totalTokens,

@@ -14,6 +14,7 @@ import type { Workflow, TriggerType } from '@prisma/client'
 import type { WorkflowConfig, NodeConfig } from '@/types/workflow'
 import { getAccessibleWorkflowIds } from '@/lib/permissions/workflow'
 import { isOutputValid } from '@/lib/workflow/utils'
+import { logDebug, logWarn } from '@/lib/security/safe-logger'
 import crypto from 'crypto'
 
 /**
@@ -255,7 +256,7 @@ export class WorkflowService {
     }
 
     // 查询最近一次执行记录及其节点日志
-    console.log('[getById] Querying latestExecution for workflowId:', id)
+    logDebug('[WorkflowService.getById] Querying latestExecution', { workflowId: id })
     let latestExecution: Awaited<ReturnType<typeof prisma.execution.findFirst>> & {
       logs?: { nodeId: string; status: string; error: string | null; output: unknown }[]
     } | null = null
@@ -282,14 +283,19 @@ export class WorkflowService {
         { operationName: '查询工作流最近执行信息' },
       )
     } catch (error) {
-      console.warn('[getById] Querying latestExecution failed, returning workflow without it:', error)
+      logWarn('[WorkflowService.getById] Querying latestExecution failed, returning workflow without it', {
+        workflowId: id,
+        error: error instanceof Error ? error.message : String(error),
+      })
       return workflow
     }
 
-    console.log('[getById] latestExecution found:', !!latestExecution, latestExecution?.id)
-    if (latestExecution?.logs) {
-      console.log('[getById] latestExecution.logs count:', latestExecution.logs.length)
-    }
+    logDebug('[WorkflowService.getById] latestExecution query result', {
+      workflowId: id,
+      found: Boolean(latestExecution),
+      latestExecutionId: latestExecution?.id,
+      logsCount: latestExecution?.logs?.length ?? 0,
+    })
 
     if (!latestExecution) {
       return workflow

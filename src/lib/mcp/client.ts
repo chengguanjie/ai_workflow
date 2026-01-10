@@ -21,7 +21,6 @@ import {
   MCPErrorCode,
   MCPError,
   createMCPError,
-  isRetryableError,
 } from './errors'
 
 // ============================================================================

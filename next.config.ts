@@ -1,8 +1,17 @@
 import type { NextConfig } from 'next'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 const nextConfig: NextConfig = {
   // 注意：Zeabur 平台不支持 standalone 模式，已禁用
   // output: 'standalone',
+
+  // Avoid Next.js picking an incorrect workspace root when multiple lockfiles exist on the machine.
+  // This stabilizes output file tracing for production builds and deployments.
+  outputFileTracingRoot: __dirname,
 
   // 构建时忽略 ESLint 警告（这些警告不影响功能）
   eslint: {

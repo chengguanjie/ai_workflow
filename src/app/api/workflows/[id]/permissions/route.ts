@@ -2,14 +2,25 @@ import { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { PermissionLevel, PermissionTargetType } from '@prisma/client'
-import { invalidateWorkflowPermissionCache } from '@/lib/permissions/workflow'
+import { invalidateWorkflowPermissionCache, getWorkflowPermissionLevel } from '@/lib/permissions/workflow'
 import { ApiResponse } from '@/lib/api/api-response'
 import { logPermissionChange } from '@/lib/audit'
-import {
-  checkResourcePermission,
-  getResourcePermissions,
-  canManagePermission,
-} from '@/lib/permissions/resource'
+
+type PermissionDto = {
+  id: string
+  permission: PermissionLevel
+  targetType: PermissionTargetType
+  targetId: string | null
+  department?: { id: string; name: string } | null
+  user?: { id: string; name: string | null; email: string; avatar: string | null } | null
+}
+
+function canManageWorkflowPermissions(sessionUser: {
+  id: string
+  role: string
+}, workflow: { creatorId: string | null }) {
+  return sessionUser.role === 'OWNER' || sessionUser.role === 'ADMIN' || workflow.creatorId === sessionUser.id
+}
 
 // GET: 获取工作流权限列表
 export async function GET(
@@ -37,21 +48,45 @@ export async function GET(
       return ApiResponse.error('工作流不存在', 404)
     }
 
-    // 获取权限列表（使用统一的资源权限服务）
-    const permissions = await getResourcePermissions('WORKFLOW', workflowId)
+    const canManage = canManageWorkflowPermissions(session.user, workflow)
+    if (!canManage) {
+      return ApiResponse.error('权限不足', 403)
+    }
 
-    // 获取当前用户对该工作流的权限
-    const userPermission = await checkResourcePermission(
-      session.user.id,
-      'WORKFLOW',
-      workflowId,
-      'VIEWER'
-    )
+    const permissions = await prisma.workflowPermission.findMany({
+      where: { workflowId },
+      include: {
+        department: { select: { id: true, name: true } },
+      },
+      orderBy: [{ createdAt: 'asc' }],
+    })
+
+    const userIds = permissions
+      .filter(p => p.targetType === 'USER' && p.targetId)
+      .map(p => p.targetId!) 
+    const users = userIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, name: true, email: true, avatar: true },
+        })
+      : []
+    const userMap = new Map(users.map(u => [u.id, u]))
+
+    const dtos: PermissionDto[] = permissions.map(p => ({
+      id: p.id,
+      permission: p.permission,
+      targetType: p.targetType,
+      targetId: p.targetId,
+      department: p.targetType === 'DEPARTMENT' ? p.department : null,
+      user: p.targetType === 'USER' && p.targetId ? userMap.get(p.targetId) || null : null,
+    }))
+
+    const currentUserPermission = await getWorkflowPermissionLevel(session.user.id, workflowId)
 
     return ApiResponse.success({
-      data: permissions,
-      currentUserPermission: userPermission.permission,
-      canManage: userPermission.permission === 'MANAGER',
+      permissions: dtos,
+      currentUserPermission,
+      canManage: true,
     })
   } catch (error) {
     console.error('Failed to get workflow permissions:', error)
@@ -85,9 +120,7 @@ export async function POST(
       return ApiResponse.error('工作流不存在', 404)
     }
 
-    // 使用统一的权限检查服务
-    const canManage = await canManagePermission(session.user.id, 'WORKFLOW', workflowId)
-    if (!canManage) {
+    if (!canManageWorkflowPermissions(session.user, workflow)) {
       return ApiResponse.error('权限不足', 403)
     }
 
@@ -274,9 +307,7 @@ export async function DELETE(
       return ApiResponse.error('工作流不存在', 404)
     }
 
-    // 使用统一的权限检查服务
-    const canManage = await canManagePermission(session.user.id, 'WORKFLOW', workflowId)
-    if (!canManage) {
+    if (!canManageWorkflowPermissions(session.user, workflow)) {
       return ApiResponse.error('权限不足', 403)
     }
 
@@ -332,7 +363,7 @@ export async function DELETE(
       }
     )
 
-    return ApiResponse.success({ success: true })
+    return ApiResponse.success({ deleted: true })
   } catch (error) {
     console.error('Failed to delete workflow permission:', error)
     return ApiResponse.error('删除权限失败', 500)

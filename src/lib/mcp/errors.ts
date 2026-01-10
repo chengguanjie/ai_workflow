@@ -599,7 +599,6 @@ export async function withRetry<T>(
   const isRetryable = fullConfig.isRetryable || isRetryableError
   
   let lastError: unknown
-  let totalDelayMs = 0
   
   for (let attempt = 1; attempt <= fullConfig.maxRetries + 1; attempt++) {
     try {
@@ -619,7 +618,6 @@ export async function withRetry<T>(
       
       // Calculate delay
       const delayMs = calculateRetryDelay(attempt, fullConfig)
-      totalDelayMs += delayMs
       
       // Call onRetry callback if provided
       if (fullConfig.onRetry) {

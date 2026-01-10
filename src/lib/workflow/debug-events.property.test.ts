@@ -182,6 +182,13 @@ describe('Property 3: 日志格式完整性', () => {
 // ============================================
 
 describe('Property 4: JSON 数据格式化', () => {
+  // Note: Avoid generating objects via plain JS assignment because `__proto__`
+  // can mutate prototypes and make equality checks flaky. Generating JSON then
+  // parsing it produces safe "data properties" per JSON.parse semantics.
+  const safeJsonObjectArb = fc.json()
+    .map((s) => JSON.parse(s) as unknown)
+    .filter((v): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v))
+
   /**
    * 规范化 JSON 值，将 -0 转换为 0
    * JSON 规范不区分 -0 和 0，所以 JSON.parse(JSON.stringify(-0)) 返回 0
@@ -209,7 +216,7 @@ describe('Property 4: JSON 数据格式化', () => {
   it('*For any* JSON 对象，formatJsonData 应返回格式化的 JSON 字符串', () => {
     fc.assert(
       fc.property(
-        fc.dictionary(safeStringKeyArb, fc.jsonValue()),
+        safeJsonObjectArb,
         (obj) => {
           const formatted = formatJsonData(obj)
           

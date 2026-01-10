@@ -88,7 +88,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     await updateTokenUsage(token.id)
 
     // Remove organizationId from response and return
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { organizationId: _orgId, ...workflowData } = workflow
 
     return ApiResponse.success(workflowData)

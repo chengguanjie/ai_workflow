@@ -69,6 +69,7 @@ export {
   getPromptContract,
   validateNodeOutputAgainstPrompt,
   validateWorkflowOutputsAgainstPrompts,
+  fixCorruptedInputFieldReferences,
   fixInputVariableReferences,
   fixExpectedOutputTypesFromPrompts,
 } from './prompt-contract'

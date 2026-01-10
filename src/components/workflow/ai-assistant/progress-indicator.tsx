@@ -28,7 +28,7 @@ export function ProgressIndicator({ steps, progress, className }: ProgressIndica
       </div>
 
       <div className="space-y-2">
-        {steps.map((step, index) => (
+        {steps.map((step, _index) => (
           <div key={step.id} className="flex items-start gap-2">
             <div className="mt-0.5">
               {step.status === 'completed' && (

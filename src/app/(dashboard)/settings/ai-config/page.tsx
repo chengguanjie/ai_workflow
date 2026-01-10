@@ -17,6 +17,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
 import { Loader2, Plus, Trash2, TestTube, Check, X, Star, ChevronDown, ChevronUp, Type, Code, ImageIcon, Video, Mic, FileText, Pencil } from 'lucide-react'
 import { type ModelModality, SHENSUAN_MODELS, SHENSUAN_DEFAULT_MODELS } from '@/lib/ai/types'
+import { normalizeModels } from '@/lib/ai/normalize-models'
 
 // 模态类型定义
 const MODALITY_CONFIG: {
@@ -270,6 +271,10 @@ function initFormForProvider(providerId: AIProviderType): Omit<NewProviderForm, 
 }
 
 export default function AIConfigPage() {
+  return <AIConfigSettingsView />
+}
+
+export function AIConfigSettingsView({ embedded = false }: { embedded?: boolean } = {}) {
   const [configs, setConfigs] = useState<ProviderConfig[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
@@ -308,7 +313,13 @@ export default function AIConfigPage() {
         const result = await res.json()
         // API returns wrapped response: {success: true, data: {configs: [...]}}
         if (result.success && result.data) {
-          setConfigs(result.data.configs || [])
+          const rawConfigs = (result.data.configs || []) as ProviderConfig[]
+          setConfigs(
+            rawConfigs.map((config) => ({
+              ...config,
+              models: normalizeModels((config as unknown as { models?: unknown }).models),
+            }))
+          )
         } else {
           setConfigs([])
         }
@@ -481,12 +492,13 @@ export default function AIConfigPage() {
   // 开始编辑配置
   const handleStartEdit = (config: ProviderConfig) => {
     const providerInfo = getProviderInfo(config.provider)
+    const normalizedModels = normalizeModels((config as unknown as { models?: unknown }).models)
 
     // 将现有模型转换为按模态分组的格式
     const selectedModelsPerModality: Record<ModelModality, string[]> = {} as Record<ModelModality, string[]>
     MODALITY_CONFIG.forEach(({ id: modality }) => {
       const availableModels = providerInfo?.modelsByModality[modality] || []
-      selectedModelsPerModality[modality] = (config.models || []).filter(m =>
+      selectedModelsPerModality[modality] = normalizedModels.filter(m =>
         availableModels.some(am => am.id === m)
       )
     })
@@ -643,12 +655,14 @@ export default function AIConfigPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">AI 配置</h1>
-        <p className="text-muted-foreground">
-          配置企业级 AI 服务商，工作流节点可以选择使用这些配置
-        </p>
-      </div>
+      {!embedded && (
+        <div>
+          <h1 className="text-2xl font-bold">AI 配置</h1>
+          <p className="text-muted-foreground">
+            配置企业级 AI 服务商，工作流节点可以选择使用这些配置
+          </p>
+        </div>
+      )}
 
       {/* 已配置的服务商列表 */}
       <div className="space-y-4">

@@ -378,7 +378,7 @@ export function CreateWorkflowDialog() {
           </div>
         )}
 
-        <DialogFooter className="gap-2 sm:gap-0">
+        <DialogFooter className="gap-3">
           {step === "input" ? (
             <>
               <Button

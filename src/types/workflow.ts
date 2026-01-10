@@ -3,8 +3,10 @@
  * 
  * Provides precise TypeScript types for workflow configuration,
  * replacing generic Record types with specific interfaces.
- * 
- * Simplified version: Only INPUT and PROCESS node types are supported.
+ *
+ * Note: The workflow runtime supports additional behaviors via config flags
+ * (e.g. PROCESS nodes may execute with tool-calling when enabled). Some legacy
+ * node types may still be supported at runtime for backward compatibility.
  */
 
 import type { ModelModality } from '@/lib/ai/types'

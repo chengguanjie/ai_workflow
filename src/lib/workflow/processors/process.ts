@@ -6,7 +6,7 @@ import type { NodeConfig, ProcessNodeConfig } from '@/types/workflow'
 import type { ContentPart, ModelModality } from '@/lib/ai/types'
 import { getModelModality, SHENSUAN_DEFAULT_MODELS } from '@/lib/ai/types'
 import type { NodeProcessor, NodeOutput, ExecutionContext, AIConfigCache } from '../types'
-import { applyInputBindingsToContext, createContentPartsFromText } from '../utils'
+import { applyInputBindingsToContext, createContentPartsFromText, rewritePromptReferencesToInputs } from '../utils'
 import { aiService } from '@/lib/ai'
 import { prisma } from '@/lib/db'
 import { safeDecryptApiKey } from '@/lib/crypto'
@@ -142,7 +142,7 @@ export class ProcessNodeProcessor implements NodeProcessor {
     context: ExecutionContext,
     label: string
   ): Promise<Awaited<ReturnType<typeof aiService.chat>>> {
-    const maxAttempts = 3
+    const maxAttempts = 5
 
     let lastError: unknown
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -254,8 +254,11 @@ export class ProcessNodeProcessor implements NodeProcessor {
       // 输入绑定：注入 inputs.*，供提示词使用 {{inputs.xxx}}
       applyInputBindingsToContext(processNode.config?.inputBindings, context)
 
+      // 将已绑定的 {{上游.字段}} 改写为 {{inputs.slot}}，以便运行时统一走 inputs.*
+      const effectiveUserPrompt = rewritePromptReferencesToInputs(rawUserPrompt, processNode.config?.inputBindings)
+
       // 使用 createContentPartsFromText 解析变量，支持多模态对象
-      const userContentParts = createContentPartsFromText(rawUserPrompt, context)
+      const userContentParts = createContentPartsFromText(effectiveUserPrompt, context)
 
       // 提取纯文本用于日志记录和 RAG 检索
       userPromptText = userContentParts

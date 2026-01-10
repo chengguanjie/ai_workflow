@@ -31,7 +31,6 @@ import {
   Settings,
   Truck,
   Wrench,
-  HeartPulse,
   GraduationCap
 } from 'lucide-react'
 

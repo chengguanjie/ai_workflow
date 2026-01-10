@@ -10,6 +10,7 @@ import { prisma } from '@/lib/db'
 import { ApiResponse } from '@/lib/api/api-response'
 import { validateCheckpoint, createWorkflowHash } from '@/lib/workflow/checkpoint'
 import { executionQueue } from '@/lib/workflow/queue'
+import { redactDeep } from '@/lib/observability/redaction'
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -75,7 +76,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       data: {
         workflowId: originalExecution.workflowId,
         userId: session.user.id,
-        input: originalExecution.input ?? {},
+        input: JSON.parse(JSON.stringify(redactDeep(originalExecution.input ?? {}))),
         status: 'PENDING',
         checkpoint: originalExecution.checkpoint ?? undefined,
         resumedFromId: executionId,

@@ -1,12 +1,15 @@
 "use client";
 
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Expand, Wrench } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ReferenceSelector } from "./reference-selector";
-import { InputBindingsPanel, extractSlotsFromPrompt } from "./input-bindings-panel";
+import {
+  findNearestSlotBeforeCursor,
+  upsertInputBindingForReference,
+} from "./input-binding-utils";
 import {
   HighlightedTextarea,
   type HighlightedTextareaHandle,
@@ -52,21 +55,49 @@ export function PromptTabContent({
 }: PromptTabContentProps) {
   const userPromptRef = useRef<HighlightedTextareaHandle>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const bindingsAnchorRef = useRef<HTMLDivElement>(null);
-
-  const slots = useMemo(() => extractSlotsFromPrompt(processConfig.userPrompt || ""), [processConfig.userPrompt]);
+  const insertAnchorRef = useRef<{ start: number; end: number } | null>(null);
 
   // 插入引用到光标位置
-  const handleInsertReference = (reference: string) => {
+  const handleInsertReference = (
+    reference: string,
+    options?: { bypassAutoBind?: boolean }
+  ) => {
+    const shouldAutoBind = Boolean(onInputBindingsChange) && !options?.bypassAutoBind
+    if (shouldAutoBind) {
+      const cursor = userPromptRef.current?.getSelectionOffsets?.()
+      const preferredSlot = cursor
+        ? findNearestSlotBeforeCursor(processConfig.userPrompt || "", cursor.start)
+        : null
+
+      const { nextBindings } = upsertInputBindingForReference({
+        bindings: processConfig.inputBindings,
+        reference,
+        preferredSlot,
+      })
+
+      if (nextBindings !== (processConfig.inputBindings || {})) {
+        onInputBindingsChange(nextBindings)
+      }
+    }
+
+    // UI 显示：插入原始引用（{{上游.字段}}），后台通过 inputBindings 在运行时映射为 {{inputs.xxx}}
+    const textToInsert = reference
+
     const textarea = userPromptRef.current;
     if (!textarea) {
       // 如果无法获取 ref，直接追加
-      onUserPromptChange((processConfig.userPrompt || "") + reference);
+      onUserPromptChange((processConfig.userPrompt || "") + textToInsert);
       return;
     }
 
-    // 使用 insertText 方法插入文本，会自动处理光标位置
-    textarea.insertText(reference);
+    const anchor = insertAnchorRef.current;
+    if (anchor) {
+      textarea.insertTextAt(textToInsert, anchor.start, anchor.end);
+    } else {
+      // 使用 insertText 方法插入文本，会自动处理光标位置
+      textarea.insertText(textToInsert);
+    }
+    insertAnchorRef.current = null;
   };
 
   // 处理工具变更
@@ -138,21 +169,12 @@ export function PromptTabContent({
                 <ReferenceSelector
                   knowledgeItems={knowledgeItems}
                   onInsert={handleInsertReference}
+                  buttonLabel="插入引用"
+                  onOpen={() => {
+                    insertAnchorRef.current =
+                      userPromptRef.current?.getSelectionOffsets?.() || null;
+                  }}
                 />
-                {onInputBindingsChange && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 px-2 text-xs"
-                    onClick={() => {
-                      requestAnimationFrame(() => {
-                        bindingsAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-                      });
-                    }}
-                  >
-                    输入绑定{slots.length > 0 ? `(${slots.length})` : ""}
-                  </Button>
-                )}
               </div>
             </div>
             <HighlightedTextarea
@@ -164,34 +186,10 @@ export function PromptTabContent({
               minHeight="150px"
             />
             <p className="text-xs text-muted-foreground">
-              点击「插入引用」按钮选择节点和字段，或直接输入{" "}
-              {"{{节点名.字段名}}"}
+              点击「插入引用」选择变量
+              {onInputBindingsChange ? "（按住 Alt 仅插入，不创建绑定）" : ""}
+              ，或直接输入 {"{{节点名.字段名}}"}
             </p>
-            {/* 输入绑定（从【标题】自动提取槽位） */}
-            {onInputBindingsChange && (
-              <div ref={bindingsAnchorRef} className="rounded-lg border bg-muted/10 p-2">
-                <details>
-                  <summary className="cursor-pointer select-none text-xs text-muted-foreground px-1 py-1">
-                    输入绑定{slots.length > 0 ? `（${slots.length}）` : ""}
-                  </summary>
-                  <div className="pt-2">
-                    <InputBindingsPanel
-                      userPrompt={processConfig.userPrompt || ""}
-                      bindings={processConfig.inputBindings}
-                      onBindingsChange={onInputBindingsChange}
-                      onInsertIntoPrompt={(text) => {
-                        const textarea = userPromptRef.current;
-                        if (!textarea) {
-                          onUserPromptChange((processConfig.userPrompt || "") + text);
-                          return;
-                        }
-                        textarea.insertText(text);
-                      }}
-                    />
-                  </div>
-                </details>
-              </div>
-            )}
           </div>
 
           {/* 输出类型设置：用户可自主选择 */}
@@ -228,6 +226,8 @@ export function PromptTabContent({
         onChange={onUserPromptChange}
         knowledgeItems={knowledgeItems}
         placeholder="用户提示词，点击「插入引用」选择变量..."
+        inputBindings={processConfig.inputBindings}
+        onInputBindingsChange={onInputBindingsChange}
       />
     </div>
   );

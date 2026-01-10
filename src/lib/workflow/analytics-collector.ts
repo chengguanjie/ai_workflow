@@ -5,6 +5,7 @@
 import { prisma } from '@/lib/db'
 import { type AnalyticsConfig, type DataPointType, Prisma } from '@prisma/client'
 import { get } from 'lodash'
+import { redactDeep } from '@/lib/observability/redaction'
 
 /**
  * 提取数据值的辅助函数
@@ -120,7 +121,8 @@ export class AnalyticsCollector {
     for (const config of nodeConfigs) {
       try {
         // 提取值
-        const value = extractValue(output, config.sourcePath)
+        const rawValue = extractValue(output, config.sourcePath)
+        const value = redactDeep(rawValue)
 
         // 检查是否必需
         if (config.isRequired && (value === null || value === undefined)) {

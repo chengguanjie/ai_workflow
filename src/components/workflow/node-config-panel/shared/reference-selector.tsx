@@ -10,14 +10,16 @@ import type { NodeReferenceOption } from './types'
 
 interface ReferenceSelectorProps {
   knowledgeItems: KnowledgeItem[]
-  onInsert: (reference: string) => void
+  onInsert: (reference: string, options?: { bypassAutoBind?: boolean }) => void
   buttonLabel?: string
+  onOpen?: () => void
 }
 
 export function ReferenceSelector({
   knowledgeItems,
   onInsert,
   buttonLabel = '插入引用',
+  onOpen,
 }: ReferenceSelectorProps) {
   const { nodes, selectedNodeId, edges, nodeExecutionResults } = useWorkflowStore()
   const [isOpen, setIsOpen] = useState(false)
@@ -433,8 +435,11 @@ export function ReferenceSelector({
     setShowAllFields(false)
   }
 
-  const handleSelectField = (field: NodeReferenceOption['fields'][0]) => {
-    onInsert(field.reference)
+  const handleSelectField = (
+    field: NodeReferenceOption['fields'][0],
+    options?: { bypassAutoBind?: boolean }
+  ) => {
+    onInsert(field.reference, options)
     setIsOpen(false)
     setSelectedNode(null)
     setSearchText('')
@@ -488,6 +493,12 @@ export function ReferenceSelector({
         variant="outline"
         size="sm"
         className="h-7 text-xs"
+        onMouseDown={(e) => {
+          // Preserve editor selection/caret when clicking the trigger button.
+          // Also capture the caret *before* focus potentially changes.
+          if (!isOpen) onOpen?.()
+          e.preventDefault()
+        }}
         onClick={() => {
           setIsOpen(!isOpen)
           setSelectedNode(null)
@@ -585,7 +596,9 @@ export function ReferenceSelector({
                         <button
                           key={field.id}
                           className="w-full px-3 py-1.5 text-sm text-left hover:bg-accent transition-colors"
-                          onClick={() => handleSelectField(field)}
+                          onClick={(e) =>
+                            handleSelectField(field, { bypassAutoBind: e.altKey })
+                          }
                         >
                           <span className="flex items-center gap-1.5">
                             <span>{getFieldIcon(field.type)}</span>
@@ -623,7 +636,9 @@ export function ReferenceSelector({
                             <button
                               key={field.id}
                               className="w-full px-3 py-1.5 text-sm text-left hover:bg-accent transition-colors"
-                              onClick={() => handleSelectField(field)}
+                              onClick={(e) =>
+                                handleSelectField(field, { bypassAutoBind: e.altKey })
+                              }
                             >
                               <span className="flex items-center gap-1.5">
                                 <span>{getFieldIcon(field.type)}</span>

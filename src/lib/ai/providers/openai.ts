@@ -2,9 +2,15 @@
 
 import type { AIProvider, ChatRequest, ChatResponse, Model } from '../types'
 import type { OpenAITool, ToolCall, ChatResponseWithTools } from '../function-calling/types'
-import { fetchWithTimeout } from '@/lib/http/fetch-with-timeout'
+import { fetchTextWithTimeout } from '@/lib/http/fetch-with-timeout'
 
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
+
+function normalizeOpenAIModelId(model: string): string {
+  // Our UI/routers may store models with a provider prefix (e.g. "openai/gpt-5.2").
+  // The native OpenAI API expects the raw model id (e.g. "gpt-5.2").
+  return model.startsWith('openai/') ? model.slice('openai/'.length) : model
+}
 
 /**
  * 扩展的聊天请求（支持工具）
@@ -48,9 +54,10 @@ export class OpenAIProvider implements AIProvider {
     baseUrl?: string
   ): Promise<ChatResponseWithTools> {
     const url = baseUrl || DEFAULT_OPENAI_BASE_URL
+    const model = normalizeOpenAIModelId(request.model)
     
     const requestBody: Record<string, unknown> = {
-      model: request.model,
+      model,
       messages: request.messages,
       temperature: request.temperature ?? 0.7,
       stream: false,
@@ -69,7 +76,7 @@ export class OpenAIProvider implements AIProvider {
         budget_tokens: budgetTokens
       }
       console.log('[OpenAI Provider] 检测到 thinking 模型，添加 thinking 配置:', {
-        model: request.model,
+        model,
         budget_tokens: budgetTokens
       })
     }
@@ -89,24 +96,32 @@ export class OpenAIProvider implements AIProvider {
       }
     }
 
-    const response = await fetchWithTimeout(`${url}/chat/completions`, {
+    const { response, text } = await fetchTextWithTimeout(`${url}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
+        // Reduce flaky keep-alive behavior on some gateways.
+        Connection: 'close',
       },
       body: JSON.stringify(requestBody),
-      timeoutMs: 90_000,
-      retries: 2,
+      timeoutMs: 180_000,
+      retries: 5,
       retryDelay: 2000,
     })
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}))
-      throw new Error(`OpenAI API error: ${response.status} - ${error.error?.message || response.statusText}`)
+      let message = response.statusText
+      try {
+        const error = JSON.parse(text) as any
+        message = error?.error?.message || message
+      } catch {
+        // ignore parse error; keep statusText
+      }
+      throw new Error(`OpenAI API error: ${response.status} - ${message}`)
     }
 
-    const data = await response.json()
+    const data = JSON.parse(text) as any
     const choice = data.choices?.[0]
 
     // 调试日志：查看原始响应结构
@@ -167,7 +182,7 @@ export class OpenAIProvider implements AIProvider {
 
   async listModels(apiKey: string, baseUrl?: string): Promise<Model[]> {
     const url = baseUrl || DEFAULT_OPENAI_BASE_URL
-    const response = await fetchWithTimeout(`${url}/models`, {
+    const { response, text } = await fetchTextWithTimeout(`${url}/models`, {
       headers: {
         Authorization: `Bearer ${apiKey}`,
       },
@@ -179,7 +194,7 @@ export class OpenAIProvider implements AIProvider {
       throw new Error(`Failed to fetch models: ${response.status}`)
     }
 
-    const data = await response.json()
+    const data = JSON.parse(text) as any
 
     // 只返回 chat 模型
     const chatModels = data.data

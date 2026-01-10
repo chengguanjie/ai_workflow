@@ -118,8 +118,10 @@ export default function KnowledgeBasesPage() {
     try {
       const res = await fetch('/api/settings/departments')
       if (res.ok) {
-        const data = await res.json()
-        setDepartments(data.departments || [])
+        const result = await res.json()
+        if (result.success && result.data) {
+          setDepartments(result.data.departments || [])
+        }
       }
     } catch (err) {
       console.error('Failed to load departments:', err)
@@ -131,8 +133,8 @@ export default function KnowledgeBasesPage() {
     try {
       const res = await fetch('/api/settings/members')
       if (res.ok) {
-        const data = await res.json()
-        const members = data.members || []
+        const result = await res.json()
+        const members = (result.success && result.data ? result.data.members : []) || []
         setCreators(members.map((m: { id: string; name: string | null; email: string }) => ({
           id: m.id,
           name: m.name,

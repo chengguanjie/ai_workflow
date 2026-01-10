@@ -28,7 +28,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Check, X, GitCompare, ZoomIn } from 'lucide-react';
+import { Check, X, GitCompare } from 'lucide-react';
 
 interface WorkflowPreviewProps {
                   open: boolean;

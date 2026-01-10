@@ -41,8 +41,6 @@ import { useWorkflowStore } from "@/stores/workflow-store";
 import { useNodeDebug } from "@/hooks/use-node-debug";
 import type {
   InputField,
-  KnowledgeItem,
-  UIToolConfig,
   ProcessNodeConfigData,
 } from "@/types/workflow";
 import { getModelModality, type ModelModality } from "@/lib/ai/types";
@@ -209,7 +207,6 @@ function BaseNode({ data, selected, id }: NodeProps & { data: NodeData }) {
   const deleteNode = useWorkflowStore((state) => state.deleteNode);
   const duplicateNode = useWorkflowStore((state) => state.duplicateNode);
   const openDebugPanel = useWorkflowStore((state) => state.openDebugPanel);
-  const nodes = useWorkflowStore((state) => state.nodes);
   const connectedNodeIds = useWorkflowStore((state) => state.connectedNodeIds);
   const selectedNodeId = useWorkflowStore((state) => state.selectedNodeId);
   

@@ -8,6 +8,7 @@ import type { NodeConfig, WorkflowConfig } from '@/types/workflow'
 import type { ExecutionContext, NodeOutput } from './types'
 import { getProcessor } from './processors'
 import type { DebugLogData } from './debug-events'
+import { redactDeep } from '@/lib/observability/redaction'
 
 /**
  * 日志回调函数类型
@@ -69,12 +70,14 @@ export async function debugNode(request: DebugRequest): Promise<DebugResult> {
   }> = []
 
   const addLog = (type: 'info' | 'step' | 'success' | 'warning' | 'error', message: string, step?: string, data?: unknown) => {
+    const safeData = data === undefined ? undefined : redactDeep(data)
+
     // 1. Add to structured logs
     executionLogs.push({
       type,
       message,
       step,
-      data,
+      data: safeData,
       timestamp: new Date()
     })
 
@@ -92,15 +95,15 @@ export async function debugNode(request: DebugRequest): Promise<DebugResult> {
     logs.push(logMsg)
 
     // Log data if present (formatted)
-    if (data) {
-      if (typeof data === 'object') {
+    if (safeData) {
+      if (typeof safeData === 'object') {
         try {
-          logs.push(`  ${JSON.stringify(data, null, 2).split('\n').join('\n  ')}`)
+          logs.push(`  ${JSON.stringify(safeData, null, 2).split('\n').join('\n  ')}`)
         } catch {
-          logs.push(`  [Data] ${String(data)}`)
+          logs.push(`  [Data] ${String(safeData)}`)
         }
       } else {
-        logs.push(`  [Data] ${String(data)}`)
+        logs.push(`  [Data] ${String(safeData)}`)
       }
     }
   }

@@ -247,7 +247,7 @@ export class NodeTestService {
       globalVariables: workflowConfig.globalVariables || {},
       aiConfigs: new Map<string, AIConfigCache>(),
       logs: [],
-      addLog: (type, message, step, data) => {
+      addLog: (_type, _message, _step, _data) => {
         // Collect logs for debugging if needed
       },
     }

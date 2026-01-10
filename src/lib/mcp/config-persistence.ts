@@ -6,7 +6,6 @@
  */
 
 import type {
-  MCPServerConfig,
   MCPSelectedTool,
   MCPToolNodeConfig,
   MCPTransportType,

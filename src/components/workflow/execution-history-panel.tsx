@@ -84,7 +84,6 @@ export function ExecutionHistoryPanel({
     if (!isOpen) return
     
     const hasRunning = executions.some(e => e.status === 'RUNNING' || e.status === 'PENDING')
-    const hasCompleted = executions.some(e => e.status === 'COMPLETED' || e.status === 'FAILED')
     
     // 如果有运行中的执行，或者没有任何记录（可能正在创建），则持续轮询
     if (hasRunning || (executions.length === 0 && !error)) {

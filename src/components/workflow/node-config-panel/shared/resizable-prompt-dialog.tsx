@@ -9,6 +9,7 @@ import { HighlightedTextarea, type HighlightedTextareaHandle } from './highlight
 import { AIGenerateButton } from './ai-generate-button'
 import type { KnowledgeItem } from '@/types/workflow'
 import { cn } from '@/lib/utils'
+import { findNearestSlotBeforeCursor, upsertInputBindingForReference } from './input-binding-utils'
 
 interface ResizablePromptDialogProps {
   isOpen: boolean
@@ -20,6 +21,8 @@ interface ResizablePromptDialogProps {
   placeholder?: string
   /** AI 生成的字段类型 */
   fieldType?: string
+  inputBindings?: Record<string, string>
+  onInputBindingsChange?: (next: Record<string, string>) => void
 }
 
 export function ResizablePromptDialog({
@@ -31,9 +34,12 @@ export function ResizablePromptDialog({
   knowledgeItems,
   placeholder = '输入提示词...',
   fieldType = 'userPrompt',
+  inputBindings,
+  onInputBindingsChange,
 }: ResizablePromptDialogProps) {
   const textareaRef = useRef<HighlightedTextareaHandle>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
+  const insertAnchorRef = useRef<{ start: number; end: number } | null>(null)
   const [isMaximized, setIsMaximized] = useState(false)
   const [size, setSize] = useState({ width: 700, height: 500 })
   const [position, setPosition] = useState({ x: 0, y: 0 })
@@ -50,13 +56,43 @@ export function ResizablePromptDialog({
   }, [isOpen, isMaximized, size.width, size.height])
 
   // 插入引用
-  const handleInsertReference = (reference: string) => {
+  const handleInsertReference = (
+    reference: string,
+    options?: { bypassAutoBind?: boolean }
+  ) => {
+    const shouldAutoBind = Boolean(onInputBindingsChange) && !options?.bypassAutoBind
+    if (shouldAutoBind) {
+      const cursor = textareaRef.current?.getSelectionOffsets?.()
+      const preferredSlot = cursor
+        ? findNearestSlotBeforeCursor(value, cursor.start)
+        : null
+
+      const { nextBindings } = upsertInputBindingForReference({
+        bindings: inputBindings,
+        reference,
+        preferredSlot,
+      })
+
+      if (nextBindings !== (inputBindings || {})) {
+        onInputBindingsChange(nextBindings)
+      }
+    }
+
+    // UI 显示：插入原始引用（{{上游.字段}}），后台通过 inputBindings 在运行时映射为 {{inputs.xxx}}
+    const textToInsert = reference
+
     const textarea = textareaRef.current
     if (!textarea) {
-      onChange(value + reference)
+      onChange(value + textToInsert)
       return
     }
-    textarea.insertText(reference)
+    const anchor = insertAnchorRef.current
+    if (anchor) {
+      textarea.insertTextAt(textToInsert, anchor.start, anchor.end)
+    } else {
+      textarea.insertText(textToInsert)
+    }
+    insertAnchorRef.current = null
   }
 
   // 处理拖拽移动
@@ -194,6 +230,10 @@ export function ResizablePromptDialog({
             <ReferenceSelector
               knowledgeItems={knowledgeItems}
               onInsert={handleInsertReference}
+              onOpen={() => {
+                insertAnchorRef.current =
+                  textareaRef.current?.getSelectionOffsets?.() || null
+              }}
             />
             <Button
               variant="ghost"
@@ -232,7 +272,9 @@ export function ResizablePromptDialog({
 
         {/* 底部提示 */}
         <div className="px-4 py-2 border-t bg-muted/30 text-xs text-muted-foreground shrink-0">
-          点击「插入引用」按钮选择节点和字段，或直接输入 {'{{节点名.字段名}}'} | 按 ESC 关闭
+          点击「插入引用」选择变量
+          {onInputBindingsChange ? '（按住 Alt 仅插入，不创建绑定）' : ''}
+          ，或直接输入 {'{{节点名.字段名}}'} | 按 ESC 关闭
         </div>
 
         {/* 缩放手柄 - 仅非最大化时显示 */}

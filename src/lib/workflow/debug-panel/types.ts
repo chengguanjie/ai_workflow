@@ -19,7 +19,7 @@ export type InputTabType = 'input' | 'reference'
  * 支持的文件类型分类
  */
 export const SUPPORTED_FILE_TYPES = {
-  document: ['.doc', '.docx', '.pdf', '.xls', '.xlsx', '.ppt', '.pptx', '.csv', '.html', '.json'],
+  document: ['.doc', '.docx', '.pdf', '.xlsx', '.ppt', '.pptx', '.csv', '.html', '.json'],
   image: ['.jpg', '.jpeg', '.png', '.gif', '.webp'],
   audio: ['.mp3', '.wav', '.m4a'],
   video: ['.mp4', '.webm', '.mov']

@@ -1,7 +1,9 @@
 /**
  * 节点处理器索引
- * 
- * 简化版本：主要支持 INPUT/PROCESS/CODE（其他类型会被跳过）
+ *
+ * 说明：
+ * - `PROCESS` 在启用工具调用时会在执行器层自动切换为 `PROCESS_WITH_TOOLS`
+ * - `MERGE` 为历史兼容类型，当前走 `LOGIC` 处理器的 merge 模式
  */
 
 import type { NodeProcessor } from '../types'

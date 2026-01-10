@@ -3,7 +3,6 @@
  * 提供节点增删改查的辅助函数
  */
 
-import type { NodeConfig } from "@/types/workflow";
 import type { NodeAction } from "@/stores/ai-assistant-store";
 
 // 节点类型默认配置
@@ -147,13 +146,6 @@ export function validateNodeActions(actions: NodeAction[]): {
   if (deleteIds.length > uniqueDeleteIds.size) {
     warnings.push("存在重复的删除操作");
   }
-
-  // 检查是否同时添加和删除同一节点
-  const addNodeNames = new Set(
-    actions
-      .filter((a) => a.action === "add")
-      .map((a) => a.nodeName)
-  );
 
   // 验证每个操作
   actions.forEach((action, index) => {

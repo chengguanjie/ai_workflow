@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    env:
+      NODE_ENV: test
+      NEXT_TELEMETRY_DISABLED: '1'
+
+      # Minimal env required for build-time imports and Prisma schema parsing.
+      DATABASE_URL: mysql://root:password@127.0.0.1:3306/ai_workflow
+      AUTH_SECRET: test-secret-32-bytes-minimum-000000
+      AUTH_URL: http://localhost:3000
+      NEXTAUTH_URL: http://localhost:3000
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      ENCRYPTION_KEY: test-encryption-key-32-bytes-minimum-000000
+      ENCRYPTION_SALT: test-encryption-salt
+      STORAGE_TYPE: LOCAL
+      UPLOAD_DIR: ./uploads
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10.23.0'
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm exec tsc -p tsconfig.json --noEmit
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test
+
+      - name: Coverage
+        run: pnpm test:coverage
+
+      - name: Security Audit
+        env:
+          SECURITY_AUDIT_STRICT: 'true'
+        run: pnpm security:audit
+
+      - name: Build
+        run: pnpm build
+

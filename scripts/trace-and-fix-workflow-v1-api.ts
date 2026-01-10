@@ -17,6 +17,7 @@ import { Agent } from 'undici'
 import { PrismaClient } from '@prisma/client'
 import { encryptApiKey, maskApiKey } from '@/lib/crypto'
 import {
+  fixCorruptedInputFieldReferences,
   fixExpectedOutputTypesFromPrompts,
   fixInputVariableReferences,
   inferExpectedType,
@@ -202,6 +203,54 @@ async function ensureOpenAIApiKeyForTokenOrg(apiToken: string): Promise<{ id: st
   })
 
   return { id: created.id, defaultModel: created.defaultModel || defaultModel }
+}
+
+async function fixForbiddenToolCallingBySwitchingToOpenAI(
+  config: WorkflowConfig,
+  apiToken: string,
+  failedLogs: Array<{ nodeId: string; error: string | null }>
+): Promise<{ changed: boolean; changes: string[] }> {
+  const changes: string[] = []
+  let changed = false
+
+  const openai = await ensureOpenAIApiKeyForTokenOrg(apiToken)
+  if (!openai) return { changed: false, changes }
+
+  function isForbidden(err: string): boolean {
+    const s = err.toLowerCase()
+    return s.includes('403') && s.includes('forbidden')
+  }
+
+  const byId = new Map(config.nodes.map(n => [n.id, n]))
+
+  for (const { nodeId, error } of failedLogs) {
+    if (!nodeId || !error) continue
+    if (!isForbidden(error)) continue
+
+    const node = byId.get(nodeId)
+    if (!node || node.type !== 'PROCESS') continue
+
+    const p = node as ProcessNodeConfig
+    const hasTools = Boolean((p.config as any)?.enableToolCalling) || Boolean((p.config as any)?.tools?.some((t: any) => t?.enabled))
+    if (!hasTools) continue
+
+    if (!p.config) p.config = {}
+
+    if (p.config.aiConfigId !== openai.id) {
+      p.config.aiConfigId = openai.id
+      changed = true
+      changes.push(`节点 "${node.name}": 工具调用 403，切换 AI 配置为 OPENAI（来自 env OPENAI_API_KEY）`)
+    }
+
+    const beforeModel = typeof p.config.model === 'string' ? p.config.model : ''
+    if (!beforeModel || beforeModel.startsWith('anthropic/') || beforeModel.startsWith('openai/')) {
+      p.config.model = openai.defaultModel
+      changed = true
+      changes.push(`节点 "${node.name}": 设置模型为 ${openai.defaultModel}`)
+    }
+  }
+
+  return { changed, changes }
 }
 
 async function getTokenIdentity(apiToken: string): Promise<{ organizationId: string; createdById: string } | null> {
@@ -496,6 +545,7 @@ async function waitForTaskCompletion(
   dispatcher: Agent,
   baseUrl: string,
   token: string,
+  workflowId: string,
   taskId: string,
   pollIntervalMs: number,
   pollTimeoutMs: number
@@ -503,7 +553,14 @@ async function waitForTaskCompletion(
   const start = Date.now()
   let lastStatus = ''
   let lastExecutionStatus = ''
+  let lastExecutionDetailStatus = ''
   let consecutiveErrors = 0
+  let knownExecutionId = ''
+
+  function isExecutionTerminal(status: string): boolean {
+    const s = status.toUpperCase()
+    return s === 'COMPLETED' || s === 'SUCCESS' || s === 'FAILED' || s === 'CANCELLED'
+  }
 
   while (true) {
     let task: Awaited<ReturnType<typeof getTaskStatus>>
@@ -514,12 +571,38 @@ async function waitForTaskCompletion(
       consecutiveErrors++
       const msg = err instanceof Error ? err.message : String(err)
       console.log(`任务状态查询失败(第 ${consecutiveErrors} 次): ${msg}`)
+
+      // Fallback: if /api/v1/tasks is flaky but we already have executionId, poll the execution directly.
+      if (knownExecutionId) {
+        try {
+          const detail = await getExecutionDetail(dispatcher, baseUrl, token, workflowId, knownExecutionId)
+          const execStatus = String(detail.status || '')
+          if (execStatus && execStatus !== lastExecutionDetailStatus) {
+            console.log(`执行状态(回退轮询): ${execStatus} (executionId=${knownExecutionId})`)
+            lastExecutionDetailStatus = execStatus
+          }
+          if (isExecutionTerminal(execStatus)) {
+            return {
+              taskId,
+              status: 'completed',
+              createdAt: new Date(start).toISOString(),
+              executionId: knownExecutionId,
+              executionStatus: execStatus,
+            }
+          }
+        } catch (pollErr) {
+          const pollMsg = pollErr instanceof Error ? pollErr.message : String(pollErr)
+          console.log(`执行状态回退轮询失败: ${pollMsg}`)
+        }
+      }
+
       if (consecutiveErrors >= 30) throw err
       await new Promise((r) => setTimeout(r, Math.min(pollIntervalMs * consecutiveErrors, 10_000)))
       continue
     }
     const status = String(task.status || '')
     const execStatus = task.executionStatus ? String(task.executionStatus) : ''
+    if (task.executionId) knownExecutionId = String(task.executionId)
 
     if (status !== lastStatus || execStatus !== lastExecutionStatus) {
       const extra = [
@@ -535,6 +618,28 @@ async function waitForTaskCompletion(
     const isExecRunning = execStatus === 'RUNNING' || execStatus === 'PENDING'
     const shouldWaitForExecution = Boolean(execStatus) && isExecRunning
     if (isTaskTerminal && !shouldWaitForExecution) return task
+
+    // If the task API reports an executionId, prefer polling the execution detail for the source of truth.
+    // This also handles inconsistent states like `task=failed` but `executionStatus=RUNNING`.
+    if (shouldWaitForExecution && knownExecutionId) {
+      try {
+        const detail = await getExecutionDetail(dispatcher, baseUrl, token, workflowId, knownExecutionId)
+        const execDetailStatus = String(detail.status || '')
+        if (execDetailStatus && execDetailStatus !== lastExecutionDetailStatus) {
+          console.log(`执行状态: ${execDetailStatus} (executionId=${knownExecutionId})`)
+          lastExecutionDetailStatus = execDetailStatus
+        }
+        if (isExecutionTerminal(execDetailStatus)) {
+          return {
+            ...task,
+            status: 'completed',
+            executionStatus: execDetailStatus,
+          }
+        }
+      } catch {
+        // ignore transient errors; we'll retry on next poll tick
+      }
+    }
 
     if (Date.now() - start > pollTimeoutMs) {
       throw new Error(`Task polling timed out after ${pollTimeoutMs}ms: taskId=${taskId}`)
@@ -592,6 +697,102 @@ function fixTextLikeNodeModality(config: WorkflowConfig): { changed: boolean; ch
     changes.push(
       `节点 "${node.name}": 提示词推断为文本输出，但配置为 ${currentModality || '(未设置)'} / ${currentModel || '(未设置)'}，已修正为 text + ${p.config.model}`
     )
+  }
+
+  return { changed, changes }
+}
+
+function fixRetryableAIChatFailures(
+  config: WorkflowConfig,
+  failedLogs: Array<{ nodeId: string; error: string | null }>
+): { changed: boolean; changes: string[] } {
+  const changes: string[] = []
+  let changed = false
+
+  function looksLikeRetryableNetworkFailure(err: string): boolean {
+    const s = err.toLowerCase()
+    return (
+      s.includes('fetch failed') ||
+      s.includes('other side closed') ||
+      s.includes('socket hang up') ||
+      s.includes('econnreset') ||
+      s.includes('etimedout') ||
+      s.includes('timed out') ||
+      s.includes('connection') && s.includes('closed')
+    )
+  }
+
+  const byId = new Map(config.nodes.map(n => [n.id, n]))
+
+  for (const { nodeId, error } of failedLogs) {
+    if (!nodeId || !error) continue
+    if (!looksLikeRetryableNetworkFailure(error)) continue
+
+    const node = byId.get(nodeId)
+    if (!node || node.type !== 'PROCESS') continue
+
+    const p = node as ProcessNodeConfig
+    if (!p.config) p.config = {}
+
+    const beforeMaxTokens = p.config.maxTokens
+    const desiredMaxTokens = 4096
+    if (typeof beforeMaxTokens !== 'number' || beforeMaxTokens > desiredMaxTokens) {
+      p.config.maxTokens = desiredMaxTokens
+      changed = true
+      changes.push(`节点 "${node.name}": 检测到可重试网络错误，设置 maxTokens=${desiredMaxTokens}（降低长连接风险）`)
+    }
+
+    const beforeModel = typeof p.config.model === 'string' ? p.config.model : ''
+    if (beforeModel.startsWith('anthropic/') && !beforeModel.includes('haiku')) {
+      p.config.model = 'anthropic/claude-haiku-4.5'
+      changed = true
+      changes.push(`节点 "${node.name}": 检测到可重试网络错误，切换模型为 anthropic/claude-haiku-4.5（更快更稳）`)
+    }
+  }
+
+  return { changed, changes }
+}
+
+function fixToolCallingForbiddenBySwitchingModel(
+  config: WorkflowConfig,
+  failedLogs: Array<{ nodeId: string; error: string | null }>
+): { changed: boolean; changes: string[] } {
+  const changes: string[] = []
+  let changed = false
+
+  function isForbidden(err: string): boolean {
+    const s = err.toLowerCase()
+    return s.includes('403') && s.includes('forbidden')
+  }
+
+  const byId = new Map(config.nodes.map(n => [n.id, n]))
+
+  for (const { nodeId, error } of failedLogs) {
+    if (!nodeId || !error) continue
+    if (!isForbidden(error)) continue
+
+    const node = byId.get(nodeId)
+    if (!node || node.type !== 'PROCESS') continue
+
+    const p = node as ProcessNodeConfig
+    const hasTools = Boolean((p.config as any)?.enableToolCalling) || Boolean((p.config as any)?.tools?.some((t: any) => t?.enabled))
+    if (!hasTools) continue
+
+    const beforeModel = typeof p.config?.model === 'string' ? p.config.model : ''
+    if (beforeModel.startsWith('anthropic/')) {
+      if (!p.config) p.config = {}
+      p.config.model = 'openai/gpt-5.2'
+      changed = true
+      changes.push(`节点 "${node.name}": 工具调用返回 403，切换模型为 openai/gpt-5.2（提升工具调用兼容性）`)
+    }
+
+    const beforeMaxTokens = p.config?.maxTokens
+    if (!p.config) p.config = {}
+    if (typeof beforeMaxTokens !== 'number' || beforeMaxTokens > 4096) {
+      p.config.maxTokens = 4096
+      changed = true
+      changes.push(`节点 "${node.name}": 设置 maxTokens=4096（降低工具调用/网关压力）`)
+    }
   }
 
   return { changed, changes }
@@ -891,12 +1092,13 @@ async function main() {
 
   const dispatcher = new Agent({ headersTimeout: headersTimeoutMs, bodyTimeout: bodyTimeoutMs })
   const input = await readJsonFileIfProvided(inputPath)
+  let useAsyncExecution = asyncExecution
 
   console.log('='.repeat(80))
   console.log('[trace-and-fix-workflow-v1-api]')
   console.log(`baseUrl=${baseUrl} workflowId=${workflowId} mode=${mode} maxIterations=${maxIterations} apply=${apply}`)
   console.log(`timeouts: headers=${headersTimeoutMs}ms body=${bodyTimeoutMs}ms`)
-  console.log(`execute: ${asyncExecution ? 'async(queue)' : 'sync'} pollInterval=${pollIntervalMs}ms pollTimeout=${pollTimeoutMs}ms`)
+  console.log(`execute: ${useAsyncExecution ? 'async(queue)' : 'sync'} pollInterval=${pollIntervalMs}ms pollTimeout=${pollTimeoutMs}ms`)
   console.log('token=present')
   console.log('='.repeat(80))
 
@@ -915,11 +1117,22 @@ async function main() {
     console.log(`工作流: ${wf.name} version=${wf.version} publishStatus=${wf.publishStatus}`)
     console.log('执行工作流...')
 
-    const exec = await executeWorkflowV1(dispatcher, baseUrl, token, workflowId, mode, input, asyncExecution)
+    let exec: Awaited<ReturnType<typeof executeWorkflowV1>>
+    try {
+      exec = await executeWorkflowV1(dispatcher, baseUrl, token, workflowId, mode, input, useAsyncExecution)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      const looksLikeSyncTimeout = !useAsyncExecution && (msg.includes('执行超时') || msg.toLowerCase().includes('timeout'))
+      if (!looksLikeSyncTimeout) throw err
+
+      console.log(`⚠️ 同步执行超时，改用异步队列执行并轮询: ${msg}`)
+      useAsyncExecution = true
+      exec = await executeWorkflowV1(dispatcher, baseUrl, token, workflowId, mode, input, true)
+    }
     const executionId =
       'executionId' in exec
         ? exec.executionId
-        : (await waitForTaskCompletion(dispatcher, baseUrl, token, exec.taskId, pollIntervalMs, pollTimeoutMs)).executionId
+        : (await waitForTaskCompletion(dispatcher, baseUrl, token, workflowId, exec.taskId, pollIntervalMs, pollTimeoutMs)).executionId
 
     if (!executionId) {
       console.log('❌ 未获取到 executionId；请确认 Token scopes 包含 "executions" 且队列服务正常。')
@@ -972,9 +1185,18 @@ async function main() {
       token,
       failedLogs.map(l => ({ error: l.error }))
     )
+    const tool403Fix = await fixForbiddenToolCallingBySwitchingToOpenAI(
+      nextConfig,
+      token,
+      failedLogs.map(l => ({ nodeId: l.nodeId, error: l.error }))
+    )
     const fixes = [
+      fixCorruptedInputFieldReferences(nextConfig),
       fixInputVariableReferences(nextConfig),
       fixExpectedOutputTypesFromPrompts(nextConfig),
+      tool403Fix,
+      fixToolCallingForbiddenBySwitchingModel(nextConfig, failedLogs.map(l => ({ nodeId: l.nodeId, error: l.error }))),
+      fixRetryableAIChatFailures(nextConfig, failedLogs.map(l => ({ nodeId: l.nodeId, error: l.error }))),
       fixTextLikeNodeModality(nextConfig),
       fixFinalHtmlOutputNode(nextConfig),
       fixJsonOutputStrictness(nextConfig, violations, failedLogs.map(l => ({ nodeId: l.nodeId, error: l.error }))),

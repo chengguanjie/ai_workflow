@@ -12,7 +12,6 @@ import {
   MCPError,
   isRetryableError,
   formatErrorForUI,
-  formatErrorForLog,
 } from '../../../mcp/errors'
 import {
   connect,

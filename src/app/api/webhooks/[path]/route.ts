@@ -4,6 +4,7 @@ import { executeWorkflow } from '@/lib/workflow/engine'
 import { executionQueue } from '@/lib/workflow/queue'
 import { verifySignature } from '@/lib/webhook/signature'
 import { ApiResponse } from '@/lib/api/api-response'
+import { redactDeep, redactHeaders } from '@/lib/observability/redaction'
 
 interface RouteParams {
   params: Promise<{ path: string }>
@@ -95,6 +96,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     return ApiResponse.error('请求体格式无效', 400)
   }
 
+  const requestHeadersForLog = JSON.parse(JSON.stringify(
+    redactHeaders(Object.fromEntries(request.headers.entries())),
+  ))
+  const requestBodyForLog = JSON.parse(JSON.stringify(redactDeep(body)))
+
   // 验证签名（如果配置了密钥）
   if (trigger.webhookSecret) {
     const signatureHeader = request.headers.get('x-webhook-signature')
@@ -111,8 +117,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           triggerId: trigger.id,
           status: 'FAILED',
           requestMethod: request.method,
-          requestHeaders: JSON.parse(JSON.stringify(Object.fromEntries(request.headers.entries()))),
-          requestBody: JSON.parse(JSON.stringify(body)),
+          requestHeaders: requestHeadersForLog,
+          requestBody: requestBodyForLog,
           requestIp: getClientIp(request),
           errorMessage: `签名验证失败: ${verifyResult.error}`,
           triggeredAt: new Date(),
@@ -147,8 +153,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       triggerId: trigger.id,
       status: 'RUNNING',
       requestMethod: request.method,
-      requestHeaders: JSON.parse(JSON.stringify(Object.fromEntries(request.headers.entries()))),
-      requestBody: JSON.parse(JSON.stringify(body)),
+      requestHeaders: requestHeadersForLog,
+      requestBody: requestBodyForLog,
       requestIp: getClientIp(request),
       triggeredAt: new Date(),
     },

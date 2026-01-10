@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { encryptApiKey, maskApiKey } from '@/lib/crypto'
 import { ApiResponse } from '@/lib/api/api-response'
+import { normalizeModels } from '@/lib/ai/normalize-models'
 
 // GET: 获取单个配置详情
 export async function GET(
@@ -44,7 +45,12 @@ export async function GET(
       return ApiResponse.error('配置不存在', 404)
     }
 
-    return ApiResponse.success({ config })
+    return ApiResponse.success({
+      config: {
+        ...config,
+        models: normalizeModels(config.models),
+      },
+    })
   } catch (error) {
     console.error('Failed to get AI config:', error)
     return ApiResponse.error('获取配置失败', 500)

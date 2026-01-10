@@ -9,6 +9,7 @@
 
 import { prisma } from '@/lib/db'
 import { Prisma } from '@prisma/client'
+import { redactDeep } from '@/lib/observability/redaction'
 
 /**
  * 检查点数据结构
@@ -196,12 +197,13 @@ export async function createResumedExecution(
   }
 
   // 创建新的执行记录 (使用 unchecked 创建方式直接传入外键)
+  const inputForDb = redactDeep(input)
   const newExecution = await prisma.execution.create({
     data: {
       workflowId,
       userId,
       organizationId,
-      input: input as Prisma.InputJsonValue,
+      input: JSON.parse(JSON.stringify(inputForDb)),
       status: 'PENDING',
       checkpoint: originalExecution.checkpoint as Prisma.InputJsonValue,
       resumedFromId: originalExecutionId,

@@ -19,6 +19,7 @@
     "test": "vitest --config vitest.config.mts --run",
     "test:watch": "vitest --config vitest.config.mts",
     "test:coverage": "vitest --config vitest.config.mts --run --coverage",
+    "test:permissions": "vitest --config vitest.config.mts --run --reporter=default --reporter=json --outputFile.json=tmp/permissions-tests.json src/lib/permissions src/lib/api/client.test.ts src/components/workflow/workflow-permissions-dialog.test.tsx src/components/knowledge-base/knowledge-base-permissions-dialog.test.tsx",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
@@ -35,7 +36,7 @@
   "dependencies": {
     "@eslint/eslintrc": "^3.3.3",
     "@hookform/resolvers": "^5.2.2",
-    "@modelcontextprotocol/sdk": "^1.25.1",
+    "@modelcontextprotocol/sdk": "^1.25.2",
     "@prisma/client": "^6.19.1",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-avatar": "^1.1.11",
@@ -94,9 +95,13 @@
     "tailwind-merge": "^3.4.0",
     "tiktoken": "^1.0.22",
     "undici": "^7.16.0",
-    "xlsx": "^0.18.5",
     "zod": "^4.2.1",
     "zustand": "^5.0.9"
+  },
+  "pnpm": {
+    "overrides": {
+      "qs": "^6.14.1"
+    }
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

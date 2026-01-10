@@ -98,12 +98,6 @@ export const NodePanel = memo(function NodePanel() {
   const openAIPanel = useAIAssistantStore((state) => state.openPanel);
   const { addNode, nodes } = useWorkflowStore();
 
-  const handleOpenAIPanel = useCallback(() => {
-    console.log("[NodePanel] AI规划按钮被点击");
-    openAIPanel();
-    console.log("[NodePanel] openPanel 已调用");
-  }, [openAIPanel]);
-
   const onDragStart = (event: DragEvent, nodeType: string) => {
     event.dataTransfer.setData("application/reactflow", nodeType);
     event.dataTransfer.effectAllowed = "move";

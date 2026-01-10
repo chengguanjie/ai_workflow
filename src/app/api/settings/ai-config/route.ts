@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db'
 import { encryptApiKey, maskApiKey } from '@/lib/crypto'
 import { ApiResponse } from '@/lib/api/api-response'
 import { AIProvider } from '@prisma/client'
+import { normalizeModels } from '@/lib/ai/normalize-models'
 
 // GET: 获取所有 AI 配置
 export async function GET() {
@@ -39,7 +40,12 @@ export async function GET() {
       ],
     })
 
-    return ApiResponse.success({ configs })
+    const normalizedConfigs = configs.map((config) => ({
+      ...config,
+      models: normalizeModels(config.models),
+    }))
+
+    return ApiResponse.success({ configs: normalizedConfigs })
   } catch (error) {
     console.error('Failed to get AI configs:', error)
     return ApiResponse.error('获取配置失败', 500)

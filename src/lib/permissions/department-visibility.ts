@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/db'
 import { Role } from '@prisma/client'
-import { getDescendantDepartmentIds, isDepartmentManager, getManageableDepartmentIds } from './department'
+import { getDescendantDepartmentIds, getManageableDepartmentIds } from './department'
 
 /**
  * 部门可见性服务

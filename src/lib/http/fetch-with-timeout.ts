@@ -223,3 +223,83 @@ export async function fetchWithTimeout(
 
   return executeWithRetry(0)
 }
+
+export async function fetchTextWithTimeout(
+  input: RequestInfo | URL,
+  init: FetchWithTimeoutInit = {}
+): Promise<{ response: Response; text: string }> {
+  const {
+    timeoutMs = 60_000,
+    retries = 2,
+    retryDelay = 1500,
+    signal,
+    ...rest
+  } = init
+
+  const attemptFetch = async (): Promise<{ response: Response; text: string }> => {
+    if (!timeoutMs || timeoutMs <= 0) {
+      const response = await fetch(input, { ...rest, signal })
+      const text = await response.text()
+      return { response, text }
+    }
+
+    const timeoutController = new AbortController()
+    const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs)
+    const mergedSignal = mergeAbortSignals([signal, timeoutController.signal])
+
+    try {
+      const response = await fetch(input, { ...rest, signal: mergedSignal })
+      const text = await response.text()
+      return { response, text }
+    } catch (error) {
+      if (timeoutController.signal.aborted && !signal?.aborted) {
+        throw new Error(`请求超时（${timeoutMs}ms）`)
+      }
+      if (error instanceof Error) {
+        const cause = (error as Error & { cause?: Error }).cause
+        if (cause) {
+          throw new Error(`${error.message}: ${cause.message}`, { cause })
+        }
+      }
+      throw error
+    } finally {
+      clearTimeout(timeoutId)
+    }
+  }
+
+  const executeWithRetry = async (
+    attempt: number
+  ): Promise<{ response: Response; text: string }> => {
+    try {
+      return await attemptFetch()
+    } catch (error) {
+      if (isTlsHandshakeEarlyDisconnect(error) && !didPreferIpv4First) {
+        await preferIpv4FirstOnce()
+        return await attemptFetch()
+      }
+
+      if (signal?.aborted) {
+        throw error
+      }
+
+      const isRetryable = isRetryableNetworkError(error)
+      const hasRetriesLeft = attempt < retries
+
+      if (isRetryable && hasRetriesLeft) {
+        const baseDelay = retryDelay * Math.pow(1.5, attempt)
+        const jitter = 0.8 + Math.random() * 0.4
+        const delay = Math.round(baseDelay * jitter)
+        console.log(
+          `[fetchTextWithTimeout] 网络错误，${delay}ms 后重试 (${attempt + 1}/${retries}):`,
+          getErrorMessage(error)
+        )
+        await sleep(delay)
+        return executeWithRetry(attempt + 1)
+      }
+
+      throw error
+    }
+  }
+
+  return executeWithRetry(0)
+}

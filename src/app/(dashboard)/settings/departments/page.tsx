@@ -65,6 +65,10 @@ interface Department {
 }
 
 export default function DepartmentsPage() {
+  return <DepartmentsSettingsView />
+}
+
+export function DepartmentsSettingsView({ embedded = false }: { embedded?: boolean } = {}) {
   const { data: session } = useSession()
   const [departments, setDepartments] = useState<Department[]>([])
   const [tree, setTree] = useState<Department[]>([])
@@ -311,12 +315,16 @@ export default function DepartmentsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">部门管理</h1>
-          <p className="text-muted-foreground">
-            管理企业组织架构和部门
-          </p>
-        </div>
+        {!embedded ? (
+          <div>
+            <h1 className="text-2xl font-bold">部门管理</h1>
+            <p className="text-muted-foreground">
+              管理企业组织架构和部门
+            </p>
+          </div>
+        ) : (
+          <div />
+        )}
         {isAdmin && (
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>

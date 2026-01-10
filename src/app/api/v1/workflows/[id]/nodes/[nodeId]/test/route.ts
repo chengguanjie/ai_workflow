@@ -24,7 +24,7 @@ import {
   isNonTestableNodeType,
   type TestNodeRequest,
 } from '@/lib/services/node-test.service'
-import type { WorkflowConfig, NodeConfig } from '@/types/workflow'
+import type { WorkflowConfig } from '@/types/workflow'
 
 interface RouteParams {
   params: Promise<{ id: string; nodeId: string }>

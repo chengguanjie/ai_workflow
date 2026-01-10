@@ -112,6 +112,10 @@ const INDUSTRIES = [
 ]
 
 export default function OrganizationPage() {
+  return <OrganizationSettingsView />
+}
+
+export function OrganizationSettingsView({ embedded = false }: { embedded?: boolean } = {}) {
   const { data: session } = useSession()
   const [organization, setOrganization] = useState<Organization | null>(null)
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
@@ -310,12 +314,14 @@ export default function OrganizationPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">企业设置</h1>
-        <p className="text-muted-foreground">
-          管理企业信息、安全设置和数据
-        </p>
-      </div>
+      {!embedded && (
+        <div>
+          <h1 className="text-2xl font-bold">企业设置</h1>
+          <p className="text-muted-foreground">
+            管理企业信息、安全设置和数据
+          </p>
+        </div>
+      )}
 
       {/* 概览统计 */}
       {organization && (
@@ -373,25 +379,25 @@ export default function OrganizationPage() {
 
       {/* 设置选项卡 */}
       <Tabs value={currentTab} onValueChange={setCurrentTab}>
-        <TabsList>
-          <TabsTrigger value="info">
+        <TabsList className="h-10 p-1 gap-1">
+          <TabsTrigger value="info" className="px-4 gap-2">
             <Building2 className="mr-2 h-4 w-4" />
             基本信息
           </TabsTrigger>
           {isOwner && (
-            <TabsTrigger value="security">
+            <TabsTrigger value="security" className="px-4 gap-2">
               <Shield className="mr-2 h-4 w-4" />
               安全设置
             </TabsTrigger>
           )}
           {isAdmin && (
-            <TabsTrigger value="audit">
+            <TabsTrigger value="audit" className="px-4 gap-2">
               <History className="mr-2 h-4 w-4" />
               审计日志
             </TabsTrigger>
           )}
           {isOwner && (
-            <TabsTrigger value="export">
+            <TabsTrigger value="export" className="px-4 gap-2">
               <Download className="mr-2 h-4 w-4" />
               数据导出
             </TabsTrigger>

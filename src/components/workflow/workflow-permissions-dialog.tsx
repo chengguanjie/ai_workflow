@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { fetchApi } from '@/lib/api/client'
 import {
   Dialog,
   DialogContent,
@@ -99,26 +100,15 @@ export function WorkflowPermissionsDialog({
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      const [permRes, deptRes, memberRes] = await Promise.all([
-        fetch(`/api/workflows/${workflowId}/permissions`),
-        fetch('/api/settings/departments'),
-        fetch('/api/settings/members'),
+      const [perm, dept, member] = await Promise.all([
+        fetchApi<{ permissions: Permission[] }>(`/api/workflows/${workflowId}/permissions`),
+        fetchApi<{ departments: Department[] }>('/api/settings/departments'),
+        fetchApi<{ members: User[] }>('/api/settings/members'),
       ])
 
-      if (permRes.ok) {
-        const data = await permRes.json()
-        setPermissions(data.permissions || [])
-      }
-
-      if (deptRes.ok) {
-        const data = await deptRes.json()
-        setDepartments(data.departments || [])
-      }
-
-      if (memberRes.ok) {
-        const data = await memberRes.json()
-        setMembers(data.members || [])
-      }
+      setPermissions(perm.permissions || [])
+      setDepartments(dept.departments || [])
+      setMembers(member.members || [])
     } catch (error) {
       console.error('Failed to load data:', error)
       toast.error('加载数据失败')
@@ -137,7 +127,7 @@ export function WorkflowPermissionsDialog({
     if (addType !== 'ALL' && !addTargetId) {
       toast.error(`请选择${addType === 'USER' ? '用户' : '部门'}`)
       return
-    }
+}
 
     setSaving(true)
     try {
@@ -152,8 +142,8 @@ export function WorkflowPermissionsDialog({
       })
 
       if (!res.ok) {
-        const error = await res.json()
-        throw new Error(error.error || '添加失败')
+        const error = await res.json().catch(() => null)
+        throw new Error(error?.error?.message || '添加失败')
       }
 
       toast.success('权限已添加')
@@ -174,8 +164,8 @@ export function WorkflowPermissionsDialog({
       )
 
       if (!res.ok) {
-        const error = await res.json()
-        throw new Error(error.error || '删除失败')
+        const error = await res.json().catch(() => null)
+        throw new Error(error?.error?.message || '删除失败')
       }
 
       toast.success('权限已删除')

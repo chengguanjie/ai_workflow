@@ -43,6 +43,11 @@ export async function executeNode(
         if (!processor) {
                 // 对于不支持的节点类型，返回跳过状态
                 console.warn(`未找到节点处理器: ${node.type}`)
+                context.addLog?.('warning', `未找到节点处理器: ${node.type}`, 'PROCESSOR', {
+                        nodeId: node.id,
+                        nodeName: node.name,
+                        nodeType: node.type,
+                })
                 const output: NodeOutput = {
                         nodeId: node.id,
                         nodeName: node.name,
@@ -58,7 +63,40 @@ export async function executeNode(
         }
 
         // 执行节点
-        const result = await processor.process(node, context)
+        context.addLog?.('info', `准备执行节点: ${node.name}`, 'NODE', {
+                nodeId: node.id,
+                nodeType: node.type,
+                processor: processor.nodeType,
+        })
+        context.addLog?.('step', `开始执行节点处理器: ${processor.nodeType}`, 'EXECUTE')
+
+        let result: NodeOutput
+        try {
+                result = await processor.process(node, context)
+        } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : String(error)
+                context.addLog?.('error', `节点执行异常: ${errorMessage}`, 'ERROR')
+                throw error
+        }
+
+        if (result.status === 'success') {
+                context.addLog?.('success', '节点执行成功', 'COMPLETE', {
+                        duration: result.duration,
+                        tokenUsage: result.tokenUsage,
+                })
+        } else if (result.status === 'error') {
+                context.addLog?.('error', `节点执行失败: ${result.error || '未知错误'}`, 'COMPLETE', {
+                        duration: result.duration,
+                })
+        } else if (result.status === 'paused') {
+                context.addLog?.('warning', '节点已暂停，等待审批', 'PAUSED', {
+                        approvalRequestId: result.approvalRequestId,
+                })
+        } else {
+                context.addLog?.('info', `节点执行结束，状态: ${result.status}`, 'COMPLETE', {
+                        duration: result.duration,
+                })
+        }
 
         // 保存到上下文
         context.nodeOutputs.set(node.id, result)

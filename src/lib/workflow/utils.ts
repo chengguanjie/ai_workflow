@@ -1281,6 +1281,40 @@ export function applyInputBindingsToContext(
   context.globalVariables.inputs = { ...existingInputs, ...inputs }
 }
 
+/**
+ * 将提示词中出现的「已绑定引用」改写为 {{inputs.slot}}，用于运行时统一走 inputs.*
+ * - 仅改写完整的 {{...}} 片段（不会改写普通文本）
+ * - 兼容 {{  Node.field  }} 这种带空格的写法
+ * - 若 bindings 为空或无可用引用，返回原始 prompt
+ */
+export function rewritePromptReferencesToInputs(
+  prompt: string,
+  bindings: Record<string, string> | undefined
+): string {
+  if (!prompt) return prompt
+  if (!bindings || Object.keys(bindings).length === 0) return prompt
+
+  const refToSlot = new Map<string, string>()
+  for (const [slot, ref] of Object.entries(bindings)) {
+    const normalizedRef = normalizeMustacheRef(ref)
+    if (!normalizedRef) continue
+    if (!refToSlot.has(normalizedRef)) {
+      refToSlot.set(normalizedRef, slot)
+    }
+  }
+  if (refToSlot.size === 0) return prompt
+
+  // Local regex to avoid interfering with ALL_VARIABLE_PATTERN state.
+  const pattern = /\{\{([^{}]+)\}\}/g
+  return prompt.replace(pattern, (full) => {
+    const normalized = normalizeMustacheRef(full)
+    if (!normalized) return full
+    const slot = refToSlot.get(normalized)
+    if (!slot) return full
+    return `{{inputs.${slot}}}`
+  })
+}
+
 function resolveSingleVariableReferenceToValue(
   reference: string,
   context: ExecutionContext
@@ -1317,6 +1351,15 @@ function resolveSingleVariableReferenceToValue(
   if (nodeOutput) return getDefaultOutputValue(nodeOutput)
   if (globalValue !== undefined) return globalValue
   return undefined
+}
+
+function normalizeMustacheRef(reference: string): string | null {
+  if (typeof reference !== 'string') return null
+  const trimmed = reference.trim()
+  const match = trimmed.match(/^\{\{([^}]+)\}\}$/)
+  const inner = (match?.[1] || '').trim()
+  if (!inner) return null
+  return `{{${inner}}}`
 }
 
 /**

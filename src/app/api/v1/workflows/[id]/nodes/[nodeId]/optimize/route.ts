@@ -21,7 +21,7 @@ import {
   updateTokenUsage,
 } from '@/lib/auth'
 import { nodeOptimizationService } from '@/lib/services/node-optimization.service'
-import type { WorkflowConfig, NodeConfig } from '@/types/workflow'
+import type { WorkflowConfig } from '@/types/workflow'
 
 interface RouteParams {
   params: Promise<{ id: string; nodeId: string }>

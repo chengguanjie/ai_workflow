@@ -6,7 +6,9 @@ import { cn } from '@/lib/utils'
 // 扩展的 textarea 类型，包含 insertText 方法
 export interface HighlightedTextareaHandle {
   insertText: (text: string) => void
+  insertTextAt: (text: string, start: number, end?: number) => void
   focus: () => void
+  getSelectionOffsets: () => { start: number; end: number }
 }
 
 interface HighlightedTextareaProps {
@@ -27,44 +29,13 @@ export const HighlightedTextarea = forwardRef<HighlightedTextareaHandle, Highlig
     const editorRef = useRef<HTMLDivElement>(null)
     const isComposingRef = useRef(false)
     const lastValueRef = useRef(value)
-
-    // 暴露方法给父组件
-    useImperativeHandle(ref, () => ({
-      insertText: (text: string) => {
-        const editor = editorRef.current
-        if (!editor) return
-
-        editor.focus()
-
-        // 获取当前选区
-        const selection = window.getSelection()
-        if (!selection || selection.rangeCount === 0) {
-          // 没有选区，追加到末尾
-          const newValue = value + text
-          onChange(newValue)
-          return
-        }
-
-        // 获取纯文本和光标位置
-        const textContent = editor.innerText || ''
-        const { start, end } = getSelectionOffsets(editor)
-
-        // 在光标位置插入文本
-        const newValue = textContent.substring(0, start) + text + textContent.substring(end)
-        onChange(newValue)
-
-        // 延迟设置光标位置
-        requestAnimationFrame(() => {
-          setCursorPosition(editor, start + text.length)
-        })
-      },
-      focus: () => {
-        editorRef.current?.focus()
-      }
-    }), [value, onChange])
+    const lastSelectionRef = useRef<{ start: number; end: number }>({ start: value.length, end: value.length })
+    const undoStackRef = useRef<Array<{ value: string; cursor: number }>>([])
+    const redoStackRef = useRef<Array<{ value: string; cursor: number }>>([])
+    const isApplyingHistoryRef = useRef(false)
 
     // 获取选区在纯文本中的偏移量
-    const getSelectionOffsets = (element: HTMLElement): { start: number; end: number } => {
+    const getSelectionOffsets = useCallback((element: HTMLElement): { start: number; end: number } => {
       const selection = window.getSelection()
       if (!selection || selection.rangeCount === 0) {
         return { start: 0, end: 0 }
@@ -80,10 +51,10 @@ export const HighlightedTextarea = forwardRef<HighlightedTextareaHandle, Highlig
       const end = preRange.toString().length
 
       return { start, end }
-    }
+    }, [])
 
     // 设置光标位置
-    const setCursorPosition = (element: HTMLElement, position: number) => {
+    const setCursorPosition = useCallback((element: HTMLElement, position: number) => {
       const selection = window.getSelection()
       if (!selection) return
 
@@ -113,7 +84,129 @@ export const HighlightedTextarea = forwardRef<HighlightedTextareaHandle, Highlig
 
       selection.removeAllRanges()
       selection.addRange(range)
-    }
+    }, [])
+
+    const getSafeSelectionOffsets = useCallback((): { start: number; end: number } => {
+      const editor = editorRef.current
+      if (!editor) {
+        return { start: value.length, end: value.length }
+      }
+
+      const selection = window.getSelection()
+      if (!selection || selection.rangeCount === 0) {
+        return lastSelectionRef.current || { start: value.length, end: value.length }
+      }
+
+      const range = selection.getRangeAt(0)
+      if (!editor.contains(range.startContainer) || !editor.contains(range.endContainer)) {
+        return lastSelectionRef.current || { start: value.length, end: value.length }
+      }
+
+      const offsets = getSelectionOffsets(editor)
+      lastSelectionRef.current = offsets
+      return offsets
+    }, [getSelectionOffsets, value.length])
+
+    const pushUndoState = useCallback((prevValue: string, cursor: number) => {
+      if (isApplyingHistoryRef.current) return
+      undoStackRef.current.push({ value: prevValue, cursor })
+      // Any new edit invalidates redo history
+      redoStackRef.current = []
+      // Keep memory bounded
+      if (undoStackRef.current.length > 200) {
+        undoStackRef.current.shift()
+      }
+    }, [])
+
+    const applyValueWithCursor = useCallback((nextValue: string, cursor: number) => {
+      const editor = editorRef.current
+      isApplyingHistoryRef.current = true
+      onChange(nextValue)
+      lastValueRef.current = nextValue
+      lastSelectionRef.current = { start: cursor, end: cursor }
+
+      if (!editor) {
+        isApplyingHistoryRef.current = false
+        return
+      }
+
+      requestAnimationFrame(() => {
+        editor.focus()
+        setCursorPosition(editor, Math.min(Math.max(0, cursor), nextValue.length))
+        isApplyingHistoryRef.current = false
+      })
+    }, [onChange, setCursorPosition])
+
+    const handleUndo = useCallback(() => {
+      const current = value
+      const currentCursor = getSafeSelectionOffsets().start
+      const prev = undoStackRef.current.pop()
+      if (!prev) return
+      redoStackRef.current.push({ value: current, cursor: currentCursor })
+      applyValueWithCursor(prev.value, prev.cursor)
+    }, [applyValueWithCursor, getSafeSelectionOffsets, value])
+
+    const handleRedo = useCallback(() => {
+      const current = value
+      const currentCursor = getSafeSelectionOffsets().start
+      const next = redoStackRef.current.pop()
+      if (!next) return
+      undoStackRef.current.push({ value: current, cursor: currentCursor })
+      applyValueWithCursor(next.value, next.cursor)
+    }, [applyValueWithCursor, getSafeSelectionOffsets, value])
+
+    // 暴露方法给父组件
+    useImperativeHandle(ref, () => ({
+      insertText: (text: string) => {
+        const editor = editorRef.current
+        if (!editor) return
+
+        editor.focus()
+
+        // 获取当前选区
+        const selection = window.getSelection()
+        if (!selection || selection.rangeCount === 0) {
+          // 没有选区，追加到末尾
+          const newValue = value + text
+          onChange(newValue)
+          return
+        }
+
+        // 获取纯文本和光标位置
+        const textContent = editor.innerText || ''
+        const { start, end } = getSafeSelectionOffsets()
+
+        // 在光标位置插入文本
+        pushUndoState(value, start)
+        const newValue = textContent.substring(0, start) + text + textContent.substring(end)
+        onChange(newValue)
+
+        // 延迟设置光标位置
+        requestAnimationFrame(() => {
+          setCursorPosition(editor, start + text.length)
+        })
+      },
+      insertTextAt: (text: string, start: number, end?: number) => {
+        const editor = editorRef.current
+        const safeStart = Math.max(0, Math.min(value.length, start))
+        const safeEnd = Math.max(safeStart, Math.min(value.length, end ?? start))
+        pushUndoState(value, safeStart)
+        const newValue = value.substring(0, safeStart) + text + value.substring(safeEnd)
+        onChange(newValue)
+
+        if (!editor) return
+        requestAnimationFrame(() => {
+          editor.focus()
+          setCursorPosition(editor, safeStart + text.length)
+        })
+      },
+      focus: () => {
+        editorRef.current?.focus()
+      },
+      getSelectionOffsets: () => {
+        return getSafeSelectionOffsets()
+      },
+    }), [value, onChange, getSafeSelectionOffsets, pushUndoState, setCursorPosition])
 
     // 将文本转换为带高亮的 HTML
     const getHighlightedHTML = useCallback((text: string): string => {
@@ -154,10 +247,12 @@ export const HighlightedTextarea = forwardRef<HighlightedTextareaHandle, Highlig
 
       // 只有值真正改变时才触发 onChange
       if (text !== lastValueRef.current) {
+        const cursor = getSafeSelectionOffsets().start
+        pushUndoState(lastValueRef.current, cursor)
         lastValueRef.current = text
         onChange(text)
       }
-    }, [onChange])
+    }, [getSafeSelectionOffsets, onChange, pushUndoState])
 
     // 处理中文输入法
     const handleCompositionStart = useCallback(() => {
@@ -183,12 +278,13 @@ export const HighlightedTextarea = forwardRef<HighlightedTextareaHandle, Highlig
       // 只有当外部值与当前值不同时才更新
       if (value !== currentText) {
         // 保存光标位置
-        const { start } = getSelectionOffsets(editor)
+        const { start } = getSafeSelectionOffsets()
         const hadFocus = document.activeElement === editor
 
         // 更新内容
         editor.innerHTML = getHighlightedHTML(value) || `<span class="text-muted-foreground">${placeholder || ''}</span>`
         lastValueRef.current = value
+        lastSelectionRef.current = { start: Math.min(start, value.length), end: Math.min(start, value.length) }
 
         // 恢复光标位置
         if (hadFocus && value) {
@@ -197,7 +293,7 @@ export const HighlightedTextarea = forwardRef<HighlightedTextareaHandle, Highlig
           })
         }
       }
-    }, [value, placeholder, getHighlightedHTML])
+    }, [value, placeholder, getHighlightedHTML, getSafeSelectionOffsets, setCursorPosition])
 
     // 初始化内容
     useEffect(() => {
@@ -216,7 +312,10 @@ export const HighlightedTextarea = forwardRef<HighlightedTextareaHandle, Highlig
       if (!value && placeholder) {
         editor.innerHTML = ''
       }
-    }, [value, placeholder])
+
+      // Cache caret on focus (best-effort).
+      lastSelectionRef.current = getSafeSelectionOffsets()
+    }, [getSafeSelectionOffsets, placeholder, value])
 
     // 处理 blur 时显示 placeholder
     const handleBlur = useCallback(() => {
@@ -234,6 +333,134 @@ export const HighlightedTextarea = forwardRef<HighlightedTextareaHandle, Highlig
       const text = e.clipboardData.getData('text/plain')
       document.execCommand('insertText', false, text)
     }, [])
+
+    const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+      const key = e.key.toLowerCase()
+      if (!e.metaKey) return
+
+      if (key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        handleUndo()
+        return
+      }
+      if ((key === 'z' && e.shiftKey) || key === 'y') {
+        e.preventDefault()
+        handleRedo()
+      }
+    }, [handleRedo, handleUndo])
+
+    const updateSelectionCache = useCallback(() => {
+      lastSelectionRef.current = getSafeSelectionOffsets()
+    }, [getSafeSelectionOffsets])
+
+    const handleMouseDown = useCallback((e: React.MouseEvent) => {
+      const editor = editorRef.current
+      if (!editor) return
+
+      if (e.shiftKey) {
+        // Let browser extend selection when shift is pressed.
+        updateSelectionCache()
+        return
+      }
+
+      // Some browsers keep the previous selection when clicking "blank" areas
+      // inside a contenteditable (e.g., below the last line). We normalize the
+      // caret to the click position (or end) so insertion is predictable.
+      const targetNode = e.target as Node
+      if (targetNode && editor.contains(targetNode)) {
+        const doc = document as unknown as {
+          caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null
+          caretRangeFromPoint?: (x: number, y: number) => Range | null
+        }
+
+        const selection = window.getSelection()
+        if (selection) {
+          const x = e.clientX
+          const y = e.clientY
+
+          const getEndCaretRect = (): DOMRect => {
+            const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null)
+            let lastText: Text | null = null
+            let n: Text | null
+            while ((n = walker.nextNode() as Text | null)) lastText = n
+
+            const r = document.createRange()
+            if (lastText && (lastText.textContent || '').length > 0) {
+              r.setStart(lastText, (lastText.textContent || '').length)
+              r.collapse(true)
+            } else {
+              r.selectNodeContents(editor)
+              r.collapse(false)
+            }
+
+            return r.getBoundingClientRect()
+          }
+
+          const pos = doc.caretPositionFromPoint?.(x, y)
+          const rangeFromPoint =
+            (pos && (() => {
+              const r = document.createRange()
+              r.setStart(pos.offsetNode, pos.offset)
+              r.collapse(true)
+              return r
+            })()) ||
+            doc.caretRangeFromPoint?.(x, y) ||
+            null
+
+          const range = (() => {
+            const endRange = document.createRange()
+            endRange.selectNodeContents(editor)
+            endRange.collapse(false)
+
+            if (!rangeFromPoint || !editor.contains(rangeFromPoint.startContainer)) return endRange
+
+            // If the click is below the actual end-of-content caret position, treat it as "append to end".
+            // This is more reliable than relying on the browser's caret mapping for blank areas.
+            const endRect = getEndCaretRect()
+            if (endRect.bottom > 0 && y > endRect.bottom + 6) return endRange
+
+            // Some browsers map clicks in blank areas to the nearest wrapped line; if the mapped caret is
+            // visually above the click, also treat it as "append to end".
+            const mappedRect = rangeFromPoint.getBoundingClientRect()
+            const editorRect = editor.getBoundingClientRect()
+            const clickedNearBottom = y > editorRect.bottom - 8
+            if ((mappedRect.bottom > 0 && y > mappedRect.bottom + 4) || (mappedRect.bottom === 0 && clickedNearBottom)) {
+              return endRange
+            }
+
+            return rangeFromPoint
+          })()
+
+          selection.removeAllRanges()
+          selection.addRange(range)
+
+          if (!rangeFromPoint || range !== rangeFromPoint) {
+            const editorText = editor.innerText || ''
+            lastSelectionRef.current = { start: editorText.length, end: editorText.length }
+          }
+        }
+      }
+
+      updateSelectionCache()
+    }, [updateSelectionCache])
+
+    useEffect(() => {
+      const handleSelectionChange = () => {
+        const editor = editorRef.current
+        if (!editor) return
+        if (document.activeElement !== editor) return
+
+        const selection = window.getSelection()
+        if (!selection || selection.rangeCount === 0) return
+        const range = selection.getRangeAt(0)
+        if (!editor.contains(range.startContainer) || !editor.contains(range.endContainer)) return
+
+        lastSelectionRef.current = getSelectionOffsets(editor)
+      }
+
+      document.addEventListener('selectionchange', handleSelectionChange)
+      return () => document.removeEventListener('selectionchange', handleSelectionChange)
+    }, [getSelectionOffsets])
 
     return (
       <div
@@ -258,6 +485,10 @@ export const HighlightedTextarea = forwardRef<HighlightedTextareaHandle, Highlig
         onFocus={handleFocus}
         onBlur={handleBlur}
         onPaste={handlePaste}
+        onKeyDown={handleKeyDown}
+        onKeyUp={updateSelectionCache}
+        onMouseDown={handleMouseDown}
+        onMouseUp={updateSelectionCache}
         spellCheck={false}
       />
     )

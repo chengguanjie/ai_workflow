@@ -47,7 +47,7 @@ function validateMemberOperation(
   targetMember: { id: string; role: Role; email: string | null },
   operatorId: string,
   operatorRole: Role,
-  operation: BatchOperation
+  _operation: BatchOperation
 ): { valid: boolean; reason?: string } {
   // 不能操作自己
   if (targetMember.id === operatorId) {

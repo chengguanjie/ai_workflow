@@ -2,13 +2,6 @@
 import { prisma } from '@/lib/db';
 import { WorkflowConfig } from '@/types/workflow';
 
-interface LearningPattern {
-                  triggerType: string;
-                  nodeTypes: string[];
-                  connections: number;
-                  avgScore: number;
-}
-
 /**
  * Service to learn from successful workflows and provide context for future generations.
  */
@@ -57,7 +50,7 @@ export class WorkflowLearningService {
                    * Verify if a workflow structure is similar to known "bad" patterns (e.g. failing workflows).
                    * (Placeholder for future implementation)
                    */
-                  async validateAgainstAntiPatterns(config: WorkflowConfig): Promise<string[]> {
+                  async validateAgainstAntiPatterns(_config: WorkflowConfig): Promise<string[]> {
                                     return [];
                   }
 }

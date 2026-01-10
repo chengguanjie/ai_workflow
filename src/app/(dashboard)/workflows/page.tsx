@@ -3,11 +3,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { useSession } from 'next-auth/react'
+import dynamic from 'next/dynamic'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Search, MoreVertical, Play, Edit, Trash2, Loader2, Link2, Copy, Shield, Filter, X, Share2 } from 'lucide-react'
+import { Plus, Search, MoreVertical, Play, Edit, Trash2, Loader2, Link2, Copy, Shield, Filter, X, Share2, History, LayoutTemplate, ClipboardCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   DropdownMenu,
@@ -37,6 +38,46 @@ import { useRouter } from 'next/navigation'
 import { WorkflowPermissionsDialog } from '@/components/workflow/workflow-permissions-dialog'
 import { ShareToTemplateDialog } from '@/components/template/share-to-template-dialog'
 import { CreateWorkflowDialog } from '@/components/workflow/create-workflow-dialog'
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+
+const ExecutionsPanel = dynamic(
+  () => import('@/app/(dashboard)/executions/page').then((m) => m.ExecutionsView),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-[40vh] items-center justify-center text-muted-foreground">
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        加载中...
+      </div>
+    ),
+  }
+)
+
+const TemplatesPanel = dynamic(
+  () => import('@/app/(dashboard)/templates/page').then((m) => m.TemplatesView),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-[40vh] items-center justify-center text-muted-foreground">
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        加载中...
+      </div>
+    ),
+  }
+)
+
+const ApprovalsPanel = dynamic(
+  () => import('@/app/(dashboard)/approvals/page').then((m) => m.ApprovalsView),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-[40vh] items-center justify-center text-muted-foreground">
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        加载中...
+      </div>
+    ),
+  }
+)
 
 interface Department {
   id: string
@@ -106,6 +147,8 @@ export default function WorkflowsPage() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [workflowToShare, setWorkflowToShare] = useState<Workflow | null>(null)
 
+  const [quickPanel, setQuickPanel] = useState<null | 'executions' | 'templates' | 'approvals'>(null)
+
   const isAdmin = session?.user?.role === 'OWNER' || session?.user?.role === 'ADMIN'
 
   const canManagePermissions = (workflow: Workflow) => {
@@ -117,8 +160,10 @@ export default function WorkflowsPage() {
     try {
       const res = await fetch('/api/settings/departments')
       if (res.ok) {
-        const data = await res.json()
-        setDepartments(data.departments || [])
+        const result = await res.json()
+        if (result.success && result.data) {
+          setDepartments(result.data.departments || [])
+        }
       }
     } catch (err) {
       console.error('Failed to load departments:', err)
@@ -130,8 +175,8 @@ export default function WorkflowsPage() {
     try {
       const res = await fetch('/api/settings/members')
       if (res.ok) {
-        const data = await res.json()
-        const members = data.members || []
+        const result = await res.json()
+        const members = (result.success && result.data ? result.data.members : []) || []
         setCreators(members.map((m: { id: string; name: string | null; email: string }) => ({
           id: m.id,
           name: m.name,
@@ -252,8 +297,62 @@ export default function WorkflowsPage() {
               新建工作流
             </Button>
           </Link>
+          <Button variant="outline" onClick={() => setQuickPanel('executions')}>
+            <History className="mr-2 h-4 w-4" />
+            执行历史
+          </Button>
+          <Button variant="outline" onClick={() => setQuickPanel('templates')}>
+            <LayoutTemplate className="mr-2 h-4 w-4" />
+            模板库
+          </Button>
+          <Button variant="outline" onClick={() => setQuickPanel('approvals')}>
+            <ClipboardCheck className="mr-2 h-4 w-4" />
+            审批待办
+          </Button>
         </div>
       </div>
+
+      <Sheet
+        open={quickPanel === 'executions'}
+        onOpenChange={(open) => setQuickPanel(open ? 'executions' : null)}
+      >
+        <SheetContent className="w-[92vw] sm:max-w-5xl gap-0 p-0">
+          <SheetHeader className="border-b">
+            <SheetTitle>执行历史</SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 overflow-auto">
+            {quickPanel === 'executions' ? <ExecutionsPanel embedded /> : null}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet
+        open={quickPanel === 'templates'}
+        onOpenChange={(open) => setQuickPanel(open ? 'templates' : null)}
+      >
+        <SheetContent className="w-[92vw] sm:max-w-6xl gap-0 p-0">
+          <SheetHeader className="border-b">
+            <SheetTitle>模板库</SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 overflow-auto">
+            {quickPanel === 'templates' ? <TemplatesPanel embedded /> : null}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet
+        open={quickPanel === 'approvals'}
+        onOpenChange={(open) => setQuickPanel(open ? 'approvals' : null)}
+      >
+        <SheetContent className="w-[92vw] sm:max-w-5xl gap-0 p-0">
+          <SheetHeader className="border-b">
+            <SheetTitle>审批待办</SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 overflow-auto">
+            {quickPanel === 'approvals' ? <ApprovalsPanel embedded /> : null}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* 搜索和筛选 */}
       <div className="flex items-center gap-4 flex-wrap">
@@ -388,7 +487,7 @@ export default function WorkflowsPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => router.push(`/workflows/${workflow.id}/run`)}>
+                          <DropdownMenuItem onClick={() => router.push(`/workflows/${workflow.id}?panel=execute`)}>
                             <Play className="mr-2 h-4 w-4" />
                             执行
                           </DropdownMenuItem>

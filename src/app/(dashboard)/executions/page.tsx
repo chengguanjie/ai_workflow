@@ -39,6 +39,14 @@ const AUTO_REFRESH_INTERVAL = 5000;
 type TabValue = "running" | "completed";
 
 export default function ExecutionsPage() {
+  return <ExecutionsView />;
+}
+
+export function ExecutionsView({
+  embedded = false,
+}: {
+  embedded?: boolean;
+} = {}) {
   // 当前激活的 Tab
   const [activeTab, setActiveTab] = useState<TabValue>("running");
 
@@ -267,7 +275,7 @@ export default function ExecutionsPage() {
     activeTab === "running" ? isLoadingRunning : isLoadingHistory;
 
   return (
-    <div className="container mx-auto py-4">
+    <div className={embedded ? "h-full p-4" : "container mx-auto py-4"}>
       {/* Tabs 切换区域 */}
       <Tabs
         value={activeTab}

@@ -38,7 +38,7 @@ export function CreationProgress({
         <div className="absolute left-[9px] top-0 bottom-0 w-0.5 bg-muted" />
         
         <div className="space-y-4">
-          {steps.map((step, index) => (
+          {steps.map((step, _index) => (
             <div key={step.id} className="relative flex items-start gap-3 pl-1">
               <div className="relative z-10 bg-card">
                 {step.status === 'completed' && (

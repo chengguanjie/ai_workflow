@@ -131,7 +131,7 @@ const FIELD_TYPE_OPTIONS: Array<{
       value: "excel",
       label: "Excel",
       icon: <FileSpreadsheet className="h-4 w-4" />,
-      accept: ".xls,.xlsx,.csv",
+      accept: ".xlsx,.csv",
     },
     {
       value: "audio",
